@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Vibration } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
-const RELAY_URL = 'ws://10.221.96.82:8080';
+const RELAY_URL = 'ws://192.168.0.9:8080';
 const MIN_REMOTE_VIBRATION_MS = 1;
 const MAX_REMOTE_VIBRATION_MS = 10000;
 
