@@ -4,6 +4,13 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 ## Get started
 
+La conexión se configura únicamente en `config/server.ts`: cambia manualmente
+`IP` y `PORT`. La aplicación y el relay utilizan esos mismos valores. Después de
+cambiarlos, reinicia el relay y recarga la aplicación para abrir una nueva conexión.
+Ejecuta el relay con `npm run relay` usando Node.js 22.18+ o 24+ para cargar
+directamente la configuración TypeScript. `SOCKET_URL` usa WebSocket (`ws://`);
+`HTTP_URL` queda disponible para futuras peticiones HTTP (el relay actual no ofrece una API HTTP).
+
 1. Install dependencies
 
    ```bash

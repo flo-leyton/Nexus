@@ -1,9 +1,9 @@
+import { SERVER_CONFIG } from '@/config/server';
+
 export type ConnectionStatus = 'Disconnected' | 'Connecting' | 'Connected' | 'Error';
 
 type MessageListener = (data: unknown) => void;
 type StatusListener = (status: ConnectionStatus) => void;
-
-const RELAY_URL = 'ws://10.20.118.166:8080';
 
 let socket: WebSocket | null = null;
 let connectionStatus: ConnectionStatus = 'Disconnected';
@@ -23,7 +23,7 @@ export function connectSocket() {
   updateStatus('Connecting');
 
   try {
-    socket = new WebSocket(RELAY_URL);
+    socket = new WebSocket(SERVER_CONFIG.SOCKET_URL);
   } catch {
     socket = null;
     updateStatus('Error');

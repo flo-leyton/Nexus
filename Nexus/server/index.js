@@ -1,10 +1,11 @@
 const WebSocket = require('ws');
+const { SERVER_CONFIG } = require('../config/server.ts');
 const { WebSocketServer } = WebSocket;
 
-const relay = new WebSocketServer({ host: '0.0.0.0', port: 8080 });
+const relay = new WebSocketServer({ host: SERVER_CONFIG.LISTEN_HOST, port: SERVER_CONFIG.PORT });
 
 relay.on('listening', () => {
-  console.log('WebSocket relay listening on ws://0.0.0.0:8080');
+  console.log(`WebSocket relay listening on ws://${SERVER_CONFIG.LISTEN_HOST}:${SERVER_CONFIG.PORT}`);
 });
 
 relay.on('connection', (client) => {
