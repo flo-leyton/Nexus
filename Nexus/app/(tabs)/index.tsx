@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Vibration } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import {
+  connectSocket,
+  ConnectionStatus,
+  sendSocketMessage,
+  subscribeToSocketMessages,
+  subscribeToSocketStatus,
+} from '@/services/socket';
 
-const RELAY_URL = 'ws://192.168.0.9:8080';
 const MIN_REMOTE_VIBRATION_MS = 1;
 const MAX_REMOTE_VIBRATION_MS = 10000;
 
 type PhoneRole = 'A' | 'B';
-type ConnectionStatus = 'Disconnected' | 'Connecting' | 'Connected' | 'Error';
 
 type CapabilityCommand = {
   type: 'CAPABILITY_COMMAND';
@@ -44,33 +49,14 @@ export default function HomeScreen() {
   const [selectedRole, setSelectedRole] = useState<PhoneRole | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('Disconnected');
   const [lastEvent, setLastEvent] = useState('No events yet');
-  const socketRef = useRef<WebSocket | null>(null);
   const selectedRoleRef = useRef<PhoneRole | null>(null);
-
-  useEffect(() => {
-    return () => {
-      const socket = socketRef.current;
-      if (socket) {
-        socket.onopen = null;
-        socket.onmessage = null;
-        socket.onerror = null;
-        socket.onclose = null;
-        socket.close();
-      }
-    };
-  }, []);
 
   const handleSelectRole = (role: PhoneRole) => {
     selectedRoleRef.current = role;
     setSelectedRole(role);
   };
 
-  const executeRemoteVibration = (command: CapabilityCommand) => {
-    Vibration.vibrate(command.duration);
-    setLastEvent(`Remote vibration received from Phone ${command.from}`);
-  };
-
-  const handleReceivedMessage = (data: unknown) => {
+  const handleReceivedMessage = useCallback((data: unknown) => {
     let receivedMessage: unknown;
 
     try {
@@ -91,56 +77,26 @@ export default function HomeScreen() {
       return;
     }
 
-    executeRemoteVibration(receivedMessage);
-  };
+    Vibration.vibrate(receivedMessage.duration);
+    setLastEvent(`Remote vibration received from Phone ${receivedMessage.from}`);
+  }, []);
 
   const handleConnect = () => {
-    const existingSocket = socketRef.current;
-
-    if (existingSocket && existingSocket.readyState !== WebSocket.CLOSED) {
-      return;
-    }
-
-    setConnectionStatus('Connecting');
-
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(RELAY_URL);
-    } catch {
-      setConnectionStatus('Error');
-      return;
-    }
-
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      if (socketRef.current === socket) {
-        setConnectionStatus('Connected');
-      }
-    };
-
-    socket.onmessage = (event) => {
-      handleReceivedMessage(event.data);
-    };
-
-    socket.onerror = () => {
-      if (socketRef.current === socket) {
-        setConnectionStatus('Error');
-      }
-    };
-
-    socket.onclose = () => {
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-        setConnectionStatus('Disconnected');
-      }
-    };
+    connectSocket();
   };
 
-  const handleSendVibrationCommand = () => {
-    const socket = socketRef.current;
+  useEffect(() => {
+    const unsubscribeStatus = subscribeToSocketStatus(setConnectionStatus);
+    const unsubscribeMessages = subscribeToSocketMessages(handleReceivedMessage);
 
-    if (!selectedRole || !socket || socket.readyState !== WebSocket.OPEN) {
+    return () => {
+      unsubscribeStatus();
+      unsubscribeMessages();
+    };
+  }, [handleReceivedMessage]);
+
+  const handleSendVibrationCommand = () => {
+    if (!selectedRole) {
       return;
     }
 
@@ -154,8 +110,9 @@ export default function HomeScreen() {
       duration: 5000,
     };
 
-    socket.send(JSON.stringify(command));
-    setLastEvent(`Sent vibration command to Phone ${target}`);
+    if (sendSocketMessage(command)) {
+      setLastEvent(`Sent vibration command to Phone ${target}`);
+    }
   };
 
   const isConnecting = connectionStatus === 'Connecting';
