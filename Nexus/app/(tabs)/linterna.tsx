@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { reportDeviceRole } from '@/services/devicePresence';
 import {
   connectSocket,
   ConnectionStatus,
@@ -98,6 +99,7 @@ export default function FlashlightScreen() {
   };
 
   const handleSelectRole = (role: PhoneRole) => {
+    reportDeviceRole('flashlight', role);
     selectedRoleRef.current = role;
     setSelectedRole(role);
     setTorchEnabled(false);

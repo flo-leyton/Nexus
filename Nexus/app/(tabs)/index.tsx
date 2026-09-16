@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Vibration } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { reportDeviceRole } from '@/services/devicePresence';
 import {
   connectSocket,
   ConnectionStatus,
@@ -52,6 +53,7 @@ export default function HomeScreen() {
   const selectedRoleRef = useRef<PhoneRole | null>(null);
 
   const handleSelectRole = (role: PhoneRole) => {
+    reportDeviceRole('vibration', role);
     selectedRoleRef.current = role;
     setSelectedRole(role);
   };
@@ -65,6 +67,8 @@ export default function HomeScreen() {
       console.warn('Rejected WebSocket message: invalid JSON');
       return;
     }
+
+    if (isRecord(receivedMessage) && ['DEVICE_INFO', 'DEVICE_LEFT'].includes(String(receivedMessage.type))) return;
 
     if (!isValidCapabilityCommand(receivedMessage)) {
       console.warn('Rejected WebSocket message: unrecognized or invalid command', receivedMessage);
