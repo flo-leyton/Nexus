@@ -6,14 +6,21 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { startDevicePresence } from '@/services/devicePresence';
-
+import { testFirebaseInitialization } from '@/services/firebaseTest';
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  useEffect(startDevicePresence, []);
+  
+  useEffect(() => {
+  const stopDevicePresence = startDevicePresence();
+
+  testFirebaseInitialization();
+
+  return stopDevicePresence;
+}, []);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
