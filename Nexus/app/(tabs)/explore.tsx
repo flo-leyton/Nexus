@@ -9,6 +9,7 @@ import {
   TextInput,
 } from 'react-native';
 
+import { auth, database } from '@/app/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import {
@@ -16,7 +17,6 @@ import {
   logoutUser,
   registerUser,
 } from '@/services/authService';
-import { auth, database } from '@/services/firebase';
 
 type UserProfile = {
   email?: string;

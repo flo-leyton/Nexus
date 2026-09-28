@@ -1,4 +1,4 @@
-import { auth, database, firebaseApp } from './firebase';
+import { auth, database, firebaseApp } from '../app/firebase';
 
 export function testFirebaseInitialization() {
   console.log('Firebase initialized:', firebaseApp.name);

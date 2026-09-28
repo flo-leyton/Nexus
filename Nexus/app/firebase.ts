@@ -65,13 +65,13 @@ try {
     persistence: getReactNativePersistence(AsyncStorage),
   });
 } catch {
-  /*
-   * Durante Fast Refresh Firebase puede haberse inicializado
-   * previamente. En ese caso reutilizamos la instancia existente.
-   */
+
+
+
   firebaseAuth = getAuth(firebaseApp);
 }
 
-export const auth = firebaseAuth;
 
+
+export const auth = firebaseAuth;
 export const database = getDatabase(firebaseApp);

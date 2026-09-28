@@ -1,16 +1,16 @@
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
 } from 'firebase/auth';
 import {
-  ref,
-  serverTimestamp,
-  set,
-  update,
+    ref,
+    serverTimestamp,
+    set,
+    update,
 } from 'firebase/database';
 
-import { auth, database } from './firebase';
+import { auth, database } from '../app/firebase';
 
 export async function registerUser(email: string, password: string) {
   const normalizedEmail = email.trim().toLowerCase();
@@ -49,3 +49,4 @@ export async function loginUser(email: string, password: string) {
 export async function logoutUser() {
   await signOut(auth);
 }
+
