@@ -35,6 +35,13 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite que Nexus seleccione imágenes y videos para importarlos a Studio.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
