@@ -71,3 +71,23 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## NEXUS Studio: Cloudinary
+
+Studio usa Cloudinary únicamente como almacenamiento y entrega de imágenes/videos.
+El catálogo de metadatos permanece local en AsyncStorage. Cloudinary no sustituye el
+relay WebSocket, las sesiones, los usuarios ni el registro de dispositivos.
+
+Configura manualmente estas variables en `.env` sin guardar secretos:
+
+```text
+EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=tu_cloud_name
+EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=tu_unsigned_upload_preset
+```
+
+En Cloudinary crea manualmente un **unsigned upload preset**. Para la demo se recomienda
+llamarlo `nexus_studio_demo` (o usar otro nombre y reflejarlo en `.env`), limitarlo a los
+formatos de imagen/video que se probarán, usar una carpeta dedicada como
+`nexus-studio-demo`, activar `disallow_public_id` cuando corresponda y evitar
+transformaciones costosas innecesarias. Nunca añadas `CLOUDINARY_API_SECRET` ni
+`API_SECRET` al cliente.
