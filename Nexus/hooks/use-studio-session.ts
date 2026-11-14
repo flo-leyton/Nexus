@@ -18,6 +18,10 @@ export function sessionErrorMessage(error: unknown): string {
     ALREADY_MEMBER: 'Este dispositivo ya pertenece a esa sesión. Ábrela desde Studio.',
     JOIN_PENDING: 'Ya hay una solicitud pendiente de este dispositivo. Espera al Controller.',
     SESSION_EXISTS: 'La sesión ya existe. Ábrela desde Studio.',
+    ROLE_ACK_TIMEOUT: 'El Node no confirmó el rol en diez segundos. Comprueba su versión y vuelve a intentarlo.',
+    ROLE_PENDING: 'Ese Node aún tiene un cambio de rol pendiente de confirmación.',
+    MESSAGE_ID_CONFLICT: 'Se reutilizó un identificador para otro comando. Vuelve a intentarlo.',
+    NODE_REQUIRED: 'Sólo un Node aceptado puede informar su preparación.',
   };
   return messages[code] ?? 'No se pudo completar la operación de sesión. Vuelve a intentarlo.';
 }

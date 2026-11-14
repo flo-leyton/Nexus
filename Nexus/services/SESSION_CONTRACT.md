@@ -1,4 +1,4 @@
-# H1.1 · Contrato para H1.2
+# Contrato de sesiones · H1.1–H1.3
 
 Entrada de la aplicación: `await getSessionService()` de `services/session.ts`.
 Reutiliza `getOrCreateDeviceId()` y el único socket de `services/socket.ts`.
@@ -55,11 +55,62 @@ deben dar de baja sólo su suscripción al servicio compartido.
 
 La identidad es declarada por la instalación en una LAN de confianza; no hay
 SessionToken, WSS ni autenticación criptográfica de dispositivos en este módulo.
-La autorización de sesión es independiente de Firebase. Roles editables, READY,
-cámara y comandos de captura siguen pendientes; no hay mensajes START/STOP en H1.1.
+La autorización de sesión es independiente de Firebase. H1.3 añade roles y
+preparación individual (ver abajo). La grabación sigue pendiente; no hay START/STOP.
 
 Firebase existente: sin las siete variables públicas completas, los exports
 `firebaseApp`, `auth` y `database` son null. La cuenta muestra configuración
 ausente y sus operaciones fallan con un mensaje explícito mediante `requireFirebase()`;
 el registro de dispositivos no se inicia. Con configuración completa se conserva
 la inicialización, persistencia, autenticación y escritura del perfil existentes.
+
+## H1.3 · Roles y preparación individual
+
+Ampliación aditiva del protocolo versión 1. Reiniciar el relay y actualizar todos
+los clientes; un Node H1.2 no confirma comandos de rol y produce timeout.
+
+- `assignRole(sessionId, deviceId, role)` envía `ASSIGN_ROLE`, dirigido a un Node
+  **aceptado**. Sólo el Controller de esa Session puede enviarlo. El rol es texto
+  de 1–64 caracteres, sin controles, recortado por el servicio; no hay posiciones
+  A/B ni límite fijo de Nodes. Cada miembro conserva su propio `role`.
+- El relay envía el comando únicamente al destinatario. El servicio de ese Node
+  valida Controller/membresía/destino y responde automáticamente `SESSION_ROLE_ACK`,
+  dirigido al Controller, con `payload.requestId = messageId` del comando.
+  Las pantallas no construyen ni confirman envelopes.
+- El relay aplica el rol **después del ACK** del destinatario y publica un
+  `SESSION_SNAPSHOT` con `payload.requestId` igual al comando original. Ésta es la
+  confirmación que muestra la interfaz. Una segunda aceptación del mismo comando
+  no vuelve a aplicar el rol; retransmitir un comando antiguo no revierte uno nuevo.
+  Reutilizar su ID con otro rol/destinatario da `MESSAGE_ID_CONFLICT`.
+- Sólo puede haber un cambio sin ACK por Node (`ROLE_PENDING`). Tras 10 segundos
+  sin ACK, el siguiente barrido (cada segundo) informa `ROLE_ACK_TIMEOUT`; no aplica
+  el rol y rechaza ACK tardío. Desconectar al Node limpia sus comandos pendientes.
+- `reportNodeState(sessionId, controllerId, readiness)` envía `NODE_STATE` únicamente
+  desde un Node aceptado hacia su Controller. El sender sólo puede cambiar su propio
+  estado; no puede informar por otro Node ni cambiar el rol. El relay publica el
+  snapshot de esa Session, manteniendo aisladas las demás.
+- `SessionMember.readiness` contiene `cameraPermission` (`unknown/granted/denied`),
+  `cameraAvailable` (`null/true/false`), `enginePrepared` (boolean) y `error`
+  (`null` o texto de hasta 256 caracteres). Una combinación con motor preparado
+  exige permiso concedido, cámara disponible y error null; las demás se rechazan.
+  Un miembro sin estado o recién aceptado nunca es READY.
+- READY se **deriva**, no se acepta un boolean `ready` del cliente:
+  `readinessReasons(readiness, connected).length === 0`. No requiere un rol concreto
+  ni READY de los demás Nodes. La UI muestra las razones individuales si no está listo.
+- La preparación se informa al cambiar y se renueva cada 5 segundos. El relay usa
+  su propio reloj: transcurridos 15 segundos sin estado, el siguiente barrido retira
+  `enginePrepared` y muestra estado vencido. Una pérdida silenciosa retira READY en
+  un máximo aproximado de 16 segundos desde el último informe. El cierre del socket
+  elimina al miembro y lo publica inmediatamente; el cliente Controller desconectado
+  limpia sus snapshots. Abrir de nuevo la Session sigue usando `refreshSession`.
+
+`CaptureEngine` prepara permiso y disponibilidad, invalida generaciones antiguas
+y procesa `onCameraReady`/`onMountError`. `NodeReadinessPanel` monta una única
+CameraView tras conceder permiso, en modo vídeo **silenciado**, mientras la Session
+tiene foco y la app está activa. En SDK 54 `CameraView.isAvailableAsync` sólo existe
+en web: en Android/iOS disponibilidad y motor sólo se confirman mediante el callback
+nativo `onCameraReady`; un error de montaje informa cámara no disponible y su causa.
+No se asume disponibilidad a partir del permiso. Salir de Session o pasar la app a
+segundo plano publica motor sin preparar y desmonta la cámara. Al volver comprueba
+de nuevo los permisos. La prueba no garantiza todavía archivos grabados ni audio:
+no hay grabación, REC/STOP ni transferencias nuevas en H1.3.

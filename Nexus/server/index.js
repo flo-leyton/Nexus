@@ -6,7 +6,7 @@ const { WebSocketServer } = WebSocket;
 
 const relay = new WebSocketServer({ host: SERVER_CONFIG.LISTEN_HOST, port: SERVER_CONFIG.PORT });
 const devicePresence = attachDevicePresence(relay);
-const sessions = attachSessions();
+const sessions = attachSessions(relay);
 
 relay.on('listening', () => {
   console.log(`WebSocket relay listening on ws://${SERVER_CONFIG.LISTEN_HOST}:${SERVER_CONFIG.PORT}`);

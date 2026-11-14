@@ -19,7 +19,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |
 |---|---|---|---|---|
-| H1 | En curso: H1.1 probado automáticamente; H1.2 listo para prueba física | H1.1: 9c0642b; commit H1.2 de desarrollo (ver registro abajo) | Contrato y relay con 3 Nodes simulados; interfaz real de ingreso implementada, sin prueba física | Probar ingreso en LAN; roles editables, permisos, READY y CaptureEngine siguen pendientes |
+| H1 | En curso: H1.1–H1.3 implementados; ingreso, roles y READY listos para prueba física | H1.1: 9c0642b; H1.2: 16f2674; commit H1.3 (ver registro) | 3 Nodes simulados con roles/estados independientes; faltan pruebas nativas | Probar roles/READY en LAN; grabación local y reproducción siguen pendientes |
 | H2 | Pendiente | — | takeId, dos Nodes, duración de ambos archivos y confirmaciones | — |
 | H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
@@ -146,3 +146,100 @@ Publicación: `git ls-remote --heads origin desarrollo` informó
 `a8020ef9e83250bec0ff64ad615d848666163d66`. H1.1 aún es local.
 Publicar **H1.1 y H1.2**, junto con su ascendencia (incluye `96eb0d5`), mediante
 `git push -u origin desarrollo` desde esta rama. No se ejecutó push ni se cambió main.
+
+### 2026-11-14 · H1.3 · Roles individuales y READY
+
+Base: `desarrollo@16f26743ccc027314bda5871fb32473dc0c75099`, comprobada antes
+de editar. El único cambio local previo era `config/server.ts`: se conservó
+sin editar y **no se incluye en el commit H1.3**. Paquetes existentes: Expo SDK
+54.0.37 y expo-camera 17; se consultó la documentación SDK 54 y el código instalado.
+
+Estado: **listo para prueba física de H1.3**; H1 sigue **en curso**, no verificado.
+La evidencia automática corresponde al commit `feat(studio): add H1.3 node roles and readiness`.
+Obtener su SHA con `git log -1 --format=%H --grep='feat(studio): add H1.3 node roles and readiness'`.
+
+- El Controller edita un rol por deviceId, sin posiciones ni límite fijo de Nodes.
+  El servicio envía `ASSIGN_ROLE` y el Node confirma recepción automáticamente con
+  `SESSION_ROLE_ACK`. El relay valida Controller, Session, membresía y destinatario,
+  aplica el rol sólo tras ACK y publica el snapshot confirmado. Deduplica por messageId:
+  repetir un comando antiguo no revierte un rol posterior. Tras 10 segundos sin
+  ACK se rechaza el cambio y el barrido informa timeout; no hay éxito simulado.
+- Cada Node informa permiso, disponibilidad y motor preparado mediante `NODE_STATE`.
+  El relay sólo admite su propio estado hacia su Controller. READY se deriva de
+  permiso concedido + cámara disponible + motor preparado + ausencia de error y
+  conexión; no acepta un boolean READY arbitrario. Se muestran razones individuales.
+- `CaptureEngine` implementa únicamente preparación: consulta/solicitud de permiso,
+  comprobación de disponibilidad y callbacks de CameraView. En Android/iOS la
+  disponibilidad queda desconocida hasta `onCameraReady`; `isAvailableAsync` sólo
+  se llama en web porque SDK 54 no lo implementa en nativo. La cámara se monta en
+  modo vídeo silenciado, sin grabar. Un fallo informa su causa; callbacks y permisos
+  tardíos no restablecen READY tras desactivar el motor.
+- Al salir de la Session o pasar a segundo plano, el Node publica motor sin preparar
+  y libera la cámara. Al volver comprueba permisos de nuevo. Reporta cambios y renueva
+  el estado cada 5 segundos. Si deja de renovar, el relay retira READY tras 15 segundos
+  más hasta 1 segundo de barrido, aunque aún no haya cerrado TCP. Un cierre elimina
+  al Node y publica la nueva lista. El Controller pierde todos los READY al perder
+  su conexión. La consulta al recuperar foco de H1.2 sigue usando `refreshSession`.
+- Se conserva creación/ingreso, presencia, socket compartido, medios existentes y
+  Firebase. No se implementaron grabación, REC/STOP ni nuevas subidas o transferencias.
+  El contrato ampliado está en `services/SESSION_CONTRACT.md`.
+
+Pruebas automatizadas: TypeScript, lint, ESLint ampliado y **16/16 tests pasan**.
+Los nuevos casos usan tres clientes WebSocket reales contra un relay local efímero:
+roles y readiness independientes, tercer Node por el mismo mecanismo, rechazo de
+cliente ajeno y rol no autorizado, destino inválido, ACK falso, payload de readiness
+contradictorio, aislamiento y desconexión de un Node READY. Una prueba con reloj
+controlado cubre estado vencido, ACK ausente/tardío y que no se aplique un rol sin ACK.
+CaptureEngine se prueba con adaptadores simulados: permiso denegado, cámara ausente,
+fallo de montaje, callback antiguo y permiso que termina después de salir.
+
+La primera ejecución dio 15/16: la aserción de desconexión encontró un snapshot
+histórico anterior al tercer ingreso; se corrigió para esperar un snapshot posterior
+al cierre. Las 16 pruebas pasan tras la corrección. No hay evidencia física de cámara
+ni de interacción con teléfonos; los adaptadores simulados no equivalen a hardware.
+
+Repetir desde la carpeta de package.json (Node 24, Git Bash):
+
+```bash
+git rev-parse HEAD
+npx tsc --noEmit
+npm run lint
+node --test tests/*.test.cjs
+npx eslint components/NodeReadinessPanel.tsx components/NodeRoleEditor.tsx services/sessionProtocol.ts services/sessionClient.ts services/captureEngine.ts server/sessions.js server/index.js hooks/use-studio-session.ts tests/sessions.test.cjs
+```
+
+Prueba física exacta con tres teléfonos (un Controller y dos Nodes):
+
+1. Instalar/abrir el mismo cliente de desarrollo compatible con SDK 54 en los tres.
+   Desde la app ejecutar `npm run relay` (reiniciar el proceso anterior) y en otra
+   terminal `npx expo start --dev-client --lan`. Usar la LAN configurada manualmente
+   por el operador. No hace falta cambiar permisos nativos ni compilar por H1.3.
+2. Controller: **Studio → NUEVA SESIÓN → ABRIR SESIÓN**. Ambos Nodes: introducir el
+   código en Studio, **SOLICITAR INGRESO**. Aceptar los dos deviceId en el Controller;
+   ambos Nodes pulsan **ABRIR SESIÓN**. Anotar Session y los tres deviceId.
+3. Controller: en el primer Node escribir `main-camera`, pulsar **ASIGNAR ROL** y
+   esperar **Rol confirmado por el Node (ACK)**. En el segundo asignar `side-camera`.
+   Cambiar sólo el primero a `detail-camera`: los tres teléfonos deben mostrar el
+   nuevo rol del primero y conservar `side-camera` en el segundo.
+4. En cada Node, dentro de **Preparación de este Node**, pulsar **COMPROBAR / CONCEDER
+   PERMISO** si falta permiso. Esperar preview y READY. Controller y Node deben
+   mostrar separadamente permiso granted, cámara disponible y motor preparado.
+   No pulsar controles de linterna ni abrir otra cámara durante esta prueba.
+5. En un Node volver a Studio o enviar la app a segundo plano. Su estado debe pasar
+   a NO LISTO sin cambiar rol ni READY del otro Node. Reabrir Session y comprobar
+   que vuelve a preparar cámara y obtiene READY. Denegar el permiso en un Node
+   (desde ajustes del teléfono si ya estaba concedido), volver a la Session y comprobar
+   **Permiso de cámara denegado**, conservando el estado del otro. Conceder y repetir.
+6. Con ambos READY, desconectar la Wi-Fi de uno: el Controller debe retirar su READY
+   al cerrar el socket o por caducidad en un máximo aproximado de 16 segundos desde
+   su último informe. El otro Node mantiene su estado. Reconectar manualmente y
+   solicitar ingreso de nuevo si el relay eliminó la membresía; empieza sin READY.
+7. En el Controller volver a Studio y reabrir Session: esperar confirmación del relay
+   y comprobar roles/estados reales. Registrar SHA, modelos, permisos, errores de
+   montaje y tiempos de retirada de READY. Un cuarto teléfono puede incorporarse
+   como tercer Node por el mismo flujo; ese caso ya está cubierto automáticamente.
+
+Pendiente: ejecutar y registrar todos estos pasos físicos, comprobar preparación
+nativa y revocación/reconcesión de permisos, error real de cámara y caída silenciosa
+de LAN. No afirmar capacidad de grabar/reproducir un archivo ni audio por READY;
+la captura y reproducción del clip de H1 siguen sin implementar en este módulo.

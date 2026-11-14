@@ -5,13 +5,15 @@ import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MediaAssetCard, formatBytes } from '@/components/MediaAssetCard';
+import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
+import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { uploadMediaAsset } from '@/services/cloudinary';
 import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
-import type { JoinRequest } from '@/services/sessionProtocol';
+import { readinessReasons, type JoinRequest } from '@/services/sessionProtocol';
 import type { NexusMediaAsset } from '@/types/media';
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
@@ -239,11 +241,18 @@ export default function SessionScreen() {
                 <ThemedText type="defaultSemiBold">{member.kind === 'controller' ? 'Controller' : 'Node'}{member.deviceId === deviceId ? ' · Este dispositivo' : ''}</ThemedText>
                 <ThemedText selectable style={styles.sessionId}>deviceId: {member.deviceId}</ThemedText>
                 {member.nodeId && <ThemedText selectable style={styles.sessionId}>nodeId: {member.nodeId}</ThemedText>}
+                {member.kind === 'node' && <>
+                  <ThemedText>Rol: {member.role}</ThemedText>
+                  <ThemedText accessibilityLiveRegion="polite">{readinessReasons(member.readiness, connected).length === 0 ? 'READY' : `NO LISTO: ${readinessReasons(member.readiness, connected).join(' · ')}`}</ThemedText>
+                  <ThemedText>Permiso: {member.readiness?.cameraPermission ?? 'unknown'} · Cámara: {member.readiness?.cameraAvailable === true ? 'disponible' : member.readiness?.cameraAvailable === false ? 'no disponible' : 'sin comprobar'} · Motor: {member.readiness?.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
+                  {isController && service && <NodeRoleEditor service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
+                </>}
               </View>
             ))}
           </ThemedView>
         </>}
 
+        {session && !isController && service && <ThemedView style={styles.section}><NodeReadinessPanel service={service} sessionId={sessionId} controllerId={session.controllerId} /></ThemedView>}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle">Importar medio</ThemedText>
           <ThemedText style={styles.note}>Imágenes o videos de hasta 80 MB.</ThemedText>

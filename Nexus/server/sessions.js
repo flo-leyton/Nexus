@@ -1,11 +1,12 @@
 const { randomUUID, randomInt } = require('node:crypto');
-const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID } = require('../services/sessionProtocol.ts');
+const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS } = require('../services/sessionProtocol.ts');
 
-function attachSessions() {
+function attachSessions(relay) {
   const sessions = new Map();
   const codes = new Map();
   const identities = new Map();
   const clients = new Map();
+  const stateTimes = new WeakMap();
   const send = (client, type, sessionId, payload) => {
     if (client.readyState === 1) client.send(JSON.stringify({
       protocolVersion: SESSION_PROTOCOL_VERSION, messageId: randomUUID(), type, sessionId,
@@ -30,6 +31,24 @@ function attachSessions() {
     clients.set(id, client);
     return true;
   };
+  const expiry = setInterval(() => {
+    for (const s of sessions.values()) {
+      for (const [messageId, command] of s.roles) if (!command.acked && !command.expired && Date.now() >= command.expiresAt) {
+        command.expired = true;
+        const controller = clients.get(s.controllerId);
+        if (controller) send(controller, 'SESSION_ERROR', s.sessionId, { requestId: messageId, code: 'ROLE_ACK_TIMEOUT' });
+      }
+      for (const member of s.members.values()) {
+        if (member.kind === 'node' && member.readiness.enginePrepared &&
+            Date.now() - (stateTimes.get(member) ?? 0) >= NODE_STATE_TTL_MS) {
+          member.readiness = { ...member.readiness, enginePrepared: false, error: 'Estado del Node vencido; sin actualización reciente' };
+          snapshot(s, randomUUID());
+        }
+      }
+    }
+  }, 1000);
+  expiry.unref();
+  relay.on('close', () => clearInterval(expiry));
   return {
     handle(client, text) {
       let m;
@@ -54,7 +73,7 @@ function attachSessions() {
         if (sessions.has(m.sessionId)) return error('SESSION_EXISTS');
         let code;
         do { code = randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0'); } while (codes.has(code));
-        const s = { sessionId: m.sessionId, controllerId: m.senderId, code, members: new Map(), pending: new Map() };
+        const s = { sessionId: m.sessionId, controllerId: m.senderId, code, members: new Map(), pending: new Map(), roles: new Map() };
         s.members.set(m.senderId, { deviceId: m.senderId, nodeId: null, kind: 'controller', role: 'controller' });
         sessions.set(s.sessionId, s);
         codes.set(code, s.sessionId);
@@ -75,6 +94,27 @@ function attachSessions() {
       const s = sessions.get(m.sessionId);
       if (!s) return error('SESSION_NOT_FOUND');
       if (!s.members.has(m.senderId)) return error('NOT_MEMBER');
+      if (m.type === 'NODE_STATE') {
+        const member = s.members.get(m.senderId);
+        if (member.kind !== 'node') return error('NODE_REQUIRED');
+        if (m.targetId !== s.controllerId) return error('INVALID_TARGET');
+        member.readiness = m.payload.readiness;
+        stateTimes.set(member, Date.now());
+        snapshot(s, m.messageId);
+        return true;
+      }
+      if (m.type === 'SESSION_ROLE_ACK') {
+        const command = s.roles.get(m.payload.requestId);
+        if (m.targetId !== s.controllerId || !command || command.targetId !== m.senderId) return error('INVALID_TARGET');
+        if (command.expired || Date.now() >= command.expiresAt) return error('ROLE_ACK_TIMEOUT');
+        if (!command.acked) {
+          s.members.get(m.senderId).role = command.role;
+          command.acked = true;
+        }
+        // The snapshot's requestId is the original command ID: confirms this Node's ACK.
+        snapshot(s, m.payload.requestId);
+        return true;
+      }
       if (m.type === 'SESSION_GET') {
         // Snapshot query is delivered only to the requesting member.
         send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: {
@@ -84,13 +124,25 @@ function attachSessions() {
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+      if (m.type === 'ASSIGN_ROLE') {
+        const target = s.members.get(m.targetId);
+        if (target?.kind !== 'node' || clients.get(m.targetId)?.readyState !== 1) return error('INVALID_TARGET');
+        const previous = s.roles.get(m.messageId);
+        if (previous && (previous.targetId !== m.targetId || previous.role !== m.payload.role)) return error('MESSAGE_ID_CONFLICT');
+        if (previous?.expired) return error('ROLE_ACK_TIMEOUT');
+        if (previous?.acked) { snapshot(s, m.messageId); return true; }
+        if ([...s.roles.entries()].some(([id, command]) => id !== m.messageId && command.targetId === m.targetId && !command.acked && !command.expired)) return error('ROLE_PENDING');
+        if (!previous) s.roles.set(m.messageId, { targetId: m.targetId, role: m.payload.role, acked: false, expired: false, expiresAt: Date.now() + 10000 });
+        clients.get(m.targetId).send(JSON.stringify(m));
+        return true;
+      }
       const pending = s.pending.get(m.targetId);
       if (!pending || pending.requestId !== m.payload.requestId || !clients.has(m.targetId)) return error('INVALID_TARGET');
       s.pending.delete(m.targetId);
       if (m.type === 'SESSION_JOIN_REJECT') {
         send(clients.get(m.targetId), 'SESSION_JOIN_REJECTED', s.sessionId, { requestId: pending.requestId });
       } else {
-        s.members.set(m.targetId, { deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned' });
+        s.members.set(m.targetId, { deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned', readiness: { ...INITIAL_READINESS } });
       }
       snapshot(s, m.messageId);
       return true;
@@ -109,6 +161,7 @@ function attachSessions() {
           sessions.delete(s.sessionId);
           codes.delete(s.code);
         } else if (s.members.delete(id) || s.pending.has(id)) {
+          for (const [messageId, command] of s.roles) if (command.targetId === id) s.roles.delete(messageId);
           s.pending.delete(id);
           snapshot(s, randomUUID());
         }

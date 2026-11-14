@@ -1,6 +1,6 @@
 import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
-  type JoinRequest, type Session, type SessionEvent, type SessionRequest,
+  type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
 } from './sessionProtocol';
 
 export interface SessionTransport {
@@ -20,10 +20,23 @@ export interface SessionSnapshot {
 export function createSessionClient(deviceId: string, uuid: () => string, transport: SessionTransport) {
   let state: SessionSnapshot = { connection: 'Disconnected', sessions: {}, pending: {}, lastEvent: null };
   const listeners = new Set<(snapshot: SessionSnapshot) => void>();
+  const roleCommands = new Map<string, Map<string, string>>();
   const emit = () => listeners.forEach((listener) => listener(state));
   const unsubscribeMessages = transport.subscribeMessages((raw) => {
     let event: unknown;
     try { event = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
+    if (isSessionRequest(event) && event.type === 'ASSIGN_ROLE' && event.targetId === deviceId) {
+      const session = state.sessions[event.sessionId];
+      if (!session || session.controllerId !== event.senderId || session.members[deviceId]?.kind !== 'node') return;
+      const seen = roleCommands.get(event.sessionId) ?? new Map<string, string>();
+      // No UI side effects on retransmission; acknowledge again so the Controller can recover its confirmation.
+      if (seen.has(event.messageId) && seen.get(event.messageId) !== event.payload.role) return;
+      if (!seen.has(event.messageId)) { seen.set(event.messageId, event.payload.role); roleCommands.set(event.sessionId, seen); }
+      try {
+        send({ ...envelope(event.sessionId), type: 'SESSION_ROLE_ACK', targetId: session.controllerId, payload: { requestId: event.messageId } });
+      } catch { /* Lost connection: the Controller receives no confirmation. */ }
+      return;
+    }
     if (!isSessionEvent(event) || event.targetId !== deviceId) return;
     const sessions = { ...state.sessions };
     const pending = { ...state.pending };
@@ -33,6 +46,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     } else if (event.type === 'SESSION_JOIN_PENDING') {
       pending[event.sessionId] = [...(pending[event.sessionId] || []).filter((r) => r.deviceId !== event.payload.deviceId), event.payload];
     } else if (event.type === 'SESSION_CLOSED') {
+      roleCommands.delete(event.sessionId);
       delete sessions[event.sessionId];
       delete pending[event.sessionId];
     } else if (event.type === 'SESSION_JOIN_REJECTED') {
@@ -45,6 +59,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     emit();
   });
   const unsubscribeStatus = transport.subscribeStatus((connection) => {
+    if (connection !== 'Connected') roleCommands.clear();
     state = connection === 'Connected' ? { ...state, connection } :
       { connection, sessions: {}, pending: {}, lastEvent: null };
     emit();
@@ -81,6 +96,12 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     },
     refreshSession(sessionId: string) {
       return send({ ...envelope(sessionId), type: 'SESSION_GET', payload: {} });
+    },
+    assignRole(sessionId: string, deviceId: string, role: string) {
+      return send({ ...envelope(sessionId), type: 'ASSIGN_ROLE', targetId: deviceId, payload: { role: role.trim() } });
+    },
+    reportNodeState(sessionId: string, controllerId: string, readiness: NodeReadiness) {
+      return send({ ...envelope(sessionId), type: 'NODE_STATE', targetId: controllerId, payload: { readiness } });
     },
     dispose() { unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); },
   };
