@@ -10,9 +10,10 @@ import {
     update,
 } from 'firebase/database';
 
-import { auth, database } from '../app/firebase';
+import { requireFirebase } from '../app/firebase';
 
 export async function registerUser(email: string, password: string) {
+  const { auth, database } = requireFirebase();
   const normalizedEmail = email.trim().toLowerCase();
 
   const credential = await createUserWithEmailAndPassword(
@@ -31,6 +32,7 @@ export async function registerUser(email: string, password: string) {
 }
 
 export async function loginUser(email: string, password: string) {
+  const { auth, database } = requireFirebase();
   const normalizedEmail = email.trim().toLowerCase();
 
   const credential = await signInWithEmailAndPassword(
@@ -47,6 +49,7 @@ export async function loginUser(email: string, password: string) {
 }
 
 export async function logoutUser() {
+  const { auth } = requireFirebase();
   await signOut(auth);
 }
 

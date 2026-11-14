@@ -1,10 +1,12 @@
 const WebSocket = require('ws');
 const { SERVER_CONFIG } = require('../config/server.ts');
 const { attachDevicePresence } = require('./devicePresence');
+const { attachSessions } = require('./sessions');
 const { WebSocketServer } = WebSocket;
 
 const relay = new WebSocketServer({ host: SERVER_CONFIG.LISTEN_HOST, port: SERVER_CONFIG.PORT });
 const devicePresence = attachDevicePresence(relay);
+const sessions = attachSessions();
 
 relay.on('listening', () => {
   console.log(`WebSocket relay listening on ws://${SERVER_CONFIG.LISTEN_HOST}:${SERVER_CONFIG.PORT}`);
@@ -16,6 +18,7 @@ relay.on('connection', (client) => {
 
   client.on('message', (message) => {
     const messageText = message.toString();
+    if (sessions.handle(client, messageText)) return;
     if (devicePresence.handle(client, messageText)) return;
     console.log('Message received:', messageText);
 
@@ -27,6 +30,7 @@ relay.on('connection', (client) => {
   });
 
   client.on('close', () => {
+    sessions.disconnect(client);
     devicePresence.disconnect(client);
     console.log('Client disconnected');
   });

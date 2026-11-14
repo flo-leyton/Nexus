@@ -34,17 +34,18 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function AccountScreen() {
-  const [user, setUser] = useState<User | null>(auth.currentUser);
+  const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(auth));
   const [actionLoading, setActionLoading] = useState(false);
-  const [message, setMessage] = useState('Firebase listo.');
+  const [message, setMessage] = useState(auth ? 'Firebase listo.' : 'Firebase no configurado. Studio puede funcionar sin cuenta.');
 
   useEffect(() => {
+    if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -54,7 +55,7 @@ export default function AccountScreen() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !database) {
       setProfile(null);
       return;
     }
