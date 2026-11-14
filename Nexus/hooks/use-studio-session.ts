@@ -22,6 +22,7 @@ export function sessionErrorMessage(error: unknown): string {
     ROLE_PENDING: 'Ese Node aún tiene un cambio de rol pendiente de confirmación.',
     MESSAGE_ID_CONFLICT: 'Se reutilizó un identificador para otro comando. Vuelve a intentarlo.',
     NODE_REQUIRED: 'Sólo un Node aceptado puede informar su preparación.',
+    NO_REMEMBERED_SESSION: 'No hay una última sesión disponible. Ingresa con el código del Controller.',
   };
   return messages[code] ?? 'No se pudo completar la operación de sesión. Vuelve a intentarlo.';
 }

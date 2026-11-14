@@ -423,3 +423,39 @@ ACK, fase/error y archivos existentes. No borrar datos ni reinstalar la aplicaci
 para probar persistencia. La prueba de START duplicado es automatizada; no hace
 falta fabricar mensajes desde la UI. No certificar sincronización exacta, video
 decodificable ni tolerancia de hardware hasta ejecutar estas pruebas.
+
+### 2026-11-14 · Reingreso explícito sin volver a escribir el código (etapa 1)
+
+Implementación sobre H2 (ver historial Git). Se conserva el socket,
+la configuración de LAN, REC/STOP y los originales. Se añade recuerdo persistente
+de la última Session aceptada como Node y un botón SOLICITAR REINGRESO en Studio
+y Session sin membresía. La conexión al relay sigue siendo manual.
+El Controller debe aprobar otra solicitud; después hay nuevo nodeId, rol
+unassigned y READY recalculado. No se implementan credenciales ni recuperación
+transparente. Detener/guardar primero una captura local antes del reingreso.
+
+El mismo SESSION_JOIN_REQUEST se fija al sessionId recordado para evitar entrar
+por accidente a otra sesión si el código se reutilizó. La Session cerrada informa
+su ausencia y permite ingresar mediante otro código. Se bloquean pulsaciones
+duplicadas y no se carga ninguna membresía desde almacenamiento local.
+
+Pruebas nuevas: desconexión/recarga y nueva aceptación; deduplicación; nuevo nodeId
+con preparación reiniciada; rechazo/reintento; cierre; ID/código incompatibles;
+persistencia/corrupción/errores de almacenamiento y actualización de una sesión
+antigua sin sobrescribir la más reciente. Suite completa: **38/38 PASS**.
+Validación física de esta etapa: **NOT RUN**; no marcarla verificada.
+
+Prueba física con Controller y dos Nodes:
+1. Reiniciar relay con este código, recargar los tres clientes y crear/aceptar ambos
+   Nodes. Anotar deviceId, nodeId y Session. Ambos deben preparar cámara y READY.
+2. Sin grabación activa, apagar Wi-Fi de uno y esperar su eliminación en Controller.
+   Volver a encender Wi-Fi y pulsar CONECTAR AL RELAY. No se restaura membresía.
+3. Pulsar SOLICITAR REINGRESO sin escribir código. Controller debe mostrar una sola
+   solicitud del mismo deviceId. Antes de aceptarla, el Node no pertenece a Session.
+4. Rechazar y repetir; después aceptar. Comprobar nuevo nodeId, rol unassigned y
+   preparación nueva, sin duplicar miembros ni afectar al segundo Node.
+5. Cerrar/reabrir la app sin borrar sus datos: el recuerdo debe seguir disponible
+   si perdió membresía. Cerrar el Controller o reiniciar relay mientras el Node está
+   offline; al reconectar/solicitar debe indicar Session inexistente y permitir otro código.
+6. Comprobar que los vídeos anteriores siguen disponibles localmente. No repetir
+   START automáticamente ni atribuir los vídeos antiguos a la participación nueva.

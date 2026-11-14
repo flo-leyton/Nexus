@@ -151,7 +151,8 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
     case 'SESSION_GET':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_JOIN_REQUEST':
-      return value.sessionId === JOIN_BY_CODE && !value.targetId && keys.length === 1 && isJoinCode(value.payload.code);
+      // JOIN_BY_CODE for a new session; a concrete ID pins a remembered rejoin to that exact session.
+      return !value.targetId && keys.length === 1 && isJoinCode(value.payload.code);
     case 'SESSION_JOIN_ACCEPT':
     case 'SESSION_JOIN_REJECT':
     case 'SESSION_ROLE_ACK':

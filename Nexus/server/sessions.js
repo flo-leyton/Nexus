@@ -1,6 +1,6 @@
 const { randomUUID, randomInt } = require('node:crypto');
 const { attachRecording, recordingState } = require('./recording');
-const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS } = require('../services/sessionProtocol.ts');
+const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
 function attachSessions(relay) {
   const sessions = new Map();
@@ -85,6 +85,7 @@ function attachSessions(relay) {
       }
       if (m.type === 'SESSION_JOIN_REQUEST') {
         const s = sessions.get(codes.get(m.payload.code));
+        if (m.sessionId !== JOIN_BY_CODE && (!s || s.sessionId !== m.sessionId)) return error('SESSION_NOT_FOUND');
         if (!s) return error('INVALID_CODE');
         if (s.members.has(m.senderId)) return error('ALREADY_MEMBER');
         if (s.pending.has(m.senderId)) return error('JOIN_PENDING');

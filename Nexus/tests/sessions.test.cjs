@@ -23,6 +23,7 @@ function loadTs(file, dependencies) {
   return exports;
 }
 const { createSessionClient } = loadTs('../services/sessionClient.ts', { './sessionProtocol': protocol });
+const { createLastNodeSessionStore } = loadTs('../services/lastNodeSession.ts', { './sessionProtocol': protocol });
 
 async function harness(t) {
   let relay;
@@ -42,15 +43,15 @@ async function harness(t) {
     relay.clients.forEach((s) => s.terminate());
     await new Promise((resolve) => relay.close(resolve));
   });
-  return async (deviceId) => {
+  return async (deviceId, history) => {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.address().port}`);
     sockets.push(ws);
     await once(ws, 'open');
-    const inbox = [];
+    const inbox = [], sent = [];
     ws.on('message', (raw) => inbox.push(JSON.parse(String(raw))));
     const service = createSessionClient(deviceId, randomUUID, {
       connect() {},
-      send(message) { ws.send(JSON.stringify(message)); return true; },
+      send(message) { sent.push(message); ws.send(JSON.stringify(message)); return true; },
       subscribeMessages(listener) {
         const callback = (raw) => listener(String(raw));
         ws.on('message', callback);
@@ -62,14 +63,14 @@ async function harness(t) {
         ws.on('close', callback);
         return () => ws.off('close', callback);
       },
-    });
+    }, history);
     t.after(() => service.dispose());
     const wait = async (predicate) => {
       // Subscribe before sending; also handles a response already in the inbox.
       while (!inbox.some(predicate)) await once(ws, 'message');
       return inbox.find(predicate);
     };
-    return { ws, inbox, service, wait, deviceId };
+    return { ws, inbox, sent, service, wait, deviceId };
   };
 }
 const request = (type, senderId, sessionId, payload = {}, targetId) => ({
@@ -398,4 +399,133 @@ test('H1.3: relay expires silent READY and missing role ACK without trusting cli
   assert.equal(n.inbox.at(-1).payload.code, 'ROLE_ACK_TIMEOUT');
   handle(c, request('SESSION_GET', 'controller', 'session'));
   assert.equal(c.inbox.at(-1).payload.session.members.node.role, 'unassigned');
+});
+
+function memoryHistory() {
+  const data = new Map();
+  const storage = { async getItem(key) { return data.get(key) ?? null; }, async setItem(key, value) { data.set(key, value); }, async removeItem(key) { data.delete(key); } };
+  const store = createLastNodeSessionStore(storage);
+  return { data, storage, store, async options() { return { initial: await store.load(), save: store.save }; } };
+}
+async function createForRejoin(controller) {
+  const request = controller.service.createSession();
+  return (await controller.wait(replyTo(request.messageId))).payload.session;
+}
+async function approveForRejoin(c, n, session, joinId) {
+  const id = joinId ?? n.service.requestJoin(session.code);
+  await c.wait(replyTo(id));
+  const accept = c.service.acceptJoin(session.sessionId, n.deviceId, id);
+  await n.wait(replyTo(accept)); await c.wait(replyTo(accept));
+  return n.service.getSnapshot().sessions[session.sessionId].members[n.deviceId];
+}
+
+test('rejoin: remembered session survives disconnect/reload but needs new approval, identity and READY', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), other = await connect('other-node');
+  const memory = memoryHistory(), first = await connect('returning-node', await memory.options());
+  const s = await createForRejoin(c);
+  const original = await approveForRejoin(c, first, s);
+  await approveForRejoin(c, other, s);
+  const role = c.service.assignRole(s.sessionId, first.deviceId, 'main-camera'); await c.wait(replyTo(role));
+  const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
+  const update = first.service.reportNodeState(s.sessionId, c.deviceId, ready); await c.wait(replyTo(update));
+  assert.equal((await memory.store.load()).sessionId, s.sessionId);
+  assert.equal(c.service.getSnapshot().lastNodeSession, null); // Controllers do not save a Node hint
+  const cutoff = c.inbox.length;
+  first.ws.close(); await once(first.ws, 'close');
+  await c.wait((m) => c.inbox.indexOf(m) >= cutoff && m.type === 'SESSION_SNAPSHOT' && !m.payload.session.members[first.deviceId]);
+  assert.equal(first.service.getSnapshot().lastNodeSession.sessionId, s.sessionId);
+  const n = await connect(first.deviceId, await memory.options());
+  assert.equal(n.service.getSnapshot().connection, 'Connected');
+  assert.equal(n.service.getSnapshot().sessions[s.sessionId], undefined);
+  assert.equal(n.sent.length, 0); // recovery never auto-sends or restores authorization
+  const join = n.service.requestRejoin();
+  assert.equal(n.service.requestRejoin(), join); // two presses, one request on the wire
+  await c.wait(replyTo(join)); await n.wait(replyTo(join));
+  assert.equal(n.service.requestRejoin(), join); // also deduplicated while waiting for human approval
+  assert.equal(n.sent.filter((m) => m.type === 'SESSION_JOIN_REQUEST').length, 1);
+  assert.equal(c.service.getSnapshot().pending[s.sessionId].filter((r) => r.deviceId === n.deviceId).length, 1);
+  const unauthorized = n.service.refreshSession(s.sessionId);
+  assert.equal((await n.wait(replyTo(unauthorized))).payload.code, 'NOT_MEMBER');
+  const rejoined = await approveForRejoin(c, n, s, join);
+  assert.notEqual(rejoined.nodeId, original.nodeId);
+  assert.equal(rejoined.deviceId, original.deviceId);
+  assert.equal(rejoined.role, 'unassigned');
+  assert.equal(rejoined.readiness.enginePrepared, false);
+  assert.equal(rejoined.readiness.cameraPermission, 'unknown');
+  assert.equal(n.service.getSnapshot().joinInFlight, false);
+  assert.equal(Object.keys(c.service.getSnapshot().sessions[s.sessionId].members).length, 3);
+  assert.ok(c.service.getSnapshot().sessions[s.sessionId].members[other.deviceId]);
+  assert.throws(() => n.service.requestRejoin(), /ALREADY_MEMBER/);
+});
+
+test('rejoin: rejection allows a new explicit request; closing the session clears its remembered hint', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), memory = memoryHistory();
+  const s = await createForRejoin(c);
+  await memory.store.save({ sessionId: s.sessionId, code: s.code });
+  const n = await connect('node', await memory.options());
+  const first = n.service.requestRejoin(); await c.wait(replyTo(first));
+  c.service.rejectJoin(s.sessionId, n.deviceId, first);
+  await n.wait((m) => m.type === 'SESSION_JOIN_REJECTED');
+  assert.equal(n.service.getSnapshot().joinInFlight, false);
+  assert.equal(n.service.getSnapshot().sessions[s.sessionId], undefined);
+  const second = n.service.requestRejoin(); assert.notEqual(first, second); await c.wait(replyTo(second));
+  c.ws.close(); await once(c.ws, 'close');
+  await n.wait((m) => m.type === 'SESSION_CLOSED');
+  assert.equal(n.service.getSnapshot().lastNodeSession, null);
+  assert.equal(await memory.store.load(), null);
+  assert.equal(n.service.getSnapshot().joinInFlight, false);
+  assert.throws(() => n.service.requestRejoin(), /NO_REMEMBERED_SESSION/);
+});
+
+test('rejoin: ended/mismatched session cannot reuse another session code; manual joining remains available', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), memory = memoryHistory();
+  const live = await createForRejoin(c);
+  // Simulates a cached code reused after a relay restart, or locally edited metadata.
+  await memory.store.save({ sessionId: 'old-session-id', code: live.code });
+  const n = await connect('node', await memory.options());
+  const rejoin = n.service.requestRejoin();
+  assert.equal((await n.wait(replyTo(rejoin))).payload.code, 'SESSION_NOT_FOUND');
+  assert.equal(n.service.getSnapshot().lastNodeSession, null);
+  assert.equal(await memory.store.load(), null);
+  const barrier = c.service.refreshSession(live.sessionId); await c.wait(replyTo(barrier));
+  assert.equal(c.service.getSnapshot().pending[live.sessionId].length, 0);
+  assert.equal(c.service.getSnapshot().sessions[live.sessionId].members[n.deviceId], undefined);
+  await approveForRejoin(c, n, live);
+  assert.equal(n.service.getSnapshot().lastNodeSession.sessionId, live.sessionId);
+});
+
+test('rejoin: local storage validates hints, serializes writes and never persists membership or READY', async () => {
+  const h = memoryHistory();
+  await h.store.save({ sessionId: 'session', code: 'ABC123' });
+  const loaded = await createLastNodeSessionStore(h.storage).load();
+  assert.deepEqual(Object.keys(loaded).sort(), ['code', 'sessionId']);
+  const save = h.store.save({ sessionId: 'new-session', code: 'DEF456' });
+  const clear = h.store.save(null);
+  await Promise.all([save, clear]); assert.equal(await h.store.load(), null);
+  const key = '@nexus/last-node-session-v1';
+  for (const raw of ['{broken', '{"sessionId":"__proto__","code":"ABC123"}', '{"sessionId":"x","code":"ABC123","authorized":true}']) {
+    h.data.set(key, raw); assert.equal(await h.store.load(), null);
+  }
+});
+
+test('rejoin: a storage write failure does not revoke a real approval or disable manual joining', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller');
+  const n = await connect('node', { initial: null, async save() { throw new Error('storage unavailable'); } });
+  const s = await createForRejoin(c); await approveForRejoin(c, n, s);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(n.service.getSnapshot().historyError, /No se pudo guardar/);
+  assert.ok(n.service.getSnapshot().sessions[s.sessionId].members[n.deviceId]);
+  assert.equal(n.service.getSnapshot().lastNodeSession.sessionId, s.sessionId);
+});
+
+test('rejoin: updates from an older membership do not overwrite the latest accepted session', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), memory = memoryHistory();
+  const n = await connect('node', await memory.options());
+  const old = await createForRejoin(c), latest = await createForRejoin(c);
+  await approveForRejoin(c, n, old); await approveForRejoin(c, n, latest);
+  const update = n.service.reportNodeState(old.sessionId, c.deviceId,
+    { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null });
+  await n.wait(replyTo(update));
+  assert.equal(n.service.getSnapshot().lastNodeSession.sessionId, latest.sessionId);
+  assert.equal((await memory.store.load()).sessionId, latest.sessionId);
 });

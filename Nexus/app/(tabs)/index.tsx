@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { connectSocket } from '@/services/socket';
 
@@ -57,7 +58,7 @@ export default function StudioScreen() {
   });
   const connected = snapshot?.connection === 'Connected';
   const pending = Object.entries(snapshot?.pending ?? {}).filter(([, requests]) => requests.some((r) => r.deviceId === deviceId));
-  const busy = sending || pending.length > 0;
+  const busy = sending || pending.length > 0 || !!snapshot?.joinInFlight;
 
   const start = (kind: 'create' | 'join') => {
     if (operation.current || busy) return;
@@ -96,6 +97,9 @@ export default function StudioScreen() {
         </ThemedView>
         <ThemedText accessibilityLiveRegion="polite" style={failed || error ? styles.error : styles.description}>{error || notice}</ThemedText>
         {pending.length > 0 && <ThemedText accessibilityLiveRegion="polite">Solicitud pendiente de aceptación por el Controller.</ThemedText>}
+        {service && snapshot && <ThemedView style={styles.model}>
+          <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} />
+        </ThemedView>}
         <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('create')} style={({ pressed }) => [styles.button, busy && styles.disabled, pressed && styles.pressed]}>
           <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>NUEVA SESIÓN</ThemedText>
         </Pressable>

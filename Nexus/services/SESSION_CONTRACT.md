@@ -225,3 +225,40 @@ Actualizar relay y los tres clientes juntos. Un cliente H1 no procesa REC/STOP y
 provoca falta de confirmación. H2 no añade dependencias ni configuración nativa:
 requiere el cliente compatible con ExpoVideo ya definido por H1.4. Las capturas
 siguen silenciadas; no se promete sincronización exacta de fotogramas ni audio.
+
+## Recuperación etapa 1 · Solicitud explícita de reingreso
+
+Tras aceptar un Node se recuerda `{ sessionId, code }` en AsyncStorage, bajo
+`@nexus/last-node-session-v1`. No se guardan membresía, nodeId, rol, READY ni
+credenciales. Un Controller no genera este recuerdo. El cliente carga el dato
+antes de crear el servicio compartido, pero sus sesiones confirmadas siguen vacías.
+Un fallo de almacenamiento no bloquea el ingreso por código ni revoca la aceptación.
+
+Al volver a conectar manualmente el socket, Studio y la pantalla de Session sin
+membresía ofrecen **SOLICITAR REINGRESO**. No se envía una solicitud automáticamente.
+`requestRejoin()` reutiliza SESSION_JOIN_REQUEST y el código recordado, fijando
+el sessionId real en el envelope. El ingreso normal conserva `join-by-code`.
+La ampliación aditiva del validador permite ambas variantes; el relay exige que
+el código resuelva exactamente al sessionId indicado en el reingreso. Así un
+código reutilizado después de cerrar/reiniciar no dirige la petición a otra Session.
+
+Recordar el ID o el código no permite SESSION_GET, READY ni recibir comandos:
+se crea sólo una solicitud pendiente. El Controller usa acceptJoin/rejectJoin
+existentes; aceptar crea otro nodeId para el mismo deviceId, rol unassigned y
+preparación unknown/false. El Node vuelve a preparar la cámara. Una solicitud
+en curso se bloquea en el servicio y la interfaz; pulsaciones repetidas reutilizan
+el requestId sin enviar otro mensaje. El relay mantiene una solicitud por deviceId
+y rechaza identidad simultánea, aprobación antigua y miembros ya aceptados.
+
+Si la sesión desapareció, SESSION_NOT_FOUND elimina el recuerdo obsoleto e informa
+que se puede usar otro código. SESSION_CLOSED también elimina el recuerdo cuando
+se recibe. Un rechazo conserva el recuerdo para un nuevo intento explícito.
+Los snapshots de sesiones antiguas no sobrescriben la última aceptación.
+
+REC/STOP, sus diarios de deduplicación y los vídeos no se modifican. En la pantalla
+de captura no se permite solicitar otra participación hasta detener y guardar el
+clip pendiente. El reingreso NO restaura la participación ni el takeId antiguos;
+una toma previa con resultado desconocido sigue requiriendo revisión local.
+No se implementan credenciales de recuperación, reconexión automática, restauración
+de READY, reenvío automático de START ni recuperación de sesiones tras reiniciar relay.
+Reiniciar el relay y recargar todos los clientes para activar la ampliación.

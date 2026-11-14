@@ -10,6 +10,7 @@ import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ControllerTakePanel } from '@/components/ControllerTakePanel';
+import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
@@ -83,6 +84,11 @@ export default function SessionScreen() {
     } else if (event.type === 'SESSION_SNAPSHOT' && decisionDevice) {
       setSessionFailed(false);
       setSessionNotice('Decisión confirmada por el relay.');
+    } else if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId]?.kind === 'node' && !verified && !refreshId.current) {
+      // A new Controller approval is authoritative even if this screen survived the disconnect.
+      setVerified(true);
+      setSessionFailed(false);
+      setSessionNotice('Reingreso aceptado por el Controller. Prepara la nueva participación.');
     }
   });
   const connected = snapshot?.connection === 'Connected';
@@ -271,6 +277,9 @@ export default function SessionScreen() {
           </ThemedView>
         </>}
 
+        {!session && service && snapshot && <ThemedView style={styles.section}>
+          <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />
+        </ThemedView>}
         {localNode && localNode.sessionId === sessionId && service && <ThemedView style={styles.section}>
           <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
             accepted={session?.members[deviceId]?.nodeId === localNode.nodeId}
