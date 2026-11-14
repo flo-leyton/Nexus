@@ -19,7 +19,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |
 |---|---|---|---|---|
-| H1 | En curso: H1.1–H1.3 implementados; ingreso, roles y READY listos para prueba física | H1.1: 9c0642b; H1.2: 16f2674; commit H1.3 (ver registro) | 3 Nodes simulados con roles/estados independientes; faltan pruebas nativas | Probar roles/READY en LAN; grabación local y reproducción siguen pendientes |
+| H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Pendiente | — | takeId, dos Nodes, duración de ambos archivos y confirmaciones | — |
 | H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
@@ -243,3 +243,119 @@ Pendiente: ejecutar y registrar todos estos pasos físicos, comprobar preparaci�
 nativa y revocación/reconcesión de permisos, error real de cámara y caída silenciosa
 de LAN. No afirmar capacidad de grabar/reproducir un archivo ni audio por READY;
 la captura y reproducción del clip de H1 siguen sin implementar en este módulo.
+
+### 2026-11-14 · H1.4 · Vídeo local del Node
+
+Base comprobada: rama `desarrollo`, HEAD `6908c178ac27cb6b2e8079876a99f31c6fd30b31`.
+El único cambio previo era **config/server.ts ya en staging**. Se conserva sin
+editar ni incluir en el commit H1.4, también sin alterar su estado de staging.
+La evidencia corresponde a `feat(studio): implement H1.4 persistent local video`;
+obtener el SHA con `git log -1 --format=%H --grep='feat(studio): implement H1.4 persistent local video'`.
+
+Estado: **listo para prueba física**, H1 sigue **en curso**. No marcar verificado
+hasta que el usuario confirme que grabó y reprodujo un vídeo en un teléfono real.
+
+- CaptureEngine gestiona preparación, reconsulta de permiso al iniciar, una única
+  grabación local, STOP, espera del archivo de cámara, persistencia y errores.
+  Las fases visibles distinguen preparación, cámara lista, inicio, grabando,
+  guardando, archivo disponible y error. Un fallo de STOP permite volver a pulsarlo.
+- Un fallo de copia o metadatos conserva el temporal y ofrece **REINTENTAR GUARDADO**
+  para el mismo clip, sin volver a grabar. Si el origen falta o está vacío, informa
+  la causa y permite preparar/grabar otro. No acepta START/STOP duplicados.
+- Se escriben primero metadatos por clip, con sessionId, deviceId y nodeId reales,
+  identificador de clip local, takeId null (sin toma coordinada), URI y bytes esperados.
+  Luego se copia el vídeo a documentDirectory/nexus-captures. Sólo se muestra como
+  archivo disponible después de verificar existencia y tamaño positivo igual al
+  original. Se conserva .mp4/.mov y se elimina el temporal sólo tras esa validación.
+  Cada clip tiene su propio sidecar; dos resultados no sobrescriben un índice común.
+- La lista de vídeos locales relee metadatos y verifica los archivos al reabrir la
+  misma Session, y antes de reproducir. ExpoVideo reproduce el archivo en el teléfono
+  con controles nativos y muestra sus errores. Esta lista no modifica el catálogo
+  de medios importados ni sube archivos. Persistencia significa almacenamiento de la
+  app; desinstalar/borrar datos de la app elimina esos originales.
+- READY usa el estado real H1.3, pero informa motor ocupado/no listo durante captura,
+  guardado y errores. Perder conexión o actualizar la Session no desmonta la cámara
+  de un Node ya aceptado: conserva STOP local y su identidad hasta terminar. No
+  inicia otro clip sin membresía confirmada. La navegación de salida se bloquea
+  mientras haya captura/guardado/reintento pendiente. Pasar a segundo plano intenta
+  detener y guardar; no se implementa grabación nativa de fondo.
+- Se conservan el socket, relay, presencia, roles e ingreso 1→N; no se construyen
+  envelopes nuevos para capturar. No hay REC/STOP remoto, takeId común, catálogo
+  agregado ni nuevas operaciones Cloudinary. La importación anterior sigue intacta.
+
+API consultadas de la rama oficial SDK 54:
+[Camera](https://raw.githubusercontent.com/expo/expo/sdk-54/docs/pages/versions/v54.0.0/sdk/camera.mdx),
+[FileSystem](https://raw.githubusercontent.com/expo/expo/sdk-54/docs/pages/versions/v54.0.0/sdk/filesystem.mdx),
+[FileSystem legacy](https://raw.githubusercontent.com/expo/expo/sdk-54/docs/pages/versions/v54.0.0/sdk/filesystem-legacy.mdx)
+y [Video](https://raw.githubusercontent.com/expo/expo/sdk-54/docs/pages/versions/v54.0.0/sdk/video.mdx),
+contrastadas con las declaraciones instaladas. Para copias asíncronas se usa la
+entrada soportada `expo-file-system/legacy`; reproducción con `expo-video ~3.0.16`.
+
+**Cambio nativo:** se añadió ExpoVideo y su plugin. También se actualizó el texto
+iOS del permiso de cámara para describir Studio. `recordAudioAndroid` sigue en
+**false**, CameraView usa **mode video + mute**, y no se solicita micrófono.
+Hay que **reconstruir e instalar el cliente de desarrollo en los tres teléfonos**;
+el cliente anterior no contiene el módulo nativo ExpoVideo y recargar Metro no lo
+instala. No se ejecutó ninguna compilación EAS ni se instaló nada en teléfonos.
+
+Validación automática final: TypeScript pasa, lint pasa sin advertencias, ESLint
+ampliado pasa y **24/24 tests pasan**, incluidos todos los anteriores. Ocho tests
+nuevos cubren transiciones y READY ocupado, dobles controles, STOP fallido,
+revocación de permiso, fallos nativos, error de cámara durante la reconsulta de
+permiso, falta de URI, archivo vacío/incompleto, reintento y parada al desactivar.
+El adaptador FileSystem de pruebas usa disco real en un directorio temporal y
+comprueba metadatos/copia, conservación del origen ante fallos, clips independientes,
+descubrimiento tras recargar el servicio y nueva verificación antes de reproducir.
+Esto NO prueba codificación, decodificación ni duración de un vídeo nativo.
+
+El bundle JavaScript Android se exporta correctamente (1554 módulos). El primer
+intento de Metro con varios workers agotó memoria; pasó con `--max-workers 1`.
+También hubo un intento de lint sin memoria; el reintento secuencial final pasó.
+Una prueba inicial de archivo inexistente usaba una URI sin ruta absoluta Windows;
+se corrigió para usar pathToFileURL. No quedan fallos automáticos pendientes.
+
+Repetir desde `Nexus/`, con package.json y Node 24 (Git Bash):
+
+```bash
+git rev-parse HEAD
+npx tsc --noEmit
+npm run lint
+node --test tests/*.test.cjs
+npx eslint components/LocalCapturesPanel.tsx components/NodeReadinessPanel.tsx services/captureEngine.ts services/localCaptures.ts types/capture.ts tests/capture-engine.test.cjs
+npx expo export --platform android --output-dir .expo/h14-export --max-workers 1
+```
+
+Prueba física exacta, un Controller y dos Nodes:
+
+1. Antes de abrir H1.4, crear el cliente actualizado con
+   `npx eas-cli build --platform android --profile development` e instalar el APK
+   en los tres teléfonos. Si se usa iOS, construir con `--platform ios --profile development`
+   e instalar en los dispositivos registrados. Esta compilación debe incluir ExpoVideo.
+2. Comprobar SHA y dirección manual del relay. Ejecutar `npm run relay` y, en otra
+   terminal, `npx expo start --dev-client --lan`. Abrir el cliente nuevo en los tres,
+   en la misma LAN. Controller: Studio → NUEVA SESIÓN → ABRIR SESIÓN. Ambos Nodes:
+   código → SOLICITAR INGRESO; Controller acepta cada deviceId; ambos abren Session.
+3. En cada Node conceder permiso de cámara con **COMPROBAR / CONCEDER PERMISO**.
+   Esperar preview y **Cámara lista / READY**. Anotar sessionId, nodeId y deviceId.
+   Denegar permiso en uno debe impedir grabar, sin cambiar el estado del otro.
+4. En el primer Node pulsar **GRABAR VÍDEO SIN AUDIO**. Esperar **Grabando**, grabar
+   5–10 segundos y pulsar **DETENER Y GUARDAR**. Debe mostrar **Guardando archivo**
+   y luego **Archivo disponible**, con tamaño positivo en **Vídeos locales de este
+   dispositivo**. Durante el clip el Controller muestra ese Node no listo/ocupado.
+5. Pulsar **REPRODUCIR VÍDEO LOCAL** y ▶ en los controles del reproductor. Comprobar
+   imagen en movimiento, duración razonable y ausencia de audio. Cerrar reproductor,
+   volver a Studio y reabrir la MISMA Session: el vídeo debe seguir en la lista y
+   reproducirse. Grabar otro clip y comprobar que el primero se conserva.
+6. Repetir grabación/guardado/reproducción en el segundo Node apuntando a otra escena.
+   Los vídeos son independientes y se reproducen en su teléfono; el Controller no
+   recibe un catálogo agregado en H1.4. Comprobar también una importación anterior.
+7. Opcional de resistencia: durante otro clip quitar la Wi-Fi de un Node sin salir
+   de la pantalla. Debe poder usar STOP y guardar/reproducir localmente. Volver a
+   conectar y solicitar ingreso si el relay eliminó su membresía. La pérdida de red
+   no es una orden local de parada; enviar la app a segundo plano sí intenta STOP.
+
+Pendiente físico: compilación/instalación del cliente, permisos reales, codificación
+silenciada, latencia de STOP, archivo reproducible con duración válida, reapertura
+de pantalla, segunda captura y continuidad local sin relay. Registrar SHA, modelo/OS,
+tamaño, duración, audio ausente y cualquier error. Hasta recibir esa confirmación,
+**H1 no está verificado**.

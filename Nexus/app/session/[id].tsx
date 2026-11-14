@@ -1,12 +1,14 @@
 import * as ImagePicker from 'expo-image-picker';
+import { usePreventRemove } from '@react-navigation/native';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MediaAssetCard, formatBytes } from '@/components/MediaAssetCard';
 import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
+import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
@@ -15,6 +17,7 @@ import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog
 import { connectSocket } from '@/services/socket';
 import { readinessReasons, type JoinRequest } from '@/services/sessionProtocol';
 import type { NexusMediaAsset } from '@/types/media';
+import type { CaptureIdentity } from '@/types/capture';
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 type UploadState = 'idle' | 'selected' | 'uploading' | 'success' | 'error';
@@ -38,6 +41,11 @@ export default function SessionScreen() {
   const [deciding, setDeciding] = useState<Record<string, string>>({});
   const decisions = useRef<Record<string, string>>({});
   const refreshId = useRef<string | null>(null);
+  const [localNode, setLocalNode] = useState<(CaptureIdentity & { controllerId: string }) | null>(null);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureRevision, setCaptureRevision] = useState(0);
+  const captureSaved = useCallback(() => setCaptureRevision((revision) => revision + 1), []);
+  usePreventRemove(captureBusy, () => Alert.alert('Captura local en curso', 'Detén la grabación y espera al guardado. Si falló, pulsa REINTENTAR GUARDADO.'));
   const { service, snapshot, deviceId, error: serviceError } = useStudioSession((next) => {
     if (next.connection !== 'Connected') {
       refreshId.current = null;
@@ -79,6 +87,13 @@ export default function SessionScreen() {
   const connected = snapshot?.connection === 'Connected';
   const session = verified ? snapshot?.sessions[sessionId] : undefined;
   const isController = session?.controllerId === deviceId;
+  useEffect(() => {
+    const member = session?.members[deviceId];
+    if (!captureBusy && member?.kind === 'node' && member.nodeId &&
+        (localNode?.sessionId !== sessionId || localNode?.nodeId !== member.nodeId)) {
+      setLocalNode({ sessionId, deviceId, nodeId: member.nodeId, controllerId: session!.controllerId });
+    }
+  }, [session, sessionId, deviceId, localNode, captureBusy]);
 
   const refresh = useCallback(() => {
     setVerified(false);
@@ -252,7 +267,12 @@ export default function SessionScreen() {
           </ThemedView>
         </>}
 
-        {session && !isController && service && <ThemedView style={styles.section}><NodeReadinessPanel service={service} sessionId={sessionId} controllerId={session.controllerId} /></ThemedView>}
+        {localNode && localNode.sessionId === sessionId && service && <ThemedView style={styles.section}>
+          <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
+            accepted={session?.members[deviceId]?.nodeId === localNode.nodeId}
+            onBusyChange={setCaptureBusy} onSaved={captureSaved} />
+        </ThemedView>}
+        {!!deviceId && <ThemedView style={styles.section}><LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} /></ThemedView>}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle">Importar medio</ThemedText>
           <ThemedText style={styles.note}>Imágenes o videos de hasta 80 MB.</ThemedText>

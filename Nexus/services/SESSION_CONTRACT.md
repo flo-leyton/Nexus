@@ -1,4 +1,4 @@
-# Contrato de sesiones · H1.1–H1.3
+# Contrato de sesiones · H1.1–H1.4
 
 Entrada de la aplicación: `await getSessionService()` de `services/session.ts`.
 Reutiliza `getOrCreateDeviceId()` y el único socket de `services/socket.ts`.
@@ -114,3 +114,59 @@ No se asume disponibilidad a partir del permiso. Salir de Session o pasar la app
 segundo plano publica motor sin preparar y desmonta la cámara. Al volver comprueba
 de nuevo los permisos. La prueba no garantiza todavía archivos grabados ni audio:
 no hay grabación, REC/STOP ni transferencias nuevas en H1.3.
+
+## H1.4 · Captura y reproducción locales
+
+No amplía el protocolo remoto. Se conservan roles, ingreso y `NODE_STATE`.
+El Node aceptado utiliza su sessionId, deviceId y nodeId reales. El Controller no
+envía comandos de captura ni recibe archivos en este módulo.
+
+`CaptureEngine` admite un adaptador de grabación/persistencia y expone:
+
+- `start(identity)`: comprueba preparación y vuelve a consultar permiso antes de
+  invocar `recordAsync`. Mantiene una sola operación en curso.
+- `stop()`: requiere grabación activa; llama a `stopRecording` una sola vez y
+  espera la resolución de `recordAsync` antes de guardar. Si falla STOP, conserva
+  la operación activa y permite reintentar STOP.
+- `retrySave()`: reintenta persistir el mismo clip, sin iniciar otra grabación.
+- `getSnapshot()`: fases `idle/preparing/ready/starting/recording/saving/saved/error`,
+  `captureError`, `pendingSave` y `lastCapture`. Las promesas de captura completan
+  con el resultado en este estado; observar `phase === 'saved'`, no sólo await.
+- `getReadiness()`: mantiene el contrato H1.3, pero informa motor ocupado/no READY
+  durante inicio, grabación, guardado, error o archivo pendiente. La preparación
+  física y el bloqueo de la operación se mantienen separados para no desmontar
+  CameraView mientras `recordAsync` sigue activo.
+
+Una actualización de membresía, `refreshSession` o pérdida del relay ya no desmonta
+la cámara de un Node que estaba aceptado. Se conserva su identidad para terminar
+el clip y se mantiene STOP local; para iniciar otro se exige membresía confirmada.
+La navegación de salida se bloquea durante captura/guardado o reintento pendiente.
+Al pasar a segundo plano se intenta detener y guardar, conservando la instancia de
+cámara hasta finalizar; no se implementa grabación nativa en segundo plano.
+
+`localCaptures.ts` usa las API **asíncronas** de `expo-file-system/legacy`, incluidas
+en SDK 54, para no bloquear la interfaz al copiar el vídeo. Escribe primero un
+sidecar por clip con sessionId, deviceId, nodeId, id local, takeId **null**, fecha,
+bytes esperados, URI local y audio false. No fabrica una Take coordinada.
+Luego copia a `documentDirectory/nexus-captures/<sessionId>/<deviceId>/<clipId>/`,
+conservando extensión .mp4/.mov. Sólo declara guardado después de comprobar que
+el destino existe, es archivo y tiene el mismo tamaño positivo que el original.
+Sólo entonces elimina la copia temporal de cámara. Si falla copia/metadatos,
+conserva el temporal y permite reintentar; si el origen está vacío o falta, informa
+la causa y permite grabar un clip nuevo. Un resultado parcial nunca se muestra
+como archivo disponible.
+
+Cada clip tiene su sidecar: no hay un índice compartido que pueda perder resultados
+simultáneos. La lista local vuelve a leer metadatos y comprobar archivos al abrir
+la misma Session. Resuelve la URI usando el documentDirectory actual del teléfono.
+No modifica el catálogo de importaciones ni exige Firebase, red o Cloudinary para
+leer/reproducir archivos. El guardado verificado por tamaño no demuestra que el
+vídeo se decodifique: la reproducción física sigue siendo evidencia necesaria.
+
+`LocalCapturesPanel` utiliza `expo-video ~3.0.16` con controles nativos y presenta
+errores de reproducción. El reproductor se libera al salir o durante una captura.
+Se añadió su plugin y se actualizó el texto iOS de permiso de cámara en app.json.
+Es necesario **reconstruir e instalar el cliente de desarrollo en los tres equipos**;
+una recarga Metro no incorpora ExpoVideo al binario antiguo. Se conserva
+`recordAudioAndroid: false`, CameraView usa `mode="video" mute` y no solicita
+micrófono. REC/STOP remoto, takeId común, catálogo agregado y subidas quedan pendientes.
