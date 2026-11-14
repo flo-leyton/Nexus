@@ -39,6 +39,7 @@ export function LocalCapturesPanel({ sessionId, deviceId, busy }: { sessionId: s
     {captures.map((capture) => <View key={capture.id} style={styles.panel}>
       <ThemedText>{new Date(capture.createdAt).toLocaleString()} · {(capture.bytes / 1024 / 1024).toFixed(2)} MB</ThemedText>
       <ThemedText selectable>Node: {capture.nodeId}</ThemedText>
+      <ThemedText selectable>takeId: {capture.takeId ?? 'clip manual H1'}</ThemedText>
       <ThemedText selectable>{capture.localUri}</ThemedText>
       <Pressable accessibilityRole="button" disabled={busy} style={styles.button} onPress={() => {
         void verifyLocalCapture(capture).then(setSelected).catch((error: unknown) => setProblems([error instanceof Error ? error.message : 'Archivo no disponible.']));

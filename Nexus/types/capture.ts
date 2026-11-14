@@ -2,11 +2,12 @@ export interface CaptureIdentity {
   sessionId: string;
   nodeId: string;
   deviceId: string;
+  takeId?: string | null;
 }
 export interface LocalCaptureDraft extends CaptureIdentity {
   id: string;
   createdAt: string;
-  takeId: null; // H1.4 is local; no coordinated Take exists yet.
+  takeId: string | null; // null for H1 manual clips; shared Controller ID for H2
   audio: false;
 }
 export interface LocalCapture extends LocalCaptureDraft {

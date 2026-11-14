@@ -1,0 +1,267 @@
+/* global __dirname */
+const assert = require('node:assert/strict');
+const { once } = require('node:events');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
+const { randomUUID } = require('node:crypto');
+const test = require('node:test');
+const WebSocket = require('ws');
+const ts = require('typescript');
+const protocol = require('../services/sessionProtocol.ts');
+
+function load(file, dependencies) {
+  const exports = {};
+  const code = ts.transpileModule(fs.readFileSync(path.resolve(__dirname, file), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  vm.runInNewContext(code, { exports, require(name) { assert.ok(name in dependencies, name); return dependencies[name]; } });
+  return exports;
+}
+const { createSessionClient } = load('../services/sessionClient.ts', { './sessionProtocol': protocol });
+const { CaptureEngine } = load('../services/captureEngine.ts', { './sessionProtocol': protocol });
+const { coordinateCapture } = load('../services/coordinatedCapture.ts', {});
+const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
+const request = (type, senderId, sessionId, payload, targetId) => ({ protocolVersion: 1, messageId: randomUUID(), type,
+  senderId, sessionId, sentAt: Date.now(), payload, ...(targetId ? { targetId } : {}) });
+const reply = (id) => (m) => m.payload.requestId === id;
+async function harness(t) {
+  let relay;
+  class TestServer extends WebSocket.WebSocketServer {
+    constructor(options) { super({ ...options, host: '127.0.0.1', port: 0 }); relay = this; }
+  }
+  const serverPath = path.resolve(__dirname, '../server/index.js');
+  const serverRequire = createRequire(serverPath);
+  vm.runInNewContext(fs.readFileSync(serverPath, 'utf8'), {
+    require: (name) => name === 'ws' ? { WebSocketServer: TestServer, OPEN: WebSocket.OPEN } : serverRequire(name),
+    console: { log() {}, error() {} },
+  });
+  await once(relay, 'listening');
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) { peer.service.dispose(); peer.ws.terminate(); }
+    for (const ws of relay.clients) ws.terminate();
+    await new Promise((resolve) => relay.close(resolve));
+  });
+  return async (deviceId) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.address().port}`);
+    await once(ws, 'open');
+    const inbox = [], sent = [];
+    ws.on('message', (raw) => inbox.push(JSON.parse(String(raw))));
+    const service = createSessionClient(deviceId, randomUUID, {
+      connect() {}, send(m) { sent.push(m); ws.send(JSON.stringify(m)); return true; },
+      subscribeMessages(fn) { const cb = (raw) => fn(String(raw)); ws.on('message', cb); return () => ws.off('message', cb); },
+      subscribeStatus(fn) { fn('Connected'); const cb = () => fn('Disconnected'); ws.on('close', cb); return () => ws.off('close', cb); },
+    });
+    const peer = { ws, service, inbox, sent, deviceId,
+      async wait(predicate) { while (!inbox.some(predicate)) await once(ws, 'message'); return inbox.find(predicate); },
+      send(m) { ws.send(JSON.stringify(m)); },
+    };
+    peers.push(peer);
+    return peer;
+  };
+}
+async function create(controller) {
+  const first = controller.service.createSession();
+  return (await controller.wait(reply(first.messageId))).payload.session;
+}
+async function admit(c, n, session) {
+  const join = n.service.requestJoin(session.code);
+  await c.wait(reply(join));
+  const accept = c.service.acceptJoin(session.sessionId, n.deviceId, join);
+  await n.wait(reply(accept)); await c.wait(reply(accept));
+}
+async function attachCamera(t, peer, session, options = {}) {
+  const identity = { sessionId: session.sessionId, deviceId: peer.deviceId,
+    nodeId: peer.service.getSnapshot().sessions[session.sessionId].members[peer.deviceId].nodeId };
+  let complete, records = 0, stops = 0, draft;
+  let failStop = !!options.failStop;
+  let failSave = !!options.failSave;
+  let releasePermission;
+  let delayPermission = false;
+  const permission = { granted: true, status: 'granted', canAskAgain: true };
+  const engine = new CaptureEngine({
+    getPermission: () => delayPermission ? new Promise((resolve) => { releasePermission = () => resolve(permission); }) : Promise.resolve(permission),
+    requestPermission: async () => permission, isAvailable: async () => true,
+  }, {
+    createId: randomUUID,
+    record() { records++; if (options.failStart) return Promise.reject(new Error('native camera failed')); return new Promise((resolve) => { complete = resolve; }); },
+    stop() { stops++; if (failStop) throw new Error('native STOP failed'); complete({ uri: `file:///cache/${peer.deviceId}.mp4` }); },
+    async persist(value) { draft = value; if (failSave) throw new Error('disk full'); return { ...value, localUri: `file:///documents/${peer.deviceId}/${value.id}.mp4`, fileName: 'video.mp4', bytes: 512 }; },
+  });
+  await engine.prepare(); engine.cameraReady(engine.getSnapshot().generation);
+  const runtime = coordinateCapture(engine, identity, (report) => peer.service.reportCapture(session.sessionId, session.controllerId, report));
+  const off = peer.service.registerCaptureHandler(session.sessionId, runtime.handle);
+  const offState = engine.subscribe(() => { try { peer.service.reportNodeState(session.sessionId, session.controllerId, engine.getReadiness()); } catch { /* disconnected */ } });
+  t.after(() => { offState(); off(); runtime.dispose(); });
+  return { engine, identity, counts: () => ({ records, stops }), draft: () => draft,
+    failStop(v) { failStop = v; }, failSave(v) { failSave = v; },
+    delayPermission() { delayPermission = true; }, releasePermission() { releasePermission(); delayPermission = false; },
+  };
+}
+const hasNode = (takeId, id, phase) => (m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.take?.takeId === takeId && m.payload.session.take.nodes[id]?.phase === phase;
+async function waitReady(c, session, ids) {
+  for (const id of ids) await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.sessionId === session.sessionId && m.payload.session.members[id]?.readiness?.enginePrepared);
+}
+
+test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved, duplicate and stale commands', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('node-a'), b = await connect('node-b');
+  const session = await create(c);
+  await admit(c, a, session); await admit(c, b, session);
+  const ca = await attachCamera(t, a, session), cb = await attachCamera(t, b, session);
+  await waitReady(c, session, ['node-a', 'node-b']);
+  const start = c.service.startTake(session.sessionId);
+  await c.wait(hasNode(start.takeId, 'node-a', 'recording')); await c.wait(hasNode(start.takeId, 'node-b', 'recording'));
+  assert.equal(c.service.getSnapshot().sessions[session.sessionId].take.nodes['node-a'].startReceived, true);
+  assert.equal(c.service.getSnapshot().sessions[session.sessionId].take.nodes['node-a'].capture, null);
+  const startMessage = c.sent.find((m) => m.messageId === start.messageId);
+  c.send(startMessage); c.send(startMessage);
+  const barrier = c.service.refreshSession(session.sessionId); await c.wait(reply(barrier));
+  assert.equal(ca.counts().records, 1); assert.equal(cb.counts().records, 1);
+  const stopId = c.service.stopTake(session.sessionId), stopMessage = c.sent.find((m) => m.messageId === stopId);
+  await c.wait(hasNode(start.takeId, 'node-a', 'saved')); await c.wait(hasNode(start.takeId, 'node-b', 'saved'));
+  const take = c.service.getSnapshot().sessions[session.sessionId].take;
+  assert.equal(ca.draft().takeId, start.takeId); assert.equal(cb.draft().takeId, start.takeId);
+  assert.notEqual(take.nodes['node-a'].capture.id, take.nodes['node-b'].capture.id);
+  assert.notEqual(take.nodes['node-a'].capture.localUri, take.nodes['node-b'].capture.localUri);
+  assert.equal(take.nodes['node-b'].stopReceived, true);
+  assert.equal(c.service.getSnapshot().sessions[session.sessionId].state, 'completed');
+  c.send(stopMessage); c.send(startMessage);
+  const after = c.service.refreshSession(session.sessionId); await c.wait(reply(after));
+  assert.equal(ca.counts().records, 1); assert.equal(ca.counts().stops, 1);
+  assert.equal(cb.counts().records, 1); assert.equal(cb.counts().stops, 1);
+  // Readiness restoration is a separate hardware event/report; wait for fresh ready messages.
+  const ra = a.service.reportNodeState(session.sessionId, c.deviceId, ready); await c.wait(reply(ra));
+  const rb = b.service.reportNodeState(session.sessionId, c.deviceId, ready); await c.wait(reply(rb));
+  const second = c.service.startTake(session.sessionId);
+  await c.wait(hasNode(second.takeId, 'node-a', 'recording')); await c.wait(hasNode(second.takeId, 'node-b', 'recording'));
+  c.send(startMessage); c.send(stopMessage); // cannot affect a newer Take
+  const finalStop = c.service.stopTake(session.sessionId); await c.wait(reply(finalStop));
+  await c.wait(hasNode(second.takeId, 'node-a', 'saved')); await c.wait(hasNode(second.takeId, 'node-b', 'saved'));
+  assert.equal(ca.counts().records, 2); assert.equal(cb.counts().stops, 2);
+});
+
+test('H2: a failing Node does not stop another; STOP failure and save retry report real outcomes', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('good'), b = await connect('bad');
+  const session = await create(c); await admit(c, a, session); await admit(c, b, session);
+  const ca = await attachCamera(t, a, session, { failStop: true, failSave: true });
+  const cb = await attachCamera(t, b, session, { failStart: true });
+  await waitReady(c, session, ['good', 'bad']);
+  const start = c.service.startTake(session.sessionId);
+  await c.wait(hasNode(start.takeId, 'good', 'recording')); await c.wait(hasNode(start.takeId, 'bad', 'error'));
+  assert.equal(ca.engine.getSnapshot().phase, 'recording');
+  let stop = c.service.stopTake(session.sessionId); await c.wait(reply(stop));
+  await c.wait((m) => hasNode(start.takeId, 'good', 'error')(m) && m.payload.session.take.nodes.good.error.includes('STOP'));
+  assert.equal(ca.engine.getSnapshot().phase, 'recording');
+  ca.failStop(false);
+  stop = c.service.stopTake(session.sessionId); await c.wait(reply(stop));
+  await c.wait((m) => hasNode(start.takeId, 'good', 'error')(m) && m.payload.session.take.nodes.good.error.includes('disk full'));
+  assert.equal(ca.engine.getSnapshot().pendingSave, true);
+  ca.failSave(false); await ca.engine.retrySave();
+  await c.wait(hasNode(start.takeId, 'good', 'saved'));
+  assert.equal(ca.counts().records, 1); assert.equal(cb.counts().records, 1);
+  assert.equal(c.service.getSnapshot().sessions[session.sessionId].state, 'failed');
+});
+
+test('H2: STOP during permission recheck is queued; disconnect preserves local STOP and take identity', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('node');
+  const session = await create(c); await admit(c, a, session);
+  const ca = await attachCamera(t, a, session); await waitReady(c, session, ['node']); ca.delayPermission();
+  const start = c.service.startTake(session.sessionId);
+  await c.wait(hasNode(start.takeId, 'node', 'starting'));
+  const stop = c.service.stopTake(session.sessionId); await c.wait(reply(stop));
+  await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.take?.stopMessageId === stop && m.payload.session.take.nodes.node.stopReceived);
+  ca.releasePermission(); await c.wait(hasNode(start.takeId, 'node', 'saved'));
+  assert.deepEqual(ca.counts(), { records: 1, stops: 1 });
+  const refresh = a.service.reportNodeState(session.sessionId, c.deviceId, ready); await c.wait(reply(refresh));
+  const next = c.service.startTake(session.sessionId); await c.wait(hasNode(next.takeId, 'node', 'recording'));
+  a.ws.close(); await once(a.ws, 'close');
+  await c.wait(hasNode(next.takeId, 'node', 'disconnected'));
+  assert.equal(ca.engine.getSnapshot().phase, 'recording');
+  ca.engine.stop();
+  while (ca.engine.getSnapshot().phase === 'saving') await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ca.engine.getSnapshot().lastCapture.takeId, next.takeId);
+});
+
+test('H2: readiness, authorization, message conflicts, forged reports and cross-session isolation', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), n = await connect('node'), other = await connect('other');
+  const s = await create(c), foreign = await create(other); await admit(c, n, s);
+  const notReady = c.service.startTake(s.sessionId);
+  assert.equal((await c.wait(reply(notReady.messageId))).payload.code, 'NODE_NOT_READY');
+  const camera = await attachCamera(t, n, s); await waitReady(c, s, ['node']);
+  const targets = [camera.identity.nodeId];
+  const foreignAttack = request('START_RECORDING', 'other', s.sessionId, { takeId: randomUUID(), targetNodeIds: targets });
+  other.send(foreignAttack); assert.equal((await other.wait(reply(foreignAttack.messageId))).payload.code, 'NOT_MEMBER');
+  const nodeAttack = request('START_RECORDING', 'node', s.sessionId, { takeId: randomUUID(), targetNodeIds: targets });
+  n.send(nodeAttack); assert.equal((await n.wait(reply(nodeAttack.messageId))).payload.code, 'CONTROLLER_REQUIRED');
+  const start = c.service.startTake(s.sessionId); await c.wait(hasNode(start.takeId, 'node', 'recording'));
+  const original = c.sent.find((m) => m.messageId === start.messageId);
+  c.send({ ...original, payload: { ...original.payload, takeId: randomUUID() } });
+  assert.equal((await c.wait((m) => reply(start.messageId)(m) && m.type === 'SESSION_ERROR')).payload.code, 'MESSAGE_ID_CONFLICT');
+  const fake = request('RECORDING_STATE', 'controller', s.sessionId, { requestId: start.messageId, takeId: start.takeId,
+    phase: 'saved', error: null, busy: false, capture: { id: 'fake', bytes: 1, localUri: 'file:///fake.mp4' } }, c.deviceId);
+  c.send(fake); assert.equal((await c.wait(reply(fake.messageId))).payload.code, 'INVALID_RECORDING_REPORT');
+  const invalid = { ...fake, messageId: randomUUID(), payload: { ...fake.payload, phase: 'saved', capture: null } };
+  c.send(invalid); assert.equal((await c.wait(reply(invalid.messageId))).payload.code, 'INVALID_MESSAGE');
+  const stop = c.service.stopTake(s.sessionId); await c.wait(reply(stop)); await c.wait(hasNode(start.takeId, 'node', 'saved'));
+  const barrier = other.service.refreshSession(foreign.sessionId); await other.wait(reply(barrier));
+  assert.equal(other.inbox.some((m) => m.sessionId === s.sessionId && m.type !== 'SESSION_ERROR'), false);
+  assert.equal(camera.counts().records, 1);
+});
+
+test('H2: missing ACK and ACK without execution are distinct, never inferred saved', () => {
+  let now = Date.now();
+  const mod = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../server/recording.js'), 'utf8'), {
+    module: mod, require: () => protocol, Date: { now: () => now },
+  });
+  const clients = new Map(['controller', 'a', 'b'].map((id) => [id, { readyState: 1, send() {} }]));
+  const members = new Map(['a', 'b'].map((id) => [id, { deviceId: id, kind: 'node', nodeId: `node-${id}`, readiness: ready }]));
+  const times = new WeakMap(); for (const member of members.values()) times.set(member, now);
+  const s = { sessionId: 'session', controllerId: 'controller', members };
+  const recording = mod.exports.attachRecording({ clients, stateTimes: times, snapshot() {} });
+  const error = (value) => assert.fail(value);
+  const start = request('START_RECORDING', 'controller', 'session', { takeId: 'take', targetNodeIds: ['node-a', 'node-b'] });
+  recording.handle(s, start, error);
+  recording.handle(s, request('RECORDING_ACK', 'a', 'session', { requestId: start.messageId, takeId: 'take', command: 'START_RECORDING' }, 'controller'), error);
+  now += 15001; recording.tick(s);
+  assert.match(s.take.nodes.a.error, /ACK recibido sin confirmación/);
+  assert.match(s.take.nodes.b.error, /sin ACK/);
+  assert.equal(s.take.nodes.a.capture, null); assert.equal(s.take.nodes.b.capture, null);
+  assert.equal(s.take.nodes.a.busy, true);
+});
+
+test('H2: a manual clip after a completed Take cannot overwrite its remote state', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), n = await connect('node');
+  const s = await create(c); await admit(c, n, s);
+  const camera = await attachCamera(t, n, s); await waitReady(c, s, ['node']);
+  const take = c.service.startTake(s.sessionId); await c.wait(hasNode(take.takeId, 'node', 'recording'));
+  c.service.stopTake(s.sessionId); await c.wait(hasNode(take.takeId, 'node', 'saved'));
+  const captureId = c.service.getSnapshot().sessions[s.sessionId].take.nodes.node.capture.id;
+  // The same engine remains usable for H1. Its events must not be attributed to the old Take.
+  const task = camera.engine.start(camera.identity);
+  while (camera.engine.getSnapshot().phase === 'starting') await new Promise((resolve) => setImmediate(resolve));
+  camera.engine.stop(); await task;
+  const barrier = c.service.refreshSession(s.sessionId); await c.wait(reply(barrier));
+  assert.equal(c.service.getSnapshot().sessions[s.sessionId].take.nodes.node.capture.id, captureId);
+  assert.equal(camera.engine.getSnapshot().lastCapture.takeId, null);
+});
+
+test('H2: a late accepted Node cannot ACK or overwrite another Node in an existing Take', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), n = await connect('first'), late = await connect('late');
+  const s = await create(c); await admit(c, n, s);
+  const camera = await attachCamera(t, n, s); await waitReady(c, s, ['first']);
+  const take = c.service.startTake(s.sessionId); await c.wait(hasNode(take.takeId, 'first', 'recording'));
+  await admit(c, late, s);
+  const fake = request('RECORDING_ACK', late.deviceId, s.sessionId,
+    { requestId: take.messageId, takeId: take.takeId, command: 'START_RECORDING' }, c.deviceId);
+  late.send(fake); assert.equal((await late.wait(reply(fake.messageId))).payload.code, 'INVALID_RECORDING_REPORT');
+  assert.equal(late.inbox.some((m) => m.type === 'START_RECORDING'), false);
+  const stop = c.service.stopTake(s.sessionId); await c.wait(reply(stop)); await c.wait(hasNode(take.takeId, 'first', 'saved'));
+  const status = c.service.getSnapshot().sessions[s.sessionId];
+  assert.equal(Object.keys(status.members).length, 3);
+  assert.deepEqual(Object.keys(status.take.nodes), ['first']);
+  assert.equal(late.inbox.some((m) => m.type === 'STOP_RECORDING'), false);
+  assert.equal(camera.counts().stops, 1);
+});

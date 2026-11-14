@@ -9,6 +9,7 @@ import { MediaAssetCard, formatBytes } from '@/components/MediaAssetCard';
 import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
+import { ControllerTakePanel } from '@/components/ControllerTakePanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
@@ -248,6 +249,9 @@ export default function SessionScreen() {
                 </Pressable>
               </View>
             ))}
+          </ThemedView>}
+          {isController && service && <ThemedView style={styles.section}>
+            <ControllerTakePanel service={service} session={session} />
           </ThemedView>}
           <ThemedView style={styles.section}>
             <ThemedText type="subtitle">Miembros aceptados ({Object.keys(session.members).length})</ThemedText>

@@ -52,7 +52,7 @@ export async function getLocalCaptures(sessionId: string, deviceId: string): Pro
     try {
       const raw: unknown = JSON.parse(await FileSystem.readAsStringAsync(`${directory}${id}/capture.json`));
       if (!isRecord(raw) || raw.id !== id || raw.sessionId !== sessionId || raw.deviceId !== deviceId ||
-          !isProtocolId(raw.nodeId) || raw.takeId !== null || raw.audio !== false || typeof raw.createdAt !== 'string' ||
+          !isProtocolId(raw.nodeId) || !(raw.takeId === null || isProtocolId(raw.takeId)) || raw.audio !== false || typeof raw.createdAt !== 'string' ||
           typeof raw.bytes !== 'number' || raw.bytes <= 0 || !['video.mp4', 'video.mov'].includes(String(raw.fileName))) throw new Error('Metadatos incompletos');
       captures.push(await verifyLocalCapture(raw as unknown as LocalCapture));
     } catch (error) { problems.push(`Clip ${id}: ${error instanceof Error ? error.message : 'no se pudo verificar'}`); }

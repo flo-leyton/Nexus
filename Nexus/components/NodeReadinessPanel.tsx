@@ -7,6 +7,7 @@ import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture } from '@/services/localCaptures';
+import { coordinateCapture } from '@/services/coordinatedCapture';
 import type { getSessionService } from '@/services/session';
 import { readinessReasons } from '@/services/sessionProtocol';
 import type { CaptureIdentity } from '@/types/capture';
@@ -40,6 +41,14 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   }));
   const [preparation, setPreparation] = useState(engine.getSnapshot());
   const [reportError, setReportError] = useState('');
+
+  useEffect(() => {
+    const coordinator = coordinateCapture(engine, { sessionId, nodeId, deviceId }, (report) => {
+      service.reportCapture(sessionId, controllerId, report);
+    });
+    const unregister = service.registerCaptureHandler(sessionId, coordinator.handle);
+    return () => { unregister(); coordinator.dispose(); };
+  }, [engine, service, sessionId, nodeId, deviceId, controllerId]);
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', setAppState);
@@ -88,7 +97,10 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const canMount = busy || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
   const reasons = readinessReasons(engine.getReadiness(), service.getSnapshot().connection === 'Connected');
-  const canRecord = Platform.OS !== 'web' && accepted && focused && appState === 'active' && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
+  const coordinatedTake = service.getSnapshot().sessions[sessionId]?.take;
+  const takeNode = coordinatedTake?.nodes[deviceId];
+  const remotePending = takeNode && (takeNode.busy || !['saved', 'error'].includes(takeNode.phase));
+  const canRecord = Platform.OS !== 'web' && accepted && focused && appState === 'active' && !remotePending && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
   const phaseLabels = { idle: 'Cámara inactiva', preparing: 'Preparando cámara', ready: 'Cámara lista', starting: 'Iniciando grabación', recording: 'Grabando', saving: 'Guardando archivo', saved: 'Archivo disponible', error: 'Error de captura' };
   const run = (action: () => void | Promise<void>) => {
     setControlError('');
@@ -98,6 +110,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   return (
     <View style={styles.panel}>
       <ThemedText type="subtitle">Captura local de este Node</ThemedText>
+      {takeNode && <ThemedText selectable>Toma del Controller: {coordinatedTake?.takeId}</ThemedText>}
       <ThemedText accessibilityLiveRegion="polite">Estado: {phaseLabels[preparation.phase]}</ThemedText>
       <ThemedText accessibilityLiveRegion="polite">{reasons.length === 0 ? 'READY' : `NO LISTO: ${reasons.join(' · ')}`}</ThemedText>
       <ThemedText>Permiso: {readiness.cameraPermission} · Cámara: {readiness.cameraAvailable === null ? 'sin comprobar' : readiness.cameraAvailable ? 'disponible' : 'no disponible'} · Motor: {busy ? 'ocupado' : readiness.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>

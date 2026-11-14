@@ -208,6 +208,22 @@ test('H1.4: metadata/copy/empty file errors retain the camera source and allow s
   await assert.rejects(store.persistLocalCapture(h.draft('missing'), missing), /no existe/);
 });
 
+test('H2: shared takeId survives persistent sidecars alongside H1 manual clips', async (t) => {
+  const h = await diskStore(t), store = h.reload();
+  const sourceA = await h.source('angle-a.mp4'), sourceB = await h.source('angle-b.mp4'), manual = await h.source('manual.mp4');
+  await Promise.all([
+    store.persistLocalCapture({ ...h.draft('angle-a'), takeId: 'shared-take' }, sourceA),
+    store.persistLocalCapture({ ...h.draft('angle-b'), takeId: 'shared-take' }, sourceB),
+    store.persistLocalCapture(h.draft('manual'), manual),
+  ]);
+  const result = await h.reload().getLocalCaptures(identity.sessionId, identity.deviceId);
+  assert.equal(result.problems.length, 0);
+  assert.equal(result.captures.length, 3);
+  assert.equal(result.captures.filter((c) => c.takeId === 'shared-take').length, 2);
+  assert.equal(result.captures.find((c) => c.id === 'manual').takeId, null);
+  assert.equal(new Set(result.captures.map((c) => c.localUri)).size, 3);
+});
+
 test('H1.4: unusable temporary source releases the retry lock so another clip can be attempted', async () => {
   const h = captureHarness(); await h.ready(); h.failSave('invalid');
   const task = h.engine.start(identity); await flush(); h.engine.stop(); await task;

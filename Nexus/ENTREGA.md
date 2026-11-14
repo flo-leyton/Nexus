@@ -20,7 +20,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |
 |---|---|---|---|---|
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
-| H2 | Pendiente | — | takeId, dos Nodes, duración de ambos archivos y confirmaciones | — |
+| H2 | Implementado; listo para prueba física, NO verificado | Base 10c7c15; implementación H2 en historial Git | 32 tests automáticos; faltan dos vídeos reales con takeId común y confirmaciones | Probar REC/STOP con tres teléfonos y reproducir ambos originales |
 | H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
@@ -359,3 +359,67 @@ silenciada, latencia de STOP, archivo reproducible con duración válida, reaper
 de pantalla, segunda captura y continuidad local sin relay. Registrar SHA, modelo/OS,
 tamaño, duración, audio ausente y cualquier error. Hasta recibir esa confirmación,
 **H1 no está verificado**.
+
+### 2026-11-14 · H2 · Grabación coordinada
+
+Base `desarrollo@10c7c15`. Se confirmó exclusividad de esta sesión antes de editar.
+Se preservaron los cinco documentos locales pendientes y la IP del relay; no se
+aplicaron stashes, no se modificó Firebase y no se implementó H3.
+Se ejecutó npm ci para instalar expo-video ya fijado por H1.4; manifest/lockfile
+no se actualizaron. Persisten las advertencias de auditoría npm anteriores.
+
+Implementado: REC/STOP de Controller, takeId común, fan-out a Nodes aceptados y
+READY, ACK individual de recepción y estados separados del motor y archivo.
+CaptureEngine guarda originales independientes con takeId; se conserva captura
+manual, lectura de clips H1 y STOP local. Se validan pertenencia, rol, destino,
+formato y correlación de comandos/reportes. Deduplicación en relay y cliente;
+retransmitir no reinicia la cámara y no detiene una toma posterior. Fallos de un
+Node se muestran por separado; la toma sana puede finalizar y guardarse.
+Detalle del protocolo y límites: `services/SESSION_CONTRACT.md`, sección H2.
+
+Validación técnica: TypeScript PASS, npm run lint PASS, pruebas **32/32 PASS**.
+La cobertura nueva usa WebSocket local real y CaptureEngine con adaptador de
+cámara simulado; la persistencia de sidecars se prueba en disco temporal real.
+Incluye REC/STOP y IDs compartidos, duplicados antiguos/actuales, STOP durante
+permiso pendiente, error nativo/STOP/guardado, reintento local, desconexión,
+aislamiento, reportes falsos, READY insuficiente y ACK sin ejecución.
+No hay evidencia física de estos cambios y no se marca H1 ni H2 verificado.
+La prueba física de desconexión de un Node durante REC sigue **PENDIENTE**;
+las pruebas automatizadas con adaptadores no sustituyen esa evidencia.
+ESLint ampliado sobre todos los archivos H2 pasa. La exportación Android con
+un worker genera bytecode Hermes (1556 módulos); el primer intento dentro del
+sandbox falló con spawn EPERM al ejecutar Hermes y pasó fuera del sandbox.
+El primer acceso a caché Metro avisó de datos no deserializables y rehizo el escaneo.
+
+Prueba física H2 (Controller + dos Nodes):
+
+1. Instalar en los tres un cliente compatible con SDK 54 y ExpoVideo de H1.4.
+   No iniciar un build sólo por H2: no cambió configuración nativa. Registrar
+   SHA base y diff H2 hasta que el equipo revise/autorice el commit candidato.
+2. Reiniciar `npm run relay` con el código H2. En otra terminal de la aplicación:
+   `npx expo start --dev-client --lan`. Comprobar manualmente la IP ya configurada.
+   Recargar los tres clientes; misma LAN y pantallas en primer plano.
+3. Controller: crear Session. Nodes: solicitar ingreso por código y abrir Session
+   después de aceptación. Escribir roles distintos en los campos de texto y
+   confirmar. Conceder cámara y esperar ambos READY y previews.
+4. Controller: pulsar **REC · TODOS LOS NODES** una vez. Registrar takeId y
+   comprobar ACK REC y estado de motor por separado en ambos Nodes. Los dos
+   muestran la toma y Grabando; ningún ACK por sí solo equivale a vídeo válido.
+5. Esperar 5–10 segundos con escenas distintas; pulsar **STOP · FINALIZAR TOMA**.
+   Comprobar ACK STOP y luego **Archivo guardado en el Node** para cada uno,
+   con IDs/URIs independientes, bytes positivos y el mismo takeId.
+6. En cada Node pulsar **REPRODUCIR VÍDEO LOCAL** y ▶. Registrar imagen en
+   movimiento, duración razonable, tamaño y ausencia de audio. Volver a Studio y
+   abrir la misma Session; comprobar que ambos originales siguen en su teléfono.
+   Una nueva REC debe usar otro takeId y no borrar archivos previos.
+7. Fallos: denegar permiso en uno antes de REC debe impedir iniciar el grupo.
+   Recuperar permisos/READY. Durante otra toma desconectar un Node de la Wi-Fi:
+   el Controller informa resultado desconocido para ese Node; STOP finaliza el
+   conectado. En el desconectado usar STOP local y comprobar original reproducible.
+   Para otra toma tras pérdida de membresía puede ser necesaria una Session nueva.
+
+Si falla, informar versión/diff o SHA, modelo/OS, Session/takeId/nodeId, acción,
+ACK, fase/error y archivos existentes. No borrar datos ni reinstalar la aplicación
+para probar persistencia. La prueba de START duplicado es automatizada; no hace
+falta fabricar mensajes desde la UI. No certificar sincronización exacta, video
+decodificable ni tolerancia de hardware hasta ejecutar estas pruebas.

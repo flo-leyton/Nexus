@@ -1,4 +1,5 @@
 const { randomUUID, randomInt } = require('node:crypto');
+const { attachRecording, recordingState } = require('./recording');
 const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS } = require('../services/sessionProtocol.ts');
 
 function attachSessions(relay) {
@@ -19,11 +20,12 @@ function attachSessions(relay) {
       if (client) send(client, 'SESSION_SNAPSHOT', s.sessionId, {
         requestId, session: {
           sessionId: s.sessionId, controllerId: s.controllerId, code: s.code,
-          state: 'joining', members: Object.fromEntries(s.members),
+          state: recordingState(s), members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}),
         }, ...(id === s.controllerId ? { pending: [...s.pending.values()] } : {}),
       });
     }
   };
+  const recording = attachRecording({ clients, stateTimes, snapshot });
   const bind = (client, id) => {
     if (identities.has(client) && identities.get(client) !== id) return false;
     if (clients.has(id) && clients.get(id) !== client) return false;
@@ -33,6 +35,7 @@ function attachSessions(relay) {
   };
   const expiry = setInterval(() => {
     for (const s of sessions.values()) {
+      recording.tick(s);
       for (const [messageId, command] of s.roles) if (!command.acked && !command.expired && Date.now() >= command.expiresAt) {
         command.expired = true;
         const controller = clients.get(s.controllerId);
@@ -94,6 +97,7 @@ function attachSessions(relay) {
       const s = sessions.get(m.sessionId);
       if (!s) return error('SESSION_NOT_FOUND');
       if (!s.members.has(m.senderId)) return error('NOT_MEMBER');
+      if (recording.handle(s, m, error)) return true;
       if (m.type === 'NODE_STATE') {
         const member = s.members.get(m.senderId);
         if (member.kind !== 'node') return error('NODE_REQUIRED');
@@ -118,8 +122,8 @@ function attachSessions(relay) {
       if (m.type === 'SESSION_GET') {
         // Snapshot query is delivered only to the requesting member.
         send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: {
-          sessionId: s.sessionId, controllerId: s.controllerId, code: s.code, state: 'joining',
-          members: Object.fromEntries(s.members),
+          sessionId: s.sessionId, controllerId: s.controllerId, code: s.code, state: recordingState(s),
+          members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}),
         }, ...(m.senderId === s.controllerId ? { pending: [...s.pending.values()] } : {}) });
         return true;
       }
@@ -161,6 +165,7 @@ function attachSessions(relay) {
           sessions.delete(s.sessionId);
           codes.delete(s.code);
         } else if (s.members.delete(id) || s.pending.has(id)) {
+          recording.disconnect(s, id);
           for (const [messageId, command] of s.roles) if (command.targetId === id) s.roles.delete(messageId);
           s.pending.delete(id);
           snapshot(s, randomUUID());

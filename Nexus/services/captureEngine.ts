@@ -94,7 +94,8 @@ export class CaptureEngine {
     if (this.pending) throw new Error('Reintenta guardar el clip pendiente antes de iniciar otro.');
     if (!this.recorder || !this.state.active || readinessReasons(this.getReadiness()).length) throw new Error('La cámara no está lista. Comprueba permisos y vuelve a prepararla.');
     if (![identity.sessionId, identity.nodeId, identity.deviceId].every(isProtocolId)) throw new Error('La identidad del Node o la Session no es válida.');
-    const draft: LocalCaptureDraft = { ...identity, id: this.recorder.createId(), createdAt: new Date().toISOString(), takeId: null, audio: false };
+    if (identity.takeId != null && !isProtocolId(identity.takeId)) throw new Error('Take no válida.');
+    const draft: LocalCaptureDraft = { ...identity, id: this.recorder.createId(), createdAt: new Date().toISOString(), takeId: identity.takeId ?? null, audio: false };
     const generation = this.state.generation;
     this.stopRequested = false;
     this.update({ phase: 'starting', captureError: null });
