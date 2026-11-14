@@ -1,10 +1,19 @@
-# Expo HAS CHANGED
+# NEXUS Studio · Instrucciones para Codex
 
-Read the exact versioned docs at https://docs.expo.dev/versions/v54.0.0/ before writing any code.
+Trabaja en `desarrollo`. Lee [ENTREGA.md](ENTREGA.md), comprueba la rama y el estado del árbol y toma el primer hito pendiente. Implementa el comportamiento completo, desde la pantalla hasta el dispositivo que lo ejecuta. Cada hito deja un commit verificable. El equipo usa [GUIA_DE_TRABAJO.md](GUIA_DE_TRABAJO.md) para la prueba física y el PR final hacia `main`.
 
-# Configuración de conexión
+Para esta entrega, estos tres documentos sustituyen la asignación DEV-A/DEV-B, la planificación de tres semanas y los prompts por módulo. Consulta [la arquitectura](README/DOCS/ARCHITECTURE.md) para los contratos y [el backlog](README/DOCS/BACKLOG.md) para el detalle de una funcionalidad. Los ejemplos históricos de GitHub y Codex son material de consulta.
 
-- Toda conexión al servidor debe usar `SERVER_CONFIG` de `config/server.ts` (alias `@/config/server` en la aplicación; ruta relativa en el relay).
-- Nunca escribir directamente la IP ni el puerto del servidor en otros archivos.
-- `config/server.ts` es configuración manual: no modificar las constantes `IP` ni `PORT` salvo petición explícita del usuario.
-- Mantener el único cliente compartido de `services/socket.ts`; no duplicar conexiones ni alterar eventos al configurar URLs.
+## Contratos que debe conservar la implementación
+
+- Usa Expo SDK 54. Antes de escribir código consulta la documentación de la versión instalada. [Expo SDK 54](https://docs.expo.dev/versions/v54.0.0/)
+- Centraliza la dirección del relay en `config/server.ts`. IP y PORT son manuales y requieren petición explícita para editarlos. Reutiliza el único cliente de `services/socket.ts`. Mantén los eventos de presencia existentes.
+- Un Controller coordina N Nodes dentro de una Session. El código permite solicitar ingreso y el Controller acepta al Node. Mantén identidad por dispositivo y estado por sesión. Dos es el mínimo de la prueba física.
+- Implementa el protocolo en el servicio y el relay. El envelope lleva protocolVersion, messageId, type, sessionId, senderId, sentAt, payload y targetId cuando corresponda. El relay comprueba membresía, rol y destino. Un mensaje Studio inválido debe rechazarse antes de llegar al broadcast heredado.
+- START y STOP comparten el takeId creado por el Controller. Los comandos críticos tienen ACK por Node y se deduplican por messageId. Distingue recepción, grabación activa y archivo guardado. El Controller muestra fallos parciales.
+- El Node controla permisos, cámara, parada y archivo mediante CaptureEngine. Conserva el original en almacenamiento local persistente al finalizar. Una desconexión durante REC permite continuar y detener desde el Node.
+- Separa control, preview y medios. Envía por el relay estados y referencias. Sube archivos con el adaptador Cloudinary. Guarda primero la captura con sessionId, takeId, nodeId y URI local. Conserva los medios importados previamente y evita perder un ángulo si los dos resultados llegan juntos.
+
+## Verificación y relevo
+
+Desde el directorio de la aplicación ejecuta `npx tsc --noEmit`, `npm run lint` y `node --test tests/*.test.cjs` (Git Bash). Añade pruebas para routing, aislamiento y comandos duplicados cuando implementes esos comportamientos. En ENTREGA registra qué pasó, qué falló y qué falta probar físicamente. Entrega al operador el SHA y los pasos exactos para repetir la prueba. Marca el hito como verificado cuando exista la evidencia indicada.
