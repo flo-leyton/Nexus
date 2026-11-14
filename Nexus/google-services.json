@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "655422268897",
+    "firebase_url": "https://nexus-fda0e-default-rtdb.firebaseio.com",
+    "project_id": "nexus-fda0e",
+    "storage_bucket": "nexus-fda0e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:655422268897:android:f3c5234fb1fff6e1eb1ea0",
+        "android_client_info": {
+          "package_name": "com.floleyton.nexus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaNnpn9GEqlw_9WY4L01Ul6JCM4sBXe1Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

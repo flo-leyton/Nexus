@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 
+
 function requiredEnv(name: string, value: string | undefined) {
   if (!value) {
     throw new Error(`Missing Firebase environment variable: ${name}`);

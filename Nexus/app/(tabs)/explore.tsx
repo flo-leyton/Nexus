@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { onValue, ref } from 'firebase/database';
 import { useEffect, useState } from 'react';
@@ -142,6 +143,15 @@ export default function AccountScreen() {
             Firebase Account
           </ThemedText>
         </ThemedView>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/notifications-test')}
+          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+          <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>
+            Prueba de notificaciones
+          </ThemedText>
+        </Pressable>
 
         {!user ? (
           <ThemedView style={styles.panel}>

@@ -7,12 +7,18 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { startDevicePresence } from '@/services/devicePresence';
 import { testFirebaseInitialization } from '@/services/firebaseTest';
+import { setupNotificationHandler } from '@/services/notifications';
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    // Registration errors are displayed by the diagnostic screen, without logging tokens.
+    void setupNotificationHandler().catch(() => {});
+  }, []);
   
   useEffect(() => {
   const stopDevicePresence = startDevicePresence();

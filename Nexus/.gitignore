@@ -43,3 +43,7 @@ app-example
 /android
 
 .env
+
+# Private Firebase server credentials (not Android client configuration)
+*firebase-adminsdk*.json
+*service-account*.json
