@@ -9,7 +9,7 @@ import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture } from '@/services/localCaptures';
 import { coordinateCapture } from '@/services/coordinatedCapture';
 import type { getSessionService } from '@/services/session';
-import { readinessReasons } from '@/services/sessionProtocol';
+import { nodeTakePending, readinessReasons } from '@/services/sessionProtocol';
 import type { CaptureIdentity } from '@/types/capture';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
@@ -98,8 +98,8 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
   const reasons = readinessReasons(engine.getReadiness(), service.getSnapshot().connection === 'Connected');
   const coordinatedTake = service.getSnapshot().sessions[sessionId]?.take;
-  const takeNode = coordinatedTake?.nodes[deviceId];
-  const remotePending = takeNode && (takeNode.busy || !['saved', 'error'].includes(takeNode.phase));
+  const takeNode = coordinatedTake?.nodes[deviceId]?.nodeId === nodeId ? coordinatedTake.nodes[deviceId] : undefined;
+  const remotePending = nodeTakePending(coordinatedTake, deviceId, nodeId);
   const canRecord = Platform.OS !== 'web' && accepted && focused && appState === 'active' && !remotePending && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
   const phaseLabels = { idle: 'Cámara inactiva', preparing: 'Preparando cámara', ready: 'Cámara lista', starting: 'Iniciando grabación', recording: 'Grabando', saving: 'Guardando archivo', saved: 'Archivo disponible', error: 'Error de captura' };
   const run = (action: () => void | Promise<void>) => {

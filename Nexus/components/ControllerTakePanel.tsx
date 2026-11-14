@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import type { getSessionService } from '@/services/session';
-import { readinessReasons, type Session } from '@/services/sessionProtocol';
+import { readinessReasons, takeFinished, type Session } from '@/services/sessionProtocol';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
 const phases = { pending: 'Esperando recepción', starting: 'Iniciando cámara', recording: 'Grabación en curso',
@@ -11,6 +11,7 @@ const phases = { pending: 'Esperando recepción', starting: 'Iniciando cámara',
 export function ControllerTakePanel({ service, session }: { service: Service; session: Session }) {
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState(false);
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const request = useRef<string | null>(null);
   const requestedAt = useRef(0);
   useEffect(() => {
@@ -30,9 +31,18 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
   }, [service, session.sessionId]);
   const nodes = Object.values(session.members).filter((m) => m.kind === 'node');
   const take = session.take;
-  const finished = !take || Object.values(take.nodes).every((n) => !n.busy && ['saved', 'error'].includes(n.phase));
+  const finished = takeFinished(take);
   const canStart = !pending && finished && nodes.length > 0 && nodes.every((n) => !readinessReasons(n.readiness).length);
-  const canStop = !pending && !!take && Object.values(take.nodes).some((n) => n.phase !== 'saved');
+  const canStop = !pending && !!take && !take.closed && Object.values(take.nodes).some((n) => n.phase !== 'saved');
+  const canClose = !pending && !!take && !finished && !!take.stopMessageId;
+  const close = () => {
+    if (!take || request.current) return;
+    try {
+      request.current = service.closeInterruptedTake(session.sessionId, take.takeId);
+      requestedAt.current = Date.now(); setPending(true); setConfirmClose(null);
+      setNotice('Verificando participantes en el relay…');
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo cerrar.'); }
+  };
   const run = (start: boolean) => {
     if (request.current) return;
     try {
@@ -46,6 +56,14 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
     <Pressable accessibilityRole="button" disabled={!canStart} onPress={() => run(true)} style={[styles.button, !canStart && styles.disabled]}>
       <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REC · TODOS LOS NODES ({nodes.length})</ThemedText>
     </Pressable>
+    {canClose && <Pressable accessibilityRole="button" onPress={() => setConfirmClose(take!.takeId)} style={styles.stop}>
+      <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CERRAR TOMA INTERRUMPIDA</ThemedText>
+    </Pressable>}
+    {canClose && confirmClose === take?.takeId && <View style={styles.panel}>
+      <ThemedText>El relay rechazará el cierre si un participante alcanzable sigue activo o sin resultado final. Un Node desconectado puede seguir grabando: usa STOP local y comprueba su vídeo. Cerrar solo libera la toma; no confirma ni detiene ese teléfono.</ThemedText>
+      <Pressable accessibilityRole="button" onPress={close} style={styles.stop}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONFIRMAR CIERRE CON RESULTADOS DESCONOCIDOS</ThemedText></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => setConfirmClose(null)}><ThemedText>Cancelar</ThemedText></Pressable>
+    </View>}
     <Pressable accessibilityRole="button" disabled={!canStop} onPress={() => run(false)} style={[styles.stop, !canStop && styles.disabled]}>
       <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">STOP · FINALIZAR TOMA</ThemedText>
     </Pressable>
@@ -53,6 +71,7 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
     {!!notice && <ThemedText accessibilityLiveRegion="polite">{notice}</ThemedText>}
     {take && <>
       <ThemedText selectable>takeId: {take.takeId}</ThemedText>
+      {take.closed && <ThemedText>Toma cerrada operativamente. Sin confirmar: {take.closed.unconfirmedNodeIds.join(', ')}. Los ACK y resultados originales se conservan.</ThemedText>}
       <ThemedText>No se certifica sincronización exacta. Los vídeos son silenciados y permanecen en cada teléfono.</ThemedText>
       {Object.entries(take.nodes).map(([id, node]) => <View key={node.nodeId} style={styles.panel}>
         <ThemedText selectable>Node: {node.nodeId} · dispositivo: {id}</ThemedText>
@@ -62,6 +81,13 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
         {node.capture && <ThemedText selectable>Original {node.capture.id} · {node.capture.bytes} bytes. Reproduce el vídeo en ese Node.</ThemedText>}
       </View>)}
     </>}
+    {!!session.takeHistory?.length && <View style={styles.panel}>
+      <ThemedText type="subtitle">Historial de tomas de esta sesión</ThemedText>
+      {session.takeHistory.map((old) => <View key={old.takeId} style={styles.panel}>
+        <ThemedText selectable>takeId: {old.takeId}{old.closed ? ' · cierre con resultados no confirmados' : ''}</ThemedText>
+        {Object.entries(old.nodes).map(([id, n]) => <ThemedText selectable key={n.nodeId}>{id} · {n.nodeId} · {phases[n.phase]} · REC {n.startReceived ? 'ACK' : 'sin ACK'} · STOP {n.stopReceived ? 'ACK' : 'sin ACK'}{n.error ? ` · ${n.error}` : ''}{n.capture ? ` · ${n.capture.id} · ${n.capture.localUri} · ${n.capture.bytes} bytes` : ''}</ThemedText>)}
+      </View>)}
+    </View>}
   </View>;
 }
 const styles = StyleSheet.create({ panel: { gap: 10 }, button: { padding: 14, borderRadius: 12, backgroundColor: '#B42318' },

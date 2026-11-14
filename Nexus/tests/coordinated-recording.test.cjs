@@ -265,3 +265,127 @@ test('H2: a late accepted Node cannot ACK or overwrite another Node in an existi
   assert.equal(late.inbox.some((m) => m.type === 'STOP_RECORDING'), false);
   assert.equal(camera.counts().stops, 1);
 });
+
+test('H2 recovery: disconnect, offline save, approved rejoin, explicit close and second take preserve history', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const ca = await attachCamera(t, a, s), cb = await attachCamera(t, b, s);
+  await waitReady(c, s, ['a', 'b']);
+  const first = c.service.startTake(s.sessionId);
+  await c.wait(hasNode(first.takeId, 'a', 'recording')); await c.wait(hasNode(first.takeId, 'b', 'recording'));
+  const originalStart = c.sent.find((m) => m.messageId === first.messageId);
+  b.ws.close(); await once(b.ws, 'close'); await c.wait(hasNode(first.takeId, 'b', 'disconnected'));
+  const early = c.service.closeInterruptedTake(s.sessionId, first.takeId);
+  assert.equal((await c.wait(reply(early))).payload.code, 'STOP_REQUIRED');
+  const stop = c.service.stopTake(s.sessionId); await c.wait(hasNode(first.takeId, 'a', 'saved'));
+  const stopMessage = c.sent.find((m) => m.messageId === stop);
+  cb.engine.stop();
+  while (cb.engine.getSnapshot().phase === 'saving') await new Promise((resolve) => setImmediate(resolve));
+  const offline = cb.engine.getSnapshot().lastCapture;
+  assert.equal(offline.takeId, first.takeId); assert.equal(offline.nodeId, cb.identity.nodeId);
+  const returned = await connect('b'); await admit(c, returned, s);
+  const newNodeId = returned.service.getSnapshot().sessions[s.sessionId].members.b.nodeId;
+  assert.notEqual(newNodeId, cb.identity.nodeId);
+  const notPrepared = c.service.closeInterruptedTake(s.sessionId, first.takeId);
+  assert.equal((await c.wait(reply(notPrepared))).payload.code, 'NODE_NOT_READY');
+  const newCamera = await attachCamera(t, returned, s); await waitReady(c, s, ['b']);
+  const before = JSON.parse(JSON.stringify(c.service.getSnapshot().sessions[s.sessionId].take));
+  assert.equal(protocol.takeFinished(before), false);
+  assert.equal(protocol.nodeTakePending(before, 'b', newNodeId), false);
+  assert.equal(protocol.nodeTakePending(before, 'b', cb.identity.nodeId), true);
+  const close = c.service.closeInterruptedTake(s.sessionId, first.takeId); await c.wait(reply(close));
+  const closed = c.service.getSnapshot().sessions[s.sessionId].take;
+  assert.equal(protocol.takeFinished(closed), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(closed.nodes)), before.nodes);
+  assert.deepEqual(Array.from(closed.closed.unconfirmedNodeIds), [cb.identity.nodeId]);
+  assert.equal(closed.nodes.b.stopReceived, false); assert.equal(closed.nodes.b.capture, null);
+  assert.equal(protocol.isCoordinatedTake(closed), true);
+  assert.equal(protocol.isCoordinatedTake({ ...closed, closed: { ...closed.closed, unconfirmedNodeIds: ['foreign-node'] } }), false);
+  c.send(stopMessage);
+  await c.wait((m) => reply(stop)(m) && m.type === 'SESSION_ERROR' && m.payload.code === 'TAKE_CLOSED');
+  const lateAck = request('RECORDING_ACK', 'a', s.sessionId,
+    { requestId: stop, takeId: first.takeId, command: 'STOP_RECORDING' }, c.deviceId);
+  a.send(lateAck); assert.equal((await a.wait(reply(lateAck.messageId))).payload.code, 'TAKE_CLOSED');
+  const closeMessage = c.sent.find((m) => m.messageId === close);
+  c.send(closeMessage);
+  const barrier = c.service.refreshSession(s.sessionId); await c.wait(reply(barrier));
+  const ra = a.service.reportNodeState(s.sessionId, c.deviceId, ready); await c.wait(reply(ra));
+  const second = c.service.startTake(s.sessionId);
+  await c.wait(hasNode(second.takeId, 'a', 'recording')); await c.wait(hasNode(second.takeId, 'b', 'recording'));
+  assert.notEqual(first.takeId, second.takeId);
+  c.send(originalStart); c.send(stopMessage); c.send(closeMessage);
+  const barrier2 = c.service.refreshSession(s.sessionId); await c.wait(reply(barrier2));
+  const current = c.service.getSnapshot().sessions[s.sessionId];
+  assert.equal(current.take.takeId, second.takeId);
+  assert.deepEqual(JSON.parse(JSON.stringify(current.takeHistory[0])), JSON.parse(JSON.stringify(closed)));
+  assert.equal(ca.counts().records, 2); assert.equal(newCamera.counts().records, 1); assert.equal(cb.counts().records, 1);
+  const lateReport = request('RECORDING_STATE', 'b', s.sessionId, { requestId: first.messageId, takeId: first.takeId,
+    phase: 'saved', busy: false, error: null, capture: { id: offline.id, localUri: offline.localUri, bytes: offline.bytes } }, c.deviceId);
+  returned.send(lateReport); assert.equal((await returned.wait(reply(lateReport.messageId))).payload.code, 'INVALID_RECORDING_REPORT');
+  const end = c.service.stopTake(s.sessionId); await c.wait(reply(end));
+  await c.wait(hasNode(second.takeId, 'a', 'saved')); await c.wait(hasNode(second.takeId, 'b', 'saved'));
+  assert.equal(cb.engine.getSnapshot().lastCapture.id, offline.id);
+});
+
+test('H2 recovery: absent Node never returns, repeated STOP preserves ACK and explicit close permits another take', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const ca = await attachCamera(t, a, s); await attachCamera(t, b, s);
+  await waitReady(c, s, ['a', 'b']);
+  const first = c.service.startTake(s.sessionId);
+  await c.wait(hasNode(first.takeId, 'a', 'recording')); await c.wait(hasNode(first.takeId, 'b', 'recording'));
+  b.ws.close(); await once(b.ws, 'close'); await c.wait(hasNode(first.takeId, 'b', 'disconnected'));
+  const stop = c.service.stopTake(s.sessionId); await c.wait(hasNode(first.takeId, 'a', 'saved'));
+  const saved = c.service.getSnapshot().sessions[s.sessionId].take.nodes.a.capture;
+  const repeat = c.service.stopTake(s.sessionId);
+  const repeated = (await c.wait(reply(repeat))).payload.session.take;
+  assert.equal(repeated.nodes.a.stopReceived, true); assert.equal(repeated.stopMessageId, stop);
+  assert.equal(repeated.nodes.b.stopReceived, false);
+  const close = c.service.closeInterruptedTake(s.sessionId, first.takeId); await c.wait(reply(close));
+  const command = c.sent.find((m) => m.messageId === close);
+  const conflicting = { ...command, payload: { ...command.payload, takeId: 'different-take' } };
+  c.send(conflicting);
+  await c.wait((m) => reply(close)(m) && m.type === 'SESSION_ERROR' && m.payload.code === 'MESSAGE_ID_CONFLICT');
+  const r = a.service.reportNodeState(s.sessionId, c.deviceId, ready); await c.wait(reply(r));
+  const next = c.service.startTake(s.sessionId); await c.wait(hasNode(next.takeId, 'a', 'recording'));
+  const state = c.service.getSnapshot().sessions[s.sessionId];
+  assert.equal(state.takeHistory[0].nodes.a.capture.id, saved.id);
+  assert.equal(state.takeHistory[0].nodes.b.phase, 'disconnected');
+  assert.equal(ca.counts().records, 2);
+  c.service.stopTake(s.sessionId); await c.wait(hasNode(next.takeId, 'a', 'saved'));
+});
+
+test('H2 recovery: close rejects active reachable participants, other Controllers, Nodes and malformed requests', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), n = await connect('node'), other = await connect('other');
+  const s = await create(c); await create(other); await admit(c, n, s);
+  await attachCamera(t, n, s, { failStop: true }); await waitReady(c, s, ['node']);
+  const take = c.service.startTake(s.sessionId); await c.wait(hasNode(take.takeId, 'node', 'recording'));
+  c.service.stopTake(s.sessionId); await c.wait(hasNode(take.takeId, 'node', 'error'));
+  const close = c.service.closeInterruptedTake(s.sessionId, take.takeId);
+  assert.equal((await c.wait(reply(close))).payload.code, 'TAKE_PARTICIPANT_ACTIVE');
+  for (const [peer, expected] of [[other, 'NOT_MEMBER'], [n, 'CONTROLLER_REQUIRED']]) {
+    const command = request('CLOSE_INTERRUPTED_TAKE', peer.deviceId, s.sessionId, { takeId: take.takeId, acknowledgeUnknown: true });
+    peer.send(command); assert.equal((await peer.wait(reply(command.messageId))).payload.code, expected);
+  }
+  const invalid = request('CLOSE_INTERRUPTED_TAKE', c.deviceId, s.sessionId, { takeId: take.takeId, acknowledgeUnknown: false });
+  c.send(invalid); assert.equal((await c.wait(reply(invalid.messageId))).payload.code, 'INVALID_MESSAGE');
+  assert.equal(protocol.takeFinished(c.service.getSnapshot().sessions[s.sessionId].take), false);
+});
+
+test('H2 recovery: closed unknown results remain immutable through expiry and further disconnects', () => {
+  const { attachRecording } = require('../server/recording');
+  const take = { takeId: 'take', startMessageId: 'start', stopMessageId: 'stop', nodes: {
+    missing: { nodeId: 'old-node', phase: 'disconnected', busy: true, startReceived: true, stopReceived: false,
+      error: 'Disconnected', capture: null },
+  } };
+  const s = { controllerId: 'controller', members: new Map(), take,
+    recordingCommands: new Map([['stop', { takeId: 'take', expiresAt: 0, targetNodeIds: ['old-node'], responded: new Set(), executed: new Set(), notified: new Set() }]]) };
+  const recorder = attachRecording({ clients: new Map(), stateTimes: new WeakMap(), snapshot() {} });
+  const close = request('CLOSE_INTERRUPTED_TAKE', 'controller', 'session', { takeId: 'take', acknowledgeUnknown: true });
+  assert.equal(recorder.handle(s, close, (error) => assert.fail(error)), true);
+  const before = JSON.stringify(s.take);
+  recorder.tick(s); recorder.disconnect(s, 'missing');
+  assert.equal(JSON.stringify(s.take), before);
+  assert.equal(s.take.nodes.missing.stopReceived, false);
+  assert.equal(s.take.nodes.missing.capture, null);
+});

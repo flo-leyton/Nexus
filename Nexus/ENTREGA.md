@@ -20,7 +20,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |
 |---|---|---|---|---|
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
-| H2 | Implementado; listo para prueba física, NO verificado | Base 10c7c15; implementación H2 en historial Git | 32 tests automáticos; faltan dos vídeos reales con takeId común y confirmaciones | Probar REC/STOP con tres teléfonos y reproducir ambos originales |
+| H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
 | H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
@@ -459,3 +459,48 @@ Prueba física con Controller y dos Nodes:
    offline; al reconectar/solicitar debe indicar Session inexistente y permitir otro código.
 6. Comprobar que los vídeos anteriores siguen disponibles localmente. No repetir
    START automáticamente ni atribuir los vídeos antiguos a la participación nueva.
+
+### 2026-11-14 · H2: cierre de toma interrumpida
+
+Fallo físico reportado: tras desconexión durante REC y reingreso con nuevo nodeId,
+la toma antigua bloqueaba la siguiente REC. Implementado cierre explícito con
+confirmación en Controller y autorización en relay. Exige STOP previo, resultado
+terminal sin busy en participantes originales alcanzables y READY reciente si el
+dispositivo ya reingresó. El ausente sigue no confirmado: no se fabrican ACK ni
+archivo, no se envía START y no se detiene su cámara mediante el cierre.
+
+Se conservan toma, identidades, ACK, errores y referencias en el historial de la
+Session en memoria. STOP repetido no reinicia confirmaciones. La participación
+nueva no hereda bloqueos de su nodeId anterior. Sin cambios de LAN, dependencias,
+Firebase, reconexión automática o almacenamiento de vídeos.
+
+Prueba física de recuperación: **PASS**, según confirmación del operador recibida
+el 2026-11-14. Sobre la base `50bb211` más esta corrección, MAIN y SIDE conservaron
+sus vídeos; el Controller cerró la toma interrumpida; SIDE reingresó con aprobación;
+ambos grabaron otra vez en la misma Session. La toma anterior permaneció en el
+historial con sus resultados no confirmados. Evidencia: reporte del operador en
+esta conversación; Codex no ejecutó ni observó directamente la prueba física.
+El commit que contiene este registro identifica el código de la corrección.
+
+Esta evidencia verifica la recuperación descrita, no acredita por sí sola todos
+los criterios de cierre de H2/H4. El operador no aportó modelos, IDs concretos,
+metadatos de reproducción ni confirmación de cada variante negativa del protocolo
+de prueba siguiente; esos detalles y variantes siguen pendientes de registrar.
+Validación automatizada: TypeScript PASS, lint PASS, ESLint ampliado PASS y
+suite completa 42/42 PASS (relay WebSocket local y cámara simulada; sin hardware).
+Procedimiento para reproducir y ampliar la evidencia con relay y tres clientes actualizados:
+1. Crear Session, aceptar MAIN/SIDE, preparar ambos y pulsar REC una vez.
+2. Desactivar Wi-Fi de SIDE durante REC; comprobar que sigue grabando localmente.
+   Pulsar STOP en Controller: MAIN debe guardar; SIDE no debe recibir STOP ACK ficticio.
+3. Intentar cerrar mientras MAIN siga activo/guardando: el relay debe rechazar.
+   En SIDE usar STOP local y reproducir el original sin red.
+4. Esperar archivo confirmado en MAIN. Pulsar CERRAR TOMA INTERRUMPIDA y confirmar
+   la advertencia. Revisar takeId, ACK y resultado no confirmado de SIDE.
+5. Reconectar SIDE, solicitar reingreso, aprobarlo y preparar su nodeId nuevo.
+   También repetir el caso reingresando antes de cerrar: el cierre exige READY nuevo.
+6. Pulsar REC de nuevo en la MISMA Session: takeId nuevo, dos grabaciones, STOP y
+   reproducción de ambos originales. Revisar historial y reproducir el clip offline
+   anterior: debe conservar takeId/nodeId antiguos y no haberse sobrescrito.
+7. Repetir dejando SIDE desconectado: cerrar permite otra toma solo con MAIN READY,
+   manteniendo visible el resultado desconocido de SIDE. No borrar datos ni reiniciar
+   el relay para liberar la toma. Registrar SHA base + diff, modelos, IDs y evidencia.

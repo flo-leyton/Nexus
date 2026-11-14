@@ -1,7 +1,8 @@
-const { readinessReasons, NODE_STATE_TTL_MS } = require('../services/sessionProtocol.ts');
+const { readinessReasons, NODE_STATE_TTL_MS, takeFinished } = require('../services/sessionProtocol.ts');
 
 function recordingState(s) {
   if (!s.take) return 'joining';
+  if (s.take.closed) return 'failed'; // operationally closed, never a claim that unknown originals were saved
   const nodes = Object.values(s.take.nodes);
   if (nodes.every((n) => n.phase === 'saved')) return 'completed';
   if (nodes.some((n) => n.error)) return 'failed';
@@ -19,10 +20,36 @@ function attachRecording({ clients, stateTimes, snapshot }) {
   };
   return {
     handle(s, m, error) {
-      if (!['START_RECORDING', 'STOP_RECORDING', 'RECORDING_ACK', 'RECORDING_STATE'].includes(m.type)) return false;
+      if (!['START_RECORDING', 'STOP_RECORDING', 'RECORDING_ACK', 'RECORDING_STATE', 'CLOSE_INTERRUPTED_TAKE'].includes(m.type)) return false;
       s.recordingCommands ??= new Map();
       s.usedTakes ??= new Set();
+      s.closeCommands ??= new Map();
+      if (m.type === 'CLOSE_INTERRUPTED_TAKE') {
+        if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+        if (m.targetId) return error('INVALID_TARGET');
+        if (s.recordingCommands.has(m.messageId) || (s.closeCommands.has(m.messageId) && s.closeCommands.get(m.messageId) !== m.payload.takeId)) return error('MESSAGE_ID_CONFLICT');
+        const take = s.take?.takeId === m.payload.takeId ? s.take : s.takeHistory?.find((t) => t.takeId === m.payload.takeId);
+        if (!take) return error('TAKE_NOT_FOUND');
+        if (take.closed) { s.closeCommands.set(m.messageId, take.takeId); snapshot(s, m.messageId); return true; }
+        if (!take.stopMessageId) return error('STOP_REQUIRED');
+        const unknown = [];
+        for (const [id, node] of Object.entries(take.nodes)) {
+          if (!node.busy && ['saved', 'error'].includes(node.phase)) continue;
+          const member = s.members.get(id);
+          if (member?.nodeId === node.nodeId && clients.get(id)?.readyState === 1) return error('TAKE_PARTICIPANT_ACTIVE');
+          // A re-approved participation must also prove it is idle before abandoning the old one.
+          if (member && (clients.get(id)?.readyState !== 1 || readinessReasons(member.readiness).length ||
+              Date.now() - (stateTimes.get(member) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
+          unknown.push(node.nodeId);
+        }
+        if (!unknown.length) return error('TAKE_NOT_INTERRUPTED');
+        take.closed = { messageId: m.messageId, at: Date.now(), unconfirmedNodeIds: unknown };
+        s.closeCommands.set(m.messageId, take.takeId);
+        snapshot(s, m.messageId);
+        return true;
+      }
       if (m.type === 'RECORDING_ACK' || m.type === 'RECORDING_STATE') {
+        if (s.take?.closed) return error('TAKE_CLOSED');
         const command = s.recordingCommands.get(m.payload.requestId);
         const node = s.take?.nodes[m.senderId];
         if (m.targetId !== s.controllerId || !command || !node || s.members.get(m.senderId)?.kind !== 'node' ||
@@ -32,7 +59,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
           if (m.payload.command !== command.type) return error('INVALID_RECORDING_REPORT');
           node[command.type === 'START_RECORDING' ? 'startReceived' : 'stopReceived'] = true;
         } else {
-          if (!node.startReceived || (command.type === 'STOP_RECORDING' && !node.stopReceived)) return error('ACK_REQUIRED');
+          if (!node.startReceived || (command.type === 'STOP_RECORDING' && !command.responded.has(m.senderId))) return error('ACK_REQUIRED');
           if (node.phase !== 'saved') {
             const ranks = { pending: 0, starting: 1, recording: 2, saving: 3, saved: 4 };
             if (node.phase in ranks && m.payload.phase in ranks && ranks[m.payload.phase] < ranks[node.phase]) return error('STALE_RECORDING_STATE');
@@ -47,21 +74,24 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
       if (m.targetId) return error('INVALID_TARGET');
+      if (s.closeCommands.has(m.messageId)) return error('MESSAGE_ID_CONFLICT');
+      if (m.type === 'STOP_RECORDING' && (s.take?.takeId !== m.payload.takeId || s.take.closed)) return error('TAKE_CLOSED');
       const previous = s.recordingCommands.get(m.messageId);
       const signature = JSON.stringify([m.type, m.payload.takeId, [...m.payload.targetNodeIds].sort()]);
       if (previous) {
         if (previous.signature !== signature) return error('MESSAGE_ID_CONFLICT');
-        if (s.take?.takeId === m.payload.takeId) deliver(s, m);
+        if (s.take?.takeId === m.payload.takeId && !s.take.closed) deliver(s, m);
         snapshot(s, m.messageId);
         return true;
       }
       if (m.type === 'START_RECORDING') {
         if (s.usedTakes.has(m.payload.takeId)) return error('TAKE_ID_REUSED');
-        if (s.take && Object.values(s.take.nodes).some((n) => n.busy || !['saved', 'error'].includes(n.phase))) return error('TAKE_ACTIVE');
+        if (!takeFinished(s.take)) return error('TAKE_ACTIVE');
         const targets = [...s.members.values()].filter((n) => m.payload.targetNodeIds.includes(n.nodeId));
         if (targets.length !== m.payload.targetNodeIds.length || targets.some((n) => n.kind !== 'node')) return error('INVALID_TARGET');
         if (targets.some((n) => clients.get(n.deviceId)?.readyState !== 1 || readinessReasons(n.readiness).length ||
             Date.now() - (stateTimes.get(n) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
+        if (s.take) (s.takeHistory ??= []).push(s.take);
         s.take = { takeId: m.payload.takeId, startMessageId: m.messageId, stopMessageId: null,
           nodes: Object.fromEntries(targets.map((n) => [n.deviceId, { nodeId: n.nodeId, phase: 'pending', startReceived: false,
             stopReceived: false, busy: true, error: null, capture: null }])) };
@@ -71,8 +101,8 @@ function attachRecording({ clients, stateTimes, snapshot }) {
         if (!s.take || s.take.takeId !== m.payload.takeId) return error('TAKE_NOT_FOUND');
         const ids = Object.values(s.take.nodes).map((n) => n.nodeId);
         if (ids.length !== m.payload.targetNodeIds.length || ids.some((id) => !m.payload.targetNodeIds.includes(id))) return error('INVALID_TARGET');
-        s.take.stopMessageId = m.messageId;
-        for (const node of Object.values(s.take.nodes)) node.stopReceived = false;
+        // Keep the first STOP and all receipt flags; a new ID can retry a real engine failure.
+        s.take.stopMessageId ??= m.messageId;
       }
       s.recordingCommands.set(m.messageId, { signature, type: m.type, takeId: m.payload.takeId,
         targetNodeIds: [...m.payload.targetNodeIds], expiresAt: Date.now() + 15000,
@@ -82,7 +112,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       return true;
     },
     tick(s) {
-      if (!s.take) return;
+      if (!s.take || s.take.closed) return;
       let changed = false;
       for (const command of s.recordingCommands?.values() ?? []) {
         if (command.takeId !== s.take.takeId || Date.now() < command.expiresAt) continue;
@@ -105,6 +135,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       if (changed) snapshot(s, s.take.startMessageId);
     },
     disconnect(s, id) {
+      if (s.take?.closed) return;
       const node = s.take?.nodes[id];
       if (node && node.phase !== 'saved') { node.phase = 'disconnected'; node.busy = true; node.error = 'Node desconectado; usa STOP local en el teléfono'; }
     },

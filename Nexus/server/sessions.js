@@ -20,7 +20,7 @@ function attachSessions(relay) {
       if (client) send(client, 'SESSION_SNAPSHOT', s.sessionId, {
         requestId, session: {
           sessionId: s.sessionId, controllerId: s.controllerId, code: s.code,
-          state: recordingState(s), members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}),
+          state: recordingState(s), members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}), takeHistory: s.takeHistory ?? [],
         }, ...(id === s.controllerId ? { pending: [...s.pending.values()] } : {}),
       });
     }
@@ -124,7 +124,7 @@ function attachSessions(relay) {
         // Snapshot query is delivered only to the requesting member.
         send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: {
           sessionId: s.sessionId, controllerId: s.controllerId, code: s.code, state: recordingState(s),
-          members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}),
+          members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}), takeHistory: s.takeHistory ?? [],
         }, ...(m.senderId === s.controllerId ? { pending: [...s.pending.values()] } : {}) });
         return true;
       }

@@ -39,6 +39,7 @@ export interface Session {
   state: SessionState;
   members: Record<string, SessionMember>;
   take?: CoordinatedTake;
+  takeHistory?: CoordinatedTake[];
 }
 export type RecordingCommand = Extract<SessionRequest, { type: 'START_RECORDING' | 'STOP_RECORDING' }>;
 export type RecordingPhase = 'starting' | 'recording' | 'saving' | 'saved' | 'error';
@@ -57,6 +58,14 @@ export interface CoordinatedTake {
   startMessageId: string;
   stopMessageId: string | null;
   nodes: Record<string, TakeNode>; // keyed by deviceId; membership is frozen at REC
+  closed?: { messageId: string; at: number; unconfirmedNodeIds: string[] };
+}
+export function takeFinished(take: CoordinatedTake | undefined): boolean {
+  return !take || !!take.closed || Object.values(take.nodes).every((n) => !n.busy && ['saved', 'error'].includes(n.phase));
+}
+export function nodeTakePending(take: CoordinatedTake | undefined, deviceId: string, nodeId: string): boolean {
+  const node = take?.nodes[deviceId];
+  return !!node && node.nodeId === nodeId && !take?.closed && (node.busy || !['saved', 'error'].includes(node.phase));
 }
 export interface RecordingReport {
   requestId: string;
@@ -87,6 +96,7 @@ export type SessionRequest =
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
   | (NexusMessage<{ readiness: NodeReadiness }> & { type: 'NODE_STATE'; targetId: string })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'START_RECORDING' | 'STOP_RECORDING' })
+  | (NexusMessage<{ takeId: string; acknowledgeUnknown: true }> & { type: 'CLOSE_INTERRUPTED_TAKE' })
   | (NexusMessage<{ requestId: string; takeId: string; command: 'START_RECORDING' | 'STOP_RECORDING' }> & { type: 'RECORDING_ACK'; targetId: string })
   | (NexusMessage<RecordingReport> & { type: 'RECORDING_STATE'; targetId: string });
 export type SessionEvent =
@@ -130,6 +140,10 @@ export function isRecordingReport(value: unknown): value is RecordingReport {
 export function isCoordinatedTake(value: unknown): value is CoordinatedTake {
   if (!isRecord(value) || !isProtocolId(value.takeId) || !isProtocolId(value.startMessageId) ||
       !(value.stopMessageId === null || isProtocolId(value.stopMessageId)) || !isRecord(value.nodes) || !Object.keys(value.nodes).length) return false;
+  const nodes = value.nodes;
+  if (value.closed !== undefined && (!isRecord(value.closed) || !isProtocolId(value.closed.messageId) ||
+      !Number.isSafeInteger(value.closed.at) || Number(value.closed.at) <= 0 || !Array.isArray(value.closed.unconfirmedNodeIds) ||
+      !value.closed.unconfirmedNodeIds.every((id) => isProtocolId(id) && Object.values(nodes).some((n) => isRecord(n) && n.nodeId === id)))) return false;
   return Object.entries(value.nodes).every(([id, node]) => isProtocolId(id) && isRecord(node) && isProtocolId(node.nodeId) &&
     ['pending', 'starting', 'recording', 'saving', 'saved', 'error', 'disconnected'].includes(String(node.phase)) &&
     typeof node.startReceived === 'boolean' && typeof node.stopReceived === 'boolean' && typeof node.busy === 'boolean' &&
@@ -166,6 +180,9 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && keys.length === 2 && isProtocolId(value.payload.takeId) &&
         Array.isArray(value.payload.targetNodeIds) && value.payload.targetNodeIds.length > 0 &&
         value.payload.targetNodeIds.every(isProtocolId) && new Set(value.payload.targetNodeIds).size === value.payload.targetNodeIds.length;
+    case 'CLOSE_INTERRUPTED_TAKE':
+      return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 2 &&
+        isProtocolId(value.payload.takeId) && value.payload.acknowledgeUnknown === true;
     case 'RECORDING_ACK':
       return !!value.targetId && keys.length === 3 && isProtocolId(value.payload.takeId) && isProtocolId(value.payload.requestId) &&
         ['START_RECORDING', 'STOP_RECORDING'].includes(String(value.payload.command));
@@ -188,7 +205,8 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
       const s = p.session;
       if (!isRecord(s) || s.sessionId !== value.sessionId || !isProtocolId(s.controllerId) ||
           !isJoinCode(s.code) || !['draft', 'joining', 'preparing', 'ready', 'recording', 'finishing', 'completed', 'failed'].includes(String(s.state)) ||
-          !isRecord(s.members) || (s.take !== undefined && !isCoordinatedTake(s.take))) return false;
+          !isRecord(s.members) || (s.take !== undefined && !isCoordinatedTake(s.take)) ||
+          (s.takeHistory !== undefined && (!Array.isArray(s.takeHistory) || !s.takeHistory.every(isCoordinatedTake)))) return false;
       const members = Object.entries(s.members);
       return members.filter(([, m]) => isRecord(m) && m.kind === 'controller').length === 1 &&
         members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&

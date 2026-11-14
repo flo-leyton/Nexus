@@ -210,6 +210,11 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
         takeId: session.take.takeId, targetNodeIds: Object.values(session.take.nodes).map((n) => n.nodeId),
       } });
     },
+    closeInterruptedTake(sessionId: string, takeId: string) {
+      const session = state.sessions[sessionId];
+      if (!session || session.controllerId !== deviceId) throw new Error('CONTROLLER_REQUIRED');
+      return send({ ...envelope(sessionId), type: 'CLOSE_INTERRUPTED_TAKE', payload: { takeId, acknowledgeUnknown: true } });
+    },
     registerCaptureHandler(sessionId: string, handler: (command: RecordingCommand) => void) {
       if (captureHandlers.has(sessionId)) throw new Error('El Node ya tiene un motor de captura para esta Session.');
       captureHandlers.set(sessionId, handler);

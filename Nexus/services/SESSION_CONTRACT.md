@@ -218,8 +218,8 @@ micrófono. REC/STOP remoto, takeId común, catálogo agregado y subidas quedan 
   queda desconocido; una toma con trabajo pendiente/desconocido bloquea otra REC.
   No hay recuperación automática de membresía ni de estado después de reiniciar el relay.
 - Perder la LAN o al Controller no detiene el original. Usar STOP local y reproducir
-  en el Node. El relay conserva en memoria sólo la última toma y el diario de IDs;
-  el historial de archivos sigue exclusivamente en los teléfonos.
+  en el Node. El relay conserva las tomas y el diario de IDs en memoria durante
+  la Session; los archivos siguen exclusivamente en los teléfonos.
 
 Actualizar relay y los tres clientes juntos. Un cliente H1 no procesa REC/STOP y
 provoca falta de confirmación. H2 no añade dependencias ni configuración nativa:
@@ -262,3 +262,29 @@ una toma previa con resultado desconocido sigue requiriendo revisión local.
 No se implementan credenciales de recuperación, reconexión automática, restauración
 de READY, reenvío automático de START ni recuperación de sesiones tras reiniciar relay.
 Reiniciar el relay y recargar todos los clientes para activar la ampliación.
+
+## H2 · Cierre explícito de una toma interrumpida
+
+`closeInterruptedTake(sessionId, takeId)` envía `CLOSE_INTERRUPTED_TAKE` con
+`{ takeId, acknowledgeUnknown: true }`, sin destinatario. Solo el Controller miembro
+de esa Session puede cerrar. La UI solicita confirmación y advierte que el cierre
+no detiene ni certifica un teléfono desconectado: se debe usar STOP local y revisar
+su vídeo. El relay exige STOP previo y que todo participante original alcanzable
+tenga resultado final (`saved` o `error`, `busy=false`). Un reingreso del mismo
+deviceId requiere READY reciente para demostrar que la nueva participación está
+disponible; no autoriza reportes de la participación antigua.
+
+El cierre añade `take.closed { messageId, at, unconfirmedNodeIds }` y libera solo
+el bloqueo operativo. Conserva sin alterar nodos, takeId, nodeId, fases, errores,
+ACK y referencias. El ausente queda explícitamente no confirmado; `busy=true`
+histórico no afirma que todavía grabe ni impide la siguiente toma después del cierre.
+START nuevo archiva la toma anterior en `session.takeHistory`, visible en Controller.
+Los snapshots y SESSION_GET conservan ese historial durante la vida de la Session;
+no hay persistencia del diario del relay tras cerrar Session o reiniciar el proceso.
+
+Cerrar otra vez es idempotente incluso después de una toma nueva. STOP y reportes
+tardíos no modifican tomas cerradas/históricas ni una captura posterior. STOP con
+un ID nuevo permite reintentar un fallo real pero no reinicia los ACK acumulados ni
+el primer stopMessageId; su resultado exige el ACK de ese comando concreto.
+Los controles del Node comparan deviceId **y nodeId** y respetan cierre operativo,
+sin ignorar las guardas locales de motor ocupado o guardado pendiente.
