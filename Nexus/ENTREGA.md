@@ -19,7 +19,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |
 |---|---|---|---|---|
-| H1 | En curso: H1.1 implementado y probado automáticamente | Commit H1.1 de desarrollo (ver registro abajo) | Contrato y relay con 3 Nodes simulados; falta evidencia física de identificadores, roles, READY y clip | H1.2: pantallas, roles editables, permisos y CaptureEngine |
+| H1 | En curso: H1.1 probado automáticamente; H1.2 listo para prueba física | H1.1: 9c0642b; commit H1.2 de desarrollo (ver registro abajo) | Contrato y relay con 3 Nodes simulados; interfaz real de ingreso implementada, sin prueba física | Probar ingreso en LAN; roles editables, permisos, READY y CaptureEngine siguen pendientes |
 | H2 | Pendiente | — | takeId, dos Nodes, duración de ambos archivos y confirmaciones | — |
 | H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
@@ -72,3 +72,77 @@ Controller y al menos dos Nodes físicos, comprobar roles independientes, permis
 READY y reproducción del clip. Comprobar también el arranque nativo sin variables
 Firebase y la cuenta con el proyecto real configurado. No existe aún un recorrido
 visual para ejecutar H1.1 desde las pantallas demostrativas.
+
+### 2026-11-14 · H1.2 · Ingreso real desde las pantallas
+
+Base comprobada antes de editar: árbol limpio, rama `desarrollo`,
+HEAD `9c0642b465c65e63fcb76d17ec16ded460ea3aab` y package.json en
+`C:\Projects\Nexus\Nexus`. La versión instalada es Expo 54.0.37 con
+expo-router 6.0.24; se consultaron la referencia SDK 54 y la documentación
+instalada de `useFocusEffect` antes de implementar.
+
+Estado: **listo para prueba física de H1.2**. H1 sigue **en curso**.
+La evidencia automática corresponde al commit `feat(studio): connect H1.2 session joining UI`;
+obtener el SHA con `git log -1 --format=%H --grep='feat(studio): connect H1.2 session joining UI'`.
+
+- Studio crea sesiones reales y muestra el código recibido del relay. Permite
+  introducir el código, solicitar ingreso y ver envío, espera, aceptación o rechazo.
+  Muestra identidad local, estado de conexión y mensajes claros ante errores.
+- Session confirma su estado con `refreshSession` al recuperar el foco y tiene
+  actualización manual. Muestra código, solicitudes individuales al Controller
+  y miembros aceptados por deviceId en una colección dinámica. Cada decisión espera
+  confirmación del servidor y bloquea la repetición del botón de ese dispositivo.
+- Las pantallas usan `getSessionService()` mediante `useStudioSession`, que elimina
+  su listener al desmontarse y cancela la suscripción si la identidad termina de
+  cargar después del desmontaje. No se dispone el cliente compartido. La conexión
+  manual reutiliza `connectSocket`; no se añade otro WebSocket ni se construye
+  JSON de protocolo en la interfaz.
+- No se modificaron el servicio H1.1, el protocolo, el relay, Firebase, la presencia,
+  IP ni PORT. Se conservaron selección, subida, catálogo y visualización de medios
+  de la pantalla de sesión, incluso cuando ya no hay membresía de red.
+- No se implementaron asignación de roles, READY, cámara ni REC/STOP.
+- Validación: `npx tsc --noEmit`, `npm run lint`, ESLint ampliado de las dos
+  pantallas y del hook, y `node --test tests/*.test.cjs`: 13/13 pruebas pasan.
+  Se ejecutaron con `npx.cmd`/`npm.cmd` en PowerShell y los tests en Git Bash.
+  No se añadió una prueba de interacción sintética: las pruebas H1.1 siguen
+  cubriendo el servicio y relay, pero no equivalen a ejecutar estas pantallas.
+- La comprobación visual no pudo ejecutarse: no hay navegador conectado y el
+  navegador integrado respondió `Browser is not available: iab`. No hay evidencia
+  de interacción web ni física. La subida/importación real también queda pendiente.
+
+Prueba física exacta (Controller + dos Nodes):
+
+1. Desde la carpeta con package.json, comprobar el SHA con `git rev-parse HEAD`.
+   Iniciar `npm run relay` y, en otra terminal, `npx expo start --dev-client --lan`.
+   Los tres dispositivos usan el mismo cliente de desarrollo compatible y LAN.
+   El operador comprueba manualmente la dirección de `config/server.ts`.
+2. Abrir **Studio** en los tres y esperar **Relay: Conectado**. Conservar los tres
+   deviceId visibles. En el Controller pulsar **NUEVA SESIÓN**, anotar el código
+   mostrado y pulsar **ABRIR SESIÓN**.
+3. En cada Node introducir ese código y pulsar **SOLICITAR INGRESO**. Ambos deben
+   mostrar solicitud pendiente. En el Controller comprobar dos solicitudes con
+   deviceId diferentes; aceptar ambas individualmente.
+4. En ambos Nodes comprobar **Ingreso aceptado · Node** y pulsar **ABRIR SESIÓN**.
+   Los tres deben mostrar la misma Session y tres miembros separados: un
+   Controller y dos Nodes. Comparar los deviceId con los anotados.
+5. Volver a Studio y reabrir la Session: debe volver a confirmarse con el relay,
+   conservar los miembros reales y seguir mostrando los medios importados.
+   Importar un medio de prueba con Cloudinary configurado y abrir su detalle.
+6. Para probar rechazo sin otro teléfono: cerrar completamente un Node y esperar
+   que desaparezca de la lista del Controller. Reabrirlo, conectar al relay si es
+   necesario y solicitar ingreso otra vez; rechazarlo desde el Controller.
+   El Node debe mostrar rechazo y permitir otra solicitud. Probar también un
+   código de seis caracteres que no corresponda a una sesión activa.
+7. Detener el relay: mostrar desconexión sin miembros confirmados. Al intentar
+   crear/ingresar debe aparecer un error claro. Reiniciarlo, conectar manualmente
+   y crear una sesión nueva (el registro del relay es temporal).
+
+Pendiente de registrar con SHA y dispositivos: ingreso simultáneo en LAN,
+aceptación/rechazo visibles, identidades, actualización al reabrir, desconexión,
+importación/visualización de medios y arranque sin Firebase en un cliente nativo.
+Roles editables, READY y captura siguen fuera de H1.2 y no permiten verificar H1.
+
+Publicación: `git ls-remote --heads origin desarrollo` informó
+`a8020ef9e83250bec0ff64ad615d848666163d66`. H1.1 aún es local.
+Publicar **H1.1 y H1.2**, junto con su ascendencia (incluye `96eb0d5`), mediante
+`git push -u origin desarrollo` desde esta rama. No se ejecutó push ni se cambió main.

@@ -1,15 +1,80 @@
 import { router, type Href } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
+import { connectSocket } from '@/services/socket';
 
 export default function StudioScreen() {
   const insets = useSafeAreaInsets();
+  const [code, setCode] = useState('');
+  const [notice, setNotice] = useState('Crea una sesión o solicita ingreso con el código del Controller.');
+  const [failed, setFailed] = useState(false);
+  const [sending, setSending] = useState(false);
+  const operation = useRef<{ kind: 'create' | 'join'; messageId: string; sessionId?: string } | null>(null);
+  const { service, snapshot, deviceId, error } = useStudioSession((next) => {
+    const current = operation.current;
+    const event = next.lastEvent;
+    if (!current) {
+      // Restore an outcome received while this screen was unmounted.
+      if (event?.type === 'SESSION_JOIN_REJECTED' || event?.type === 'SESSION_CLOSED') {
+        setFailed(true);
+        setNotice(event.type === 'SESSION_JOIN_REJECTED'
+          ? 'El Controller rechazó tu solicitud. Puedes volver a solicitar ingreso.'
+          : 'El Controller se desconectó y la sesión se cerró. Solicita un código nuevo.');
+      }
+      return;
+    }
+    if (next.connection !== 'Connected') {
+      operation.current = null;
+      setSending(false);
+      setFailed(true);
+      setNotice('Se perdió la conexión. El ingreso debe solicitarse de nuevo al reconectar.');
+    } else if (event?.type === 'SESSION_JOIN_PENDING' && event.payload.requestId === current.messageId) {
+      current.sessionId = event.sessionId;
+      setSending(false);
+      setNotice('Solicitud pendiente. Espera a que el Controller la acepte o rechace.');
+    } else if (event?.type === 'SESSION_SNAPSHOT' && (event.payload.requestId === current.messageId ||
+        (current.kind === 'join' && current.sessionId === event.sessionId))) {
+      operation.current = null;
+      setSending(false);
+      setNotice(current.kind === 'create' ? 'Sesión creada. Comparte su código y ábrela para aceptar Nodes.' : 'Ingreso aceptado. Ya puedes abrir la sesión.');
+    } else if ((event?.type === 'SESSION_ERROR' || event?.type === 'SESSION_JOIN_REJECTED') &&
+        event.payload.requestId === current.messageId) {
+      operation.current = null;
+      setSending(false);
+      setFailed(true);
+      setNotice(event.type === 'SESSION_ERROR' ? sessionErrorMessage(event.payload.code) : 'El Controller rechazó tu solicitud. Puedes volver a solicitar ingreso.');
+    } else if (event?.type === 'SESSION_CLOSED' && event.sessionId === current.sessionId) {
+      operation.current = null;
+      setSending(false);
+      setFailed(true);
+      setNotice('El Controller se desconectó y la sesión se cerró. Solicita un código nuevo.');
+    }
+  });
+  const connected = snapshot?.connection === 'Connected';
+  const pending = Object.entries(snapshot?.pending ?? {}).filter(([, requests]) => requests.some((r) => r.deviceId === deviceId));
+  const busy = sending || pending.length > 0;
 
-  const createDemoSession = () => {
-    router.push(`/session/studio-${Date.now()}` as Href);
+  const start = (kind: 'create' | 'join') => {
+    if (operation.current || busy) return;
+    setFailed(false);
+    try {
+      if (!service || !connected) throw new Error('SOCKET_NOT_CONNECTED');
+      if (kind === 'create') {
+        operation.current = { kind, ...service.createSession() };
+      } else {
+        operation.current = { kind, messageId: service.requestJoin(code) };
+      }
+      setSending(true);
+      setNotice(kind === 'create' ? 'Creando sesión en el relay…' : 'Enviando solicitud al Controller…');
+    } catch (cause) {
+      setFailed(true);
+      setNotice(sessionErrorMessage(cause));
+    }
   };
 
   return (
@@ -22,11 +87,36 @@ export default function StudioScreen() {
         </ThemedView>
         <ThemedView style={styles.model}>
           <ThemedText type="subtitle">Controller + Nodes + Session</ThemedText>
-          <ThemedText style={styles.description}>Esta demostración crea una sesión local y permite importar medios al catálogo de Studio.</ThemedText>
+          <ThemedText>Relay: {connectionLabel(snapshot?.connection)}</ThemedText>
+          <ThemedText selectable style={styles.identity}>Este dispositivo: {deviceId || 'Preparando identidad…'}</ThemedText>
+          {!connected && <ThemedText style={styles.error}>El relay no está conectado. Comprueba que esté iniciado y que los dispositivos estén en la misma LAN.</ThemedText>}
+          {!connected && <Pressable accessibilityRole="button" onPress={connectSocket} style={styles.button}>
+            <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONECTAR AL RELAY</ThemedText>
+          </Pressable>}
         </ThemedView>
-        <Pressable onPress={createDemoSession} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+        <ThemedText accessibilityLiveRegion="polite" style={failed || error ? styles.error : styles.description}>{error || notice}</ThemedText>
+        {pending.length > 0 && <ThemedText accessibilityLiveRegion="polite">Solicitud pendiente de aceptación por el Controller.</ThemedText>}
+        <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('create')} style={({ pressed }) => [styles.button, busy && styles.disabled, pressed && styles.pressed]}>
           <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>NUEVA SESIÓN</ThemedText>
         </Pressable>
+        <ThemedView style={styles.model}>
+          <ThemedText type="subtitle">Ingresar como Node</ThemedText>
+          <TextInput accessibilityLabel="Código de sesión" autoCapitalize="characters" autoCorrect={false} maxLength={6}
+            editable={!busy} value={code} onChangeText={setCode} placeholder="Código de 6 caracteres" style={styles.input} />
+          <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('join')} style={[styles.button, busy && styles.disabled]}>
+            <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>SOLICITAR INGRESO</ThemedText>
+          </Pressable>
+        </ThemedView>
+        {Object.values(snapshot?.sessions ?? {}).map((session) => (
+          <ThemedView key={session.sessionId} style={styles.model}>
+            <ThemedText type="subtitle">{session.controllerId === deviceId ? 'Tu sesión · Controller' : 'Ingreso aceptado · Node'}</ThemedText>
+            <ThemedText selectable style={styles.code}>Código: {session.code}</ThemedText>
+            <ThemedText selectable style={styles.identity}>{session.sessionId}</ThemedText>
+            <Pressable accessibilityRole="button" onPress={() => router.push(`/session/${session.sessionId}` as Href)} style={styles.button}>
+              <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>ABRIR SESIÓN</ThemedText>
+            </Pressable>
+          </ThemedView>
+        ))}
       </ScrollView>
     </ThemedView>
   );
@@ -44,4 +134,9 @@ const styles = StyleSheet.create({
   button: { alignItems: 'center', backgroundColor: '#474FE7', borderRadius: 16, padding: 18 },
   buttonText: { fontSize: 16, fontWeight: '800', letterSpacing: 1 },
   pressed: { opacity: 0.78 },
+  disabled: { opacity: 0.5 },
+  error: { color: '#D92D20' },
+  identity: { fontSize: 12 },
+  code: { fontSize: 24, lineHeight: 32, fontWeight: '800' },
+  input: { backgroundColor: '#FFFFFF', borderColor: '#687076', borderWidth: 1, borderRadius: 12, color: '#111827', padding: 14, fontSize: 18 },
 });
