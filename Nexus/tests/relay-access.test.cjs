@@ -275,6 +275,7 @@ test('H3.4a: server entry uses process PORT while Firebase Admin verifies tokens
     './relay': { resolvePort, createRelay(options) { selectedPort = options.port; return { server }; } },
     './firebaseAdmin': { createTokenVerifier: () => async () => {} },
     './sessionStorage': { createFirebaseStore: () => ({}) },
+    './lifecycle': { attachShutdown() {} },
   }, { process: { env: { PORT: '45678' } }, console: { log() {}, error() {} } });
   assert.equal(selectedPort, 45678);
   // Exercise the actual server-only adapter with an injected Admin SDK, no credentials or network.

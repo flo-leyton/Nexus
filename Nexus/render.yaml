@@ -3,6 +3,9 @@ services:
   - type: web
     name: nexus-relay
     runtime: node
+    plan: 0.5c-512mb # Paid proposal; approval required before creating the service.
+    numInstances: 1 # No autoscaling: relayV1 supports one writer.
+    region: oregon
     branch: desarrollo
     rootDir: Nexus
     buildCommand: npm ci

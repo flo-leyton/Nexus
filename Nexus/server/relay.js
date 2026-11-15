@@ -13,12 +13,14 @@ function resolvePort(value, fallback) {
 // verifyToken is an explicit dependency for tests. Production supplies Firebase Admin;
 // there is no environment flag that bypasses authentication, even on LAN.
 function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerator, authTimeoutMs = 15000 }) {
+  let draining = false;
   if (typeof verifyToken !== 'function') throw new Error('El relay necesita un verificador de Firebase ID tokens.');
   if (!storage) throw new Error('El relay necesita almacenamiento durable RTDB.');
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
-      response.writeHead(sessions.isReady() ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      response.end(JSON.stringify({ ready: sessions.isReady() }));
+      const ready = !draining && sessions.isReady();
+      response.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ ready }));
     } else { response.writeHead(404); response.end(); }
   });
   const relay = new WebSocketServer({ server, maxPayload: 65536 });
@@ -104,6 +106,7 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
   server.listen(port, host);
   let closing;
   return { server, relay, ready: sessions.ready, idle: sessions.idle, close: () => closing ||= new Promise((resolve, reject) => {
+    draining = true;
     for (const client of relay.clients) client.terminate();
     relay.close(() => server.close((error) => sessions.idle().then(() => { storage.close?.(); if (error) reject(error); else resolve(); })));
   }) };

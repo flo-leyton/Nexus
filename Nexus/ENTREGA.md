@@ -1282,3 +1282,27 @@ nuevo ni apropiación de identidad abandonada. Un Node pendiente aún necesita
 aprobación del Controller. No se reconstruye un vídeo dañado/no finalizado al apagar
 el teléfono. Ni pruebas simuladas ni este registro certifican grabación física o
 RTDB real. H3.4d (despliegue y APK sin laptop) permanece pendiente.
+
+### 2026-11-15 · H3.4d · Preparación del relay Render (sin desplegar)
+
+Base desarrollo@3dd7fdeb26238641ccd9f13158221c90862ba088. Se conservan los dos
+cambios ajenos preparados (LAN y una línea de este archivo). Un commit local
+separado para relay; APK se prepara a continuación en otro commit. Sin push/main.
+
+Verificado que 0.0.0.0 + PORT, health condicionado a recuperación RTDB y persistencia
+externa ya existen. Blueprint ahora fija una instancia, sin autoscaling/disco,
+Oregon y cómputo 0.5c-512mb propuesto (USD 7/mes base, sujeto a aprobación y cargos
+por uso/workspace). Autodeploy sigue Off. Firebase Admin sólo se configura mediante
+variables privadas del servidor; no se han leído/copiadо credenciales ni desplegado.
+
+Se añade cierre SIGTERM/SIGINT: drena el relay/cola durable una sola vez antes de
+salir y retira health ready al comenzar cierre. No envía comandos de captura.
+DEPLOY_RELAY.md documenta archivos, variables, build/start, revisión para aprobación,
+costos, parada de LAN antes de usar la misma RTDB y limitación del solapamiento de
+procesos Render durante redeploy. CAS protege revisiones; no promete alta
+disponibilidad ni dos escritores concurrentes. Primera puesta en marcha pendiente.
+
+Pruebas: contrato del blueprint y cierre con éxito/error, más suites existentes de
+puerto/health/recuperación/deduplicación: **99 PASS / 1 SKIP / 0 fallos**. TypeScript,
+lint, ESLint ampliado y diff-check propios PASS. Faltan aprobación de push/despliegue, RTDB real y prueba
+física con laptop apagada; H3/H3.4d no verificados.
