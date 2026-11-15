@@ -190,7 +190,8 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const take = c.service.getSnapshot().sessions[session.sessionId].take;
   assert.equal(ca.draft().takeId, start.takeId); assert.equal(cb.draft().takeId, start.takeId);
   assert.notEqual(take.nodes['node-a'].capture.id, take.nodes['node-b'].capture.id);
-  assert.notEqual(take.nodes['node-a'].capture.localUri, take.nodes['node-b'].capture.localUri);
+  assert.equal(take.nodes['node-a'].capture.localUri, undefined);
+  assert.equal(take.nodes['node-b'].capture.localUri, undefined); // shared references never expose phone paths
   assert.equal(take.nodes['node-b'].stopReceived, true);
   assert.equal(c.service.getSnapshot().sessions[session.sessionId].state, 'completed');
   c.send(stopMessage); c.send(startMessage);

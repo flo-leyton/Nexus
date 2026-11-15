@@ -22,7 +22,8 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
 | H3 | H3.1–H3.3 implementados; corregido falso fallo por public_id generado | H3.1: 4416702; corrección actual (ver registro) | 62 tests automáticos; pendiente confirmar subida/reproducción reales con la corrección | Reintentar clip existente sin cambiar preset y ejecutar A–D; H3 no verificado |
-| H3.4a | Configuración y acceso implementados; listo para prueba LAN autenticada | Commit H3.4a (ver registro) | 73 tests automáticos; pendiente Firebase real y teléfonos | Sin despliegue, persistencia de Sessions ni reanudación durable |
+| H3.4a | Aceptado físicamente por el operador | e3fedbb819d67c44c6ac57e684efb3ab17e65c0b | Aceptación comunicada al solicitar H3.4b | Sin despliegue |
+| H3.4b | Persistencia compartida implementada; listo para prueba RTDB/reinicio real | Commit H3.4b (ver registro) | 80 pruebas PASS; una de emulador omitida | Probar reinicio real; reapertura automática de interfaz pendiente H3.4c |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -952,3 +953,129 @@ cuenta cierra socket; el propietario anterior sigue protegido mientras viva el
 proceso. No usar reinicio como reanudación. **H3.4b** guardará Sessions/medios en
 RTDB; **H3.4c** reanudará durablemente; **H3.4d** desplegará Render/probará APK sin
 laptop. Ninguno está implementado ni H3 se marca verificado por esta entrega.
+
+### 2026-11-15 · H3.4b · Persistencia compartida
+
+Base comprobada `desarrollo@e3fedbb819d67c44c6ac57e684efb3ab17e65c0b`, aceptada
+físicamente por el operador según su solicitud. No se inventan modelos/IDs ni
+otros detalles de esa prueba. AGENTS, entrega y contrato leídos antes de editar.
+Se conservan intactos los cambios ajenos preparados en el índice: configuración
+LAN de config/server.ts y espacio en línea vacía del registro H2 de ENTREGA.
+El commit se prepara con índice aislado y se conserva su estado preparado original.
+No se hace push, no se toca main, Cloudinary, IP/PORT ni configuración nativa.
+
+Estado: **implementado, pendiente prueba física RTDB y reinicio**. Localizar SHA:
+`git log -1 --format=%H --grep='feat(relay): persist shared Sessions and recover durable state'`.
+
+- Adaptador servidor sessionStorage.js: Firebase Admin existente, load/commit/close,
+  URL privada FIREBASE_DATABASE_URL obligatoria junto con FIREBASE_PROJECT_ID y
+  credenciales H3.4a. No hay fallback a memoria para producción. Falta de configuración
+  falla claramente; inaccesibilidad/recuperación fallida mantiene /health 503.
+- Esquema 1 en nexusStudio/relayV1: revisión global, vínculo deviceId→uid, Sessions,
+  código, Controller y miembros con UID/dispositivo/nodeId/rol, pendientes, diario
+  de roles, Take/historial, ACK/resultados y referencias Cloudinary por clip/revisión.
+  Proyección explícita sin tokens, claves, vídeos ni file://; captura compartida
+  sólo id/bytes. Se conservan errores quitando rutas locales. No se toca el árbol
+  users/devices existente de la app ni se publican permisos RTDB.
+- Cola de mutaciones + transacción CAS de revisión sobre el registro. Evita pérdida
+  de dos resultados o ángulos simultáneos y sobrescrituras de otra instancia obsoleta.
+  Se soporta un relay escritor activo. Códigos únicos se reconstruyen desde Sessions;
+  duplicados/esquema inválido bloquean recuperación, nunca se elige uno arbitrariamente.
+- Efectos de red diferidos hasta commit: snapshots, ingreso/rechazo, roles tras ACK,
+  comandos REC/STOP, ACK, resultado guardado, cierres y MEDIA_ACCEPTED. Ante escritura
+  fallida se revierte el cambio y se descartan efectos; error recuperable y estado
+  local/subida confirmada intactos. Conflicto/timeout ambiguo exige recuperar el
+  relay antes de continuar. Un fallo de entrega WS no revierte un commit exitoso.
+- Al iniciar, recuperar y validar antes de ready. Offline/READY desconocido para
+  todos; UID/deviceId durable impide suplantar miembros tras reinicio. No reenviar
+  comandos recuperados, incluso si se repite manualmente su ID. Pending se solicita
+  otra vez, rol sin ACK vence. Históricos de ACK se conservan como hechos recibidos.
+- Desconexión ya no cierra Session ni elimina miembros: conserva UID/nodeId/rol y
+  marca offline. Node necesita nueva aprobación para activar captura/READY; se
+  asigna nodeId nuevo y no se atribuyen clips antiguos a éste. Controller conocido
+  puede volver a consultar su Session con el mismo UID/deviceId autenticado.
+- Una Take incompleta al reiniciar queda interrupted/relay-restarted; resultados
+  activos se muestran desconocidos, sin archivo ni ACK inferido. Se conservan los
+  resultados saved que sí eran durables. Cierre advertido permite abandonar esa
+  Take aun sin STOP previo y comenzar una nueva, sin cambiar resultados históricos.
+- SESSION_CLOSE autorizado, persistido e idempotente; botón y confirmación en la
+  pantalla actual. Exige finalizar/cerrar primero la Take activa. No borra historial
+  ni referencias; el código cerrado no acepta ingresos. Sus miembros pueden consultar
+  la Session cerrada. SESSION_CLOSED sólo significa este cierre explícito.
+- Ajustes mínimos de compatibilidad: miembros offline visibles sin READY; REC sólo
+  selecciona Nodes online; reingreso manual no confunde una consulta histórica con
+  aceptación; se conserva el motor local y STOP de emergencia. H3.4c no se implementa.
+
+Verificación en Node 24: TypeScript PASS, npm run lint PASS, ESLint ampliado PASS,
+**81 tests: 80 PASS, 1 SKIP, 0 fallos**, diff-check del commit PASS. Nuevas pruebas
+con adaptadores/relays reconstruidos: mismas Session/código/UID/miembros/roles/Take
+e historial/ángulos; dos guardados y ángulos simultáneos; Controller offline;
+repetidos, cierre explícito y código cerrado; UID/deviceId ajenos y código sin
+membresía; espera del commit y recuperación antes de health; escritura fallida en
+creación, aceptación/rechazo, rol, START/ACK/saved, cierre y MEDIA_STATE; código
+duplicado/CAS; Take interrumpida y ausencia de replay REC/STOP/ACK. H1–H3 y presencia
+siguen pasando. Se actualizaron expectativas antiguas de borrado al desconectar.
+
+Emulador: prueba opcional tests/rtdb-emulator.test.cjs, **no ejecutada** porque aquí
+no hay Firebase CLI y sólo está disponible Java 8; no se instalaron herramientas
+adicionales ni se accedió a RTDB real. Para un equipo con Firebase CLI y Java compatible,
+iniciar Database Emulator en proyecto demo-nexus-h34b/puerto 9000 y ejecutar:
+
+```bash
+FIREBASE_DATABASE_EMULATOR_HOST=127.0.0.1:9000 node --test tests/rtdb-emulator.test.cjs
+```
+
+Usa sólo localhost y su prefijo temporal nexusStudioEmulatorTests/<uuid>; no toca
+datos de producción. La prueba real verifica Admin RTDB, caché/transacción y CAS.
+Las pruebas simuladas incluyen la omisión real de null/objetos/listas vacías de RTDB.
+No se afirma validar permisos/latencia del proveedor con simulaciones.
+
+Preparación privada para la prueba manual, en Git Bash desde Nexus/:
+
+```bash
+export FIREBASE_PROJECT_ID='TU_PROJECT_ID'
+export FIREBASE_DATABASE_URL='https://TU_BASE.firebasedatabase.app'
+export GOOGLE_APPLICATION_CREDENTIALS='/ruta/privada/fuera-de-Git/servicio.json'
+npm run relay
+```
+
+Alternativa de credenciales: FIREBASE_ADMIN_CREDENTIALS privada ya usada en H3.4a.
+La cuenta debe poder leer/escribir RTDB y verificar Auth en el mismo proyecto.
+No poner credenciales Admin en EXPO_PUBLIC ni el APK. Proteger nexusStudio contra
+acceso directo de clientes en reglas RTDB, sin permisos amplios de un padre;
+el Admin del relay es la autoridad. No desplegar reglas generales que rompan perfiles
+o dispositivos existentes para probar este módulo. Render sólo añade la variable;
+no se despliega ni se construye APK.
+
+**Prueba manual exacta de reinicio (pendiente):**
+
+1. Iniciar relay con esas variables y Metro como H3.4a. Esperar ready=true en
+   `curl http://<IP-manual>:<PORT-manual>/health`. Crear una **Session nueva con
+   este código H3.4b**; las anteriores que nunca fueron persistidas no se migran.
+2. Controller acepta dos Nodes, roles distintos y READY. REC/STOP breve, guardar
+   originales y subir ambos. Anotar sessionId, código, nodeIds y takeId; comprobar
+   dos ángulos distintos y reproducibles en Controller. Dejar abierta su ruta Session.
+3. Detener sólo el relay con Ctrl+C, sin CERRAR SESSION ni borrar datos. Reiniciarlo
+   en la misma terminal con npm run relay y las mismas variables. Esperar health
+   ready=true; en Firebase Console debe seguir el mismo registro Session/código.
+4. En la ruta que sigue abierta en Controller, CONECTAR AL RELAY y consultar/volver
+   a enfocar Session. Deben aparecer el mismo sessionId/código, roles/historial y
+   ángulos. Nodes offline y sin READY hasta nueva aprobación; no debe comenzar REC
+   ni recibirse otro STOP espontáneo. Reproducir los ángulos ya confirmados.
+5. Reconectar Nodes, SOLICITAR REINGRESO y aceptar ambos. NodeIds nuevos, roles por
+   reasignar; confirmar que la Take histórica conserva los nodeIds originales y
+   que otra Take funciona. Los originales locales siguen en cada teléfono.
+6. Repetir reinicio durante REC. Detener/guardar desde cada Node si continúa grabando.
+   Controller consulta la Take interrumpida: saved previo, si existía, se conserva;
+   los resultados sin confirmación siguen desconocidos. CERRAR TOMA INTERRUMPIDA
+   con advertencia; luego reingreso/roles/READY y una Take nueva sin replay.
+7. Tras finalizar/cerrar la Take, CERRAR SESSION → CONFIRMAR CIERRE. El código ya no
+   permite ingresos. Reiniciar otra vez y consultar por identidad autorizada: estado
+   cerrado, historial y referencias conservados, sin aceptar nuevos controles.
+
+**Pendiente H3.4c:** recordar/descubrir/listar Sessions del Controller desde app fría,
+selección/reapertura guiada y reconciliación durable de participación/estado local.
+Aquí funciona la consulta con sessionId conocido (ruta conservada) y reingreso
+manual; no se promete que cerrar/reabrir toda la app encuentre automáticamente la
+Session. H3.4d desplegará Render/probará APK sin laptop. **H3.4b y H3 global no se
+marcan verificados físicamente por estas pruebas automatizadas.**

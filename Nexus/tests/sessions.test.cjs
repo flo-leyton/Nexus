@@ -11,6 +11,7 @@ const WebSocket = require('ws');
 const ts = require('typescript');
 const protocol = require('../services/sessionProtocol.ts');
 const { startTestRelay, authenticate } = require('./helpers/relay.cjs');
+const { createMemoryStore } = require('./helpers/storage.cjs');
 
 function loadTs(file, dependencies) {
   const exports = {};
@@ -175,7 +176,7 @@ test('H1.1: authorization, schema, code and target validation never leak to broa
   const nClosed = once(n.ws, 'close');
   n.ws.close();
   await nClosed;
-  await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && !m.payload.session.members.node);
+  await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.members.node?.online === false);
   assert.equal(n.service.getSnapshot().connection, 'Disconnected');
   c.ws.close();
   // Pending requests are explicitly notified when their Controller disappears.
@@ -184,7 +185,7 @@ test('H1.1: authorization, schema, code and target validation never leak to broa
   const ownerSession = (await owner.wait(replyTo(ownerCreated.messageId))).payload.session;
   const pendingId = stranger.service.requestJoin(ownerSession.code);
   await owner.wait(replyTo(pendingId));
-  owner.ws.close();
+  owner.service.closeSession(ownerSession.sessionId);
   await stranger.wait((m) => m.type === 'SESSION_CLOSED');
 });
 
@@ -292,11 +293,11 @@ test('H1.3: 3 Nodes keep independent roles/readiness, authorization and role ret
   const wrongAck = request('SESSION_ROLE_ACK', b.deviceId, sid, { requestId: original }, c.deviceId);
   b.ws.send(JSON.stringify(wrongAck));
   assert.equal((await b.wait(replyTo(wrongAck.messageId))).payload.code, 'INVALID_TARGET');
-  // Disconnect a READY Node: the Controller's actual snapshot must no longer include it.
+  // Disconnect a READY Node: preserve membership, but mark offline and remove READY.
   const beforeDisconnect = c.inbox.length;
   third.ws.close();
-  await c.wait((m) => c.inbox.indexOf(m) >= beforeDisconnect && m.type === 'SESSION_SNAPSHOT' && m.payload.session.sessionId === sid && !m.payload.session.members[third.deviceId]);
-  assert.equal(members()[third.deviceId], undefined);
+  await c.wait((m) => c.inbox.indexOf(m) >= beforeDisconnect && m.type === 'SESSION_SNAPSHOT' && m.payload.session.sessionId === sid && m.payload.session.members[third.deviceId]?.online === false);
+  assert.equal(members()[third.deviceId].online, false);
   assert.ok(protocol.readinessReasons(undefined).length > 0);
   assert.equal(members()[a.deviceId].readiness.enginePrepared, true);
 });
@@ -350,45 +351,48 @@ test('H1.3: readiness requires every condition; stale camera callbacks cannot re
   assert.equal(protocol.readinessReasons(native.getSnapshot().readiness).length, 0);
 });
 
-test('H1.3: relay expires silent READY and missing role ACK without trusting client timestamps', () => {
+test('H1.3: relay expires silent READY and missing role ACK without trusting client timestamps', async () => {
   let now = Date.now();
   let tick;
   const module = { exports: {} };
   const serverPath = path.resolve(__dirname, '../server/sessions.js');
   const serverRequire = createRequire(serverPath);
   vm.runInNewContext(fs.readFileSync(serverPath, 'utf8'), {
-    module, require: serverRequire, Date: { now: () => now },
+    module, require: serverRequire, Date: { now: () => now }, structuredClone,
     setInterval(callback) { tick = callback; return { unref() {} }; }, clearInterval() {},
   });
-  const relay = module.exports.attachSessions({ on() {} });
-  const c = { studioIdentity: { deviceId: 'controller' }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
-  const n = { studioIdentity: { deviceId: 'node' }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
+  const relay = module.exports.attachSessions({ on() {} }, { storage: createMemoryStore() });
+  await relay.ready;
+  const c = { studioIdentity: { uid: 'controller-uid', deviceId: 'controller', expiresAt: now + 3600000 }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
+  const n = { studioIdentity: { uid: 'node-uid', deviceId: 'node', expiresAt: now + 3600000 }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
+  await relay.claimDevice('controller', 'controller-uid'); await relay.connect(c);
+  await relay.claimDevice('node', 'node-uid'); await relay.connect(n);
   const handle = (peer, message) => relay.handle(peer, JSON.stringify(message));
-  handle(c, request('SESSION_CREATE', 'controller', 'session'));
+  await handle(c, request('SESSION_CREATE', 'controller', 'session'));
   const code = c.inbox.at(-1).payload.session.code;
   const join = request('SESSION_JOIN_REQUEST', 'node', protocol.JOIN_BY_CODE, { code });
-  handle(n, join);
-  handle(c, request('SESSION_JOIN_ACCEPT', 'controller', 'session', { requestId: join.messageId }, 'node'));
+  await handle(n, join);
+  await handle(c, request('SESSION_JOIN_ACCEPT', 'controller', 'session', { requestId: join.messageId }, 'node'));
   const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
-  handle(n, { ...request('NODE_STATE', 'node', 'session', { readiness: ready }, 'controller'), sentAt: now + 999999 });
+  await handle(n, { ...request('NODE_STATE', 'node', 'session', { readiness: ready }, 'controller'), sentAt: now + 999999 });
   assert.equal(c.inbox.at(-1).payload.session.members.node.readiness.enginePrepared, true);
   now += protocol.NODE_STATE_TTL_MS + 1;
-  tick();
+  await tick();
   assert.equal(c.inbox.at(-1).payload.session.members.node.readiness.enginePrepared, false);
   assert.match(c.inbox.at(-1).payload.session.members.node.readiness.error, /vencido/);
   const command = request('ASSIGN_ROLE', 'controller', 'session', { role: 'side-camera' }, 'node');
-  handle(c, command);
+  await handle(c, command);
   assert.equal(n.inbox.at(-1).type, 'ASSIGN_ROLE');
-  handle(c, request('SESSION_GET', 'controller', 'session'));
+  await handle(c, request('SESSION_GET', 'controller', 'session'));
   assert.equal(c.inbox.at(-1).payload.session.members.node.role, 'unassigned');
-  handle(c, request('SESSION_ROLE_ACK', 'controller', 'session', { requestId: command.messageId }, 'controller'));
+  await handle(c, request('SESSION_ROLE_ACK', 'controller', 'session', { requestId: command.messageId }, 'controller'));
   assert.equal(c.inbox.at(-1).payload.code, 'INVALID_TARGET');
   now += 10001;
-  tick();
+  await tick();
   assert.equal(c.inbox.at(-1).payload.code, 'ROLE_ACK_TIMEOUT');
-  handle(n, request('SESSION_ROLE_ACK', 'node', 'session', { requestId: command.messageId }, 'controller'));
+  await handle(n, request('SESSION_ROLE_ACK', 'node', 'session', { requestId: command.messageId }, 'controller'));
   assert.equal(n.inbox.at(-1).payload.code, 'ROLE_ACK_TIMEOUT');
-  handle(c, request('SESSION_GET', 'controller', 'session'));
+  await handle(c, request('SESSION_GET', 'controller', 'session'));
   assert.equal(c.inbox.at(-1).payload.session.members.node.role, 'unassigned');
 });
 
@@ -423,7 +427,7 @@ test('rejoin: remembered session survives disconnect/reload but needs new approv
   assert.equal(c.service.getSnapshot().lastNodeSession, null); // Controllers do not save a Node hint
   const cutoff = c.inbox.length;
   first.ws.close(); await once(first.ws, 'close');
-  await c.wait((m) => c.inbox.indexOf(m) >= cutoff && m.type === 'SESSION_SNAPSHOT' && !m.payload.session.members[first.deviceId]);
+  await c.wait((m) => c.inbox.indexOf(m) >= cutoff && m.type === 'SESSION_SNAPSHOT' && m.payload.session.members[first.deviceId]?.online === false);
   assert.equal(first.service.getSnapshot().lastNodeSession.sessionId, s.sessionId);
   const n = await connect(first.deviceId, await memory.options());
   assert.equal(n.service.getSnapshot().connection, 'Connected');
@@ -436,7 +440,7 @@ test('rejoin: remembered session survives disconnect/reload but needs new approv
   assert.equal(n.sent.filter((m) => m.type === 'SESSION_JOIN_REQUEST').length, 1);
   assert.equal(c.service.getSnapshot().pending[s.sessionId].filter((r) => r.deviceId === n.deviceId).length, 1);
   const unauthorized = n.service.refreshSession(s.sessionId);
-  assert.equal((await n.wait(replyTo(unauthorized))).payload.code, 'NOT_MEMBER');
+  assert.equal((await n.wait(replyTo(unauthorized))).payload.session.members[first.deviceId].online, false);
   const rejoined = await approveForRejoin(c, n, s, join);
   assert.notEqual(rejoined.nodeId, original.nodeId);
   assert.equal(rejoined.deviceId, original.deviceId);
@@ -460,7 +464,7 @@ test('rejoin: rejection allows a new explicit request; closing the session clear
   assert.equal(n.service.getSnapshot().joinInFlight, false);
   assert.equal(n.service.getSnapshot().sessions[s.sessionId], undefined);
   const second = n.service.requestRejoin(); assert.notEqual(first, second); await c.wait(replyTo(second));
-  c.ws.close(); await once(c.ws, 'close');
+  c.service.closeSession(s.sessionId);
   await n.wait((m) => m.type === 'SESSION_CLOSED');
   assert.equal(n.service.getSnapshot().lastNodeSession, null);
   assert.equal(await memory.store.load(), null);

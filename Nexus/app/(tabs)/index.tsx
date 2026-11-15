@@ -25,7 +25,7 @@ export default function StudioScreen() {
         setFailed(true);
         setNotice(event.type === 'SESSION_JOIN_REJECTED'
           ? 'El Controller rechazó tu solicitud. Puedes volver a solicitar ingreso.'
-          : 'El Controller se desconectó y la sesión se cerró. Solicita un código nuevo.');
+          : 'El Controller cerró la Session. Solicita un código de otra Session.');
       }
       return;
     }

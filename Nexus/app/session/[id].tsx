@@ -18,7 +18,7 @@ import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/
 import { uploadMediaAsset } from '@/services/cloudinary';
 import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
-import { readinessReasons, type JoinRequest } from '@/services/sessionProtocol';
+import { readinessReasons, takeFinished, type JoinRequest } from '@/services/sessionProtocol';
 import type { RemoteMediaAsset } from '@/types/media';
 import type { CaptureIdentity } from '@/types/capture';
 
@@ -41,6 +41,8 @@ export default function SessionScreen() {
   const [sessionNotice, setSessionNotice] = useState('Consultando la sesión en el relay…');
   const [verified, setVerified] = useState(false);
   const [sessionFailed, setSessionFailed] = useState(false);
+  const [confirmSessionClose, setConfirmSessionClose] = useState(false);
+  const closeRequest = useRef<string | null>(null);
   const [deciding, setDeciding] = useState<Record<string, string>>({});
   const decisions = useRef<Record<string, string>>({});
   const refreshId = useRef<string | null>(null);
@@ -67,10 +69,12 @@ export default function SessionScreen() {
       setDeciding({ ...decisions.current });
     }
     if (event.type === 'SESSION_CLOSED') {
+      closeRequest.current = null;
       setVerified(false);
       setSessionFailed(true);
-      setSessionNotice('El Controller se desconectó. Esta sesión se cerró; los medios locales siguen disponibles.');
-    } else if (event.type === 'SESSION_ERROR' && (event.payload.requestId === refreshId.current || decisionDevice)) {
+      setSessionNotice('El Controller cerró explícitamente la Session. Su historial y los originales se conservan.');
+    } else if (event.type === 'SESSION_ERROR' && (event.payload.requestId === refreshId.current || decisionDevice || event.payload.requestId === closeRequest.current)) {
+      if (event.payload.requestId === closeRequest.current) closeRequest.current = null;
       if (event.payload.requestId === refreshId.current) {
         refreshId.current = null;
         setVerified(false);
@@ -85,7 +89,7 @@ export default function SessionScreen() {
     } else if (event.type === 'SESSION_SNAPSHOT' && decisionDevice) {
       setSessionFailed(false);
       setSessionNotice('Decisión confirmada por el relay.');
-    } else if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId]?.kind === 'node' && !verified && !refreshId.current) {
+    } else if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false && !verified && !refreshId.current) {
       // A new Controller approval is authoritative even if this screen survived the disconnect.
       setVerified(true);
       setSessionFailed(false);
@@ -242,6 +246,18 @@ export default function SessionScreen() {
             <ThemedText>Estado de la sesión: {session.state === 'joining' ? 'Ingreso de Nodes' : session.state}</ThemedText>
           </ThemedView>
           {isController && <ThemedView style={styles.section}>
+            {service && session && session.state !== 'closed' && <>
+              <Pressable accessibilityRole="button" disabled={!takeFinished(session.take) || !!closeRequest.current} style={styles.primaryButton}
+                onPress={() => setConfirmSessionClose(true)}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CERRAR SESSION</ThemedText></Pressable>
+              {confirmSessionClose && <View style={{ gap: 10 }}>
+                <ThemedText>Cerrar impide nuevos ingresos y comandos. Conserva el historial y los originales. Finaliza o cierra primero cualquier Take interrumpida.</ThemedText>
+                <Pressable accessibilityRole="button" disabled={!!closeRequest.current} onPress={() => {
+                  try { closeRequest.current = service.closeSession(sessionId); setConfirmSessionClose(false); setSessionNotice('Guardando cierre de Session en el servidor…'); }
+                  catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
+                }}><ThemedText>CONFIRMAR CIERRE DE SESSION</ThemedText></Pressable>
+                <Pressable accessibilityRole="button" onPress={() => setConfirmSessionClose(false)}><ThemedText>Cancelar</ThemedText></Pressable>
+              </View>}
+            </>}
             <ThemedText type="subtitle">Solicitudes de ingreso</ThemedText>
             {(snapshot?.pending[sessionId] ?? []).length === 0 && <ThemedText>No hay solicitudes pendientes.</ThemedText>}
             {(snapshot?.pending[sessionId] ?? []).map((request) => (
@@ -266,19 +282,20 @@ export default function SessionScreen() {
               <View key={member.deviceId} style={styles.member}>
                 <ThemedText type="defaultSemiBold">{member.kind === 'controller' ? 'Controller' : 'Node'}{member.deviceId === deviceId ? ' · Este dispositivo' : ''}</ThemedText>
                 <ThemedText selectable style={styles.sessionId}>deviceId: {member.deviceId}</ThemedText>
+                <ThemedText>Conexión en Session: {member.online === false ? 'offline; estado conservado' : 'online'}</ThemedText>
                 {member.nodeId && <ThemedText selectable style={styles.sessionId}>nodeId: {member.nodeId}</ThemedText>}
                 {member.kind === 'node' && <>
                   <ThemedText>Rol: {member.role}</ThemedText>
-                  <ThemedText accessibilityLiveRegion="polite">{readinessReasons(member.readiness, connected).length === 0 ? 'READY' : `NO LISTO: ${readinessReasons(member.readiness, connected).join(' · ')}`}</ThemedText>
+                  <ThemedText accessibilityLiveRegion="polite">{readinessReasons(member.readiness, connected && member.online !== false).length === 0 ? 'READY' : `NO LISTO: ${readinessReasons(member.readiness, connected && member.online !== false).join(' · ')}`}</ThemedText>
                   <ThemedText>Permiso: {member.readiness?.cameraPermission ?? 'unknown'} · Cámara: {member.readiness?.cameraAvailable === true ? 'disponible' : member.readiness?.cameraAvailable === false ? 'no disponible' : 'sin comprobar'} · Motor: {member.readiness?.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
-                  {isController && service && <NodeRoleEditor service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
+                  {isController && service && member.online !== false && session.state !== 'closed' && <NodeRoleEditor service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
                 </>}
               </View>
             ))}
           </ThemedView>
         </>}
 
-        {!session && service && snapshot && <ThemedView style={styles.section}>
+        {(!session || session.members[deviceId]?.online === false) && service && snapshot && <ThemedView style={styles.section}>
           <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />
         </ThemedView>}
         {isController && session && <ThemedView style={styles.section}>
@@ -287,7 +304,7 @@ export default function SessionScreen() {
         </ThemedView>}
         {localNode && localNode.sessionId === sessionId && service && <ThemedView style={styles.section}>
           <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
-            accepted={session?.members[deviceId]?.nodeId === localNode.nodeId}
+            accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
             onBusyChange={setCaptureBusy} onSaved={captureSaved} />
         </ThemedView>}
         {!!deviceId && <ThemedView style={styles.section}><LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} /></ThemedView>}

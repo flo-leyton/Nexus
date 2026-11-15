@@ -21,7 +21,7 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
     if (!request.current) return;
     const event = state.lastEvent;
     if (!event) return;
-    if (event.type === 'SESSION_SNAPSHOT' && event.sessionId === target.current && event.payload.session.members[deviceId]?.kind === 'node') {
+    if (event.type === 'SESSION_SNAPSHOT' && event.sessionId === target.current && event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
       request.current = null; setNotice('Reingreso aceptado por el Controller. Abre la sesión para preparar la cámara.');
     } else if (event.payload.requestId === request.current) {
       if (event.type === 'SESSION_JOIN_PENDING') setNotice('Solicitud enviada. Espera una nueva aprobación del Controller.');
@@ -35,7 +35,7 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
     });
   }, [service, deviceId]);
   const last = snapshot.lastNodeSession;
-  const isMember = last && !!snapshot.sessions[last.sessionId]?.members[deviceId];
+  const isMember = last && !!snapshot.sessions[last.sessionId]?.members[deviceId] && snapshot.sessions[last.sessionId]?.members[deviceId]?.online !== false;
   const connected = snapshot.connection === 'Connected';
   const disabled = !connected || snapshot.joinInFlight || blocked;
   if (!last || isMember) return notice || snapshot.historyError ? <View style={styles.panel}>

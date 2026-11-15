@@ -1,16 +1,69 @@
 const { randomUUID, randomInt } = require('node:crypto');
-const { attachRecording, recordingState } = require('./recording');
-const { isSessionRequest, isRecord, isProtocolId, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
+const { attachRecording } = require('./recording');
+const { sharedSession, encodeRegistry, decodeRegistry } = require('./sessionSchema');
+const { isSessionRequest, isRecord, isProtocolId, takeFinished, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
-function attachSessions(relay) {
+function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
   const sessions = new Map();
   const codes = new Map();
   const identities = new Map();
   const clients = new Map();
-  const stateTimes = new WeakMap();
+  const owners = new Map();
+  const stateTimes = { get: (member) => member.stateAt, set: (member, at) => { member.stateAt = at; } };
+  let revision = 0, effects = null, queue = Promise.resolve(), recovered = false, degraded = false, fatal = false;
+  const replace = (map, values) => { map.clear(); for (const [key, value] of values) map.set(key, value); };
+  const emit = (client, text) => {
+    const deliver = () => { try { if (client?.readyState === 1 && client.studioIdentity?.expiresAt > Date.now()) client.send(text); } catch { /* A lost socket cannot undo a durable commit. */ } };
+    if (effects) effects.push(deliver); else deliver();
+  };
+  const ready = (async () => {
+    const restored = decodeRegistry(await storage.load());
+    replace(sessions, restored.sessions); replace(codes, restored.codes); replace(owners, restored.owners);
+    revision = restored.revision;
+    await storage.commit(revision, encodeRegistry(sessions, owners, revision + 1));
+    revision++; recovered = true;
+  })();
+  void ready.catch(() => {});
+  const enqueue = (operation) => {
+    const task = queue.catch(() => {}).then(async () => {
+      await ready;
+      if (fatal) throw new Error('STORE_UNAVAILABLE');
+      const previous = structuredClone({ sessions, codes, owners });
+      const before = JSON.stringify(encodeRegistry(sessions, owners, revision));
+      effects = [];
+      try {
+        const result = operation();
+        const next = encodeRegistry(sessions, owners, revision);
+        if (JSON.stringify(next) !== before) {
+          next.revision++;
+          await storage.commit(revision, next);
+          revision++; degraded = false;
+        }
+        const committedEffects = effects; effects = null;
+        for (const deliver of committedEffects) deliver();
+        return result;
+      } catch (error) {
+        effects = null;
+        replace(sessions, previous.sessions); replace(codes, previous.codes); replace(owners, previous.owners);
+        if (!error.code?.startsWith('AUTH_')) degraded = true;
+        if (['STORE_CONFLICT', 'STORE_UNCERTAIN'].includes(error.code)) fatal = true;
+        throw error;
+      }
+    });
+    queue = task; return task;
+  };
+  const wireSession = (s, id) => {
+    const wire = sharedSession(s); wire.mediaAngles = mediaFor(s, id);
+    for (const member of Object.values(wire.members)) {
+      const client = clients.get(member.deviceId);
+      member.online = !!member.online && client?.readyState === 1 && client.studioIdentity?.uid === member.uid && client.studioIdentity.expiresAt > Date.now();
+      if (member.kind === 'node' && !member.online) member.readiness = { ...INITIAL_READINESS };
+    }
+    return wire;
+  };
   const mediaFor = (s, id) => Object.fromEntries(Object.entries(s.mediaAngles ?? {}).filter(([, angle]) => id === s.controllerId || angle.deviceId === id));
   const send = (client, type, sessionId, payload) => {
-    if (client.readyState === 1) client.send(JSON.stringify({
+    if (client?.readyState === 1) emit(client, JSON.stringify({
       protocolVersion: SESSION_PROTOCOL_VERSION, messageId: randomUUID(), type, sessionId,
       senderId: RELAY_ID, targetId: identities.get(client), sentAt: Date.now(), payload,
     }));
@@ -19,24 +72,28 @@ function attachSessions(relay) {
     for (const id of s.members.keys()) {
       const client = clients.get(id);
       if (client) send(client, 'SESSION_SNAPSHOT', s.sessionId, {
-        requestId, session: {
-          sessionId: s.sessionId, controllerId: s.controllerId, code: s.code,
-          state: recordingState(s), members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}), takeHistory: s.takeHistory ?? [], mediaAngles: mediaFor(s, id),
-        }, ...(id === s.controllerId ? { pending: [...s.pending.values()] } : {}),
+        requestId, session: wireSession(s, id), ...(id === s.controllerId ? { pending: [...s.pending.values()] } : {}),
       });
     }
   };
-  const recording = attachRecording({ clients, stateTimes, snapshot });
+  const recording = attachRecording({ clients, stateTimes, snapshot, emit });
   const bind = (client, id) => {
+    if (!(client.studioIdentity?.expiresAt > Date.now())) return false;
     if (client.studioIdentity?.deviceId !== id) return false;
+    if (owners.get(id) !== client.studioIdentity.uid) return false;
     if (identities.has(client) && identities.get(client) !== id) return false;
     if (clients.has(id) && clients.get(id) !== client) return false;
     identities.set(client, id);
     clients.set(id, client);
     return true;
   };
-  const expiry = setInterval(() => {
+  const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
+      if (s.closedAt) continue;
+      for (const member of s.members.values()) if (member.online && clients.get(member.deviceId)?.readyState !== 1) {
+        member.online = false; if (member.kind === 'node') { member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, member.deviceId); }
+        snapshot(s, randomUUID());
+      }
       recording.tick(s);
       for (const [messageId, command] of s.roles) if (!command.acked && !command.expired && Date.now() >= command.expiresAt) {
         command.expired = true;
@@ -51,10 +108,11 @@ function attachSessions(relay) {
         }
       }
     }
-  }, 1000);
+  });
+  const expiry = setInterval(() => tick().catch(() => {}), 1000);
   expiry.unref();
   relay.on('close', () => clearInterval(expiry));
-  return {
+  const core = {
     handle(client, text) {
       let m;
       // Malformed JSON cannot safely be classified as legacy traffic.
@@ -73,13 +131,15 @@ function attachSessions(relay) {
         return true;
       };
       if (!isSessionRequest(m)) return error('INVALID_MESSAGE');
+      if (client.readyState !== 1) return true;
       if (m.senderId === RELAY_ID || !bind(client, m.senderId)) return error('IDENTITY_CONFLICT');
       if (m.type === 'SESSION_CREATE') {
         if (sessions.has(m.sessionId)) return error('SESSION_EXISTS');
         let code;
-        do { code = randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0'); } while (codes.has(code));
+        for (let attempt = 0; attempt < 100; attempt++) { code = codeGenerator(); if (!codes.has(code)) break; code = null; }
+        if (!code || !/^[A-Z0-9]{6}$/.test(code)) return error('CODE_UNAVAILABLE');
         const s = { sessionId: m.sessionId, controllerId: m.senderId, code, members: new Map(), pending: new Map(), roles: new Map() };
-        s.members.set(m.senderId, { deviceId: m.senderId, nodeId: null, kind: 'controller', role: 'controller' });
+        s.members.set(m.senderId, { uid: client.studioIdentity.uid, online: true, deviceId: m.senderId, nodeId: null, kind: 'controller', role: 'controller' });
         sessions.set(s.sessionId, s);
         codes.set(code, s.sessionId);
         snapshot(s, m.messageId);
@@ -88,10 +148,10 @@ function attachSessions(relay) {
       if (m.type === 'SESSION_JOIN_REQUEST') {
         const s = sessions.get(codes.get(m.payload.code));
         if (m.sessionId !== JOIN_BY_CODE && (!s || s.sessionId !== m.sessionId)) return error('SESSION_NOT_FOUND');
-        if (!s) return error('INVALID_CODE');
-        if (s.members.has(m.senderId)) return error('ALREADY_MEMBER');
+        if (!s || s.closedAt) return error('INVALID_CODE');
+        if (s.members.get(m.senderId)?.online) return error('ALREADY_MEMBER');
         if (s.pending.has(m.senderId)) return error('JOIN_PENDING');
-        const request = { requestId: m.messageId, deviceId: m.senderId };
+        const request = { requestId: m.messageId, deviceId: m.senderId, uid: client.studioIdentity.uid };
         s.pending.set(m.senderId, request);
         send(clients.get(s.controllerId), 'SESSION_JOIN_PENDING', s.sessionId, request);
         send(client, 'SESSION_JOIN_PENDING', s.sessionId, request);
@@ -99,7 +159,8 @@ function attachSessions(relay) {
       }
       const s = sessions.get(m.sessionId);
       if (!s) return error('SESSION_NOT_FOUND');
-      if (!s.members.has(m.senderId)) return error('NOT_MEMBER');
+      if (s.members.get(m.senderId)?.uid !== client.studioIdentity.uid) return error('NOT_MEMBER');
+      if (s.closedAt && !['SESSION_GET', 'SESSION_CLOSE'].includes(m.type)) return error('SESSION_IS_CLOSED');
       if (m.type === 'MEDIA_STATE') {
         const angle = m.payload;
         if (s.members.get(m.senderId).kind !== 'node' || angle.deviceId !== m.senderId) return error('NODE_REQUIRED');
@@ -122,6 +183,7 @@ function attachSessions(relay) {
         send(client, 'MEDIA_ACCEPTED', s.sessionId, { requestId: m.messageId, angle: s.mediaAngles[key] });
         return true;
       }
+      if (s.members.get(m.senderId).kind === 'node' && !s.members.get(m.senderId).online && !['SESSION_GET'].includes(m.type)) return error('REJOIN_REQUIRED');
       if (recording.handle(s, m, error)) return true;
       if (m.type === 'NODE_STATE') {
         const member = s.members.get(m.senderId);
@@ -146,56 +208,85 @@ function attachSessions(relay) {
       }
       if (m.type === 'SESSION_GET') {
         // Snapshot query is delivered only to the requesting member.
-        send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: {
-          sessionId: s.sessionId, controllerId: s.controllerId, code: s.code, state: recordingState(s),
-          members: Object.fromEntries(s.members), ...(s.take ? { take: s.take } : {}), takeHistory: s.takeHistory ?? [], mediaAngles: mediaFor(s, m.senderId),
-        }, ...(m.senderId === s.controllerId ? { pending: [...s.pending.values()] } : {}) });
+        send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), ...(m.senderId === s.controllerId ? { pending: [...s.pending.values()] } : {}) });
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+      if (m.type === 'SESSION_CLOSE') {
+        if (!s.closedAt && !takeFinished(s.take)) return error('TAKE_ACTIVE');
+        const recipients = new Set([...s.members.keys(), ...s.pending.keys()]);
+        if (!s.closedAt) { s.closedAt = Date.now(); s.pending.clear(); for (const member of s.members.values()) { member.online = false; if (member.kind === 'node') member.readiness = { ...INITIAL_READINESS }; } }
+        snapshot(s, m.messageId);
+        for (const id of recipients) if (clients.has(id)) send(clients.get(id), 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
+        return true;
+      }
       if (m.type === 'ASSIGN_ROLE') {
         const target = s.members.get(m.targetId);
-        if (target?.kind !== 'node' || clients.get(m.targetId)?.readyState !== 1) return error('INVALID_TARGET');
+        if (target?.kind !== 'node' || !target.online || clients.get(m.targetId)?.readyState !== 1) return error('INVALID_TARGET');
         const previous = s.roles.get(m.messageId);
         if (previous && (previous.targetId !== m.targetId || previous.role !== m.payload.role)) return error('MESSAGE_ID_CONFLICT');
         if (previous?.expired) return error('ROLE_ACK_TIMEOUT');
         if (previous?.acked) { snapshot(s, m.messageId); return true; }
         if ([...s.roles.entries()].some(([id, command]) => id !== m.messageId && command.targetId === m.targetId && !command.acked && !command.expired)) return error('ROLE_PENDING');
         if (!previous) s.roles.set(m.messageId, { targetId: m.targetId, role: m.payload.role, acked: false, expired: false, expiresAt: Date.now() + 10000 });
-        clients.get(m.targetId).send(JSON.stringify(m));
+        emit(clients.get(m.targetId), JSON.stringify(m));
         return true;
       }
       const pending = s.pending.get(m.targetId);
-      if (!pending || pending.requestId !== m.payload.requestId || !clients.has(m.targetId)) return error('INVALID_TARGET');
+      if (!pending || pending.requestId !== m.payload.requestId || clients.get(m.targetId)?.readyState !== 1 || clients.get(m.targetId).studioIdentity.uid !== pending.uid) return error('INVALID_TARGET');
       s.pending.delete(m.targetId);
       if (m.type === 'SESSION_JOIN_REJECT') {
         send(clients.get(m.targetId), 'SESSION_JOIN_REJECTED', s.sessionId, { requestId: pending.requestId });
       } else {
-        s.members.set(m.targetId, { deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned', readiness: { ...INITIAL_READINESS } });
+        s.members.set(m.targetId, { uid: pending.uid, online: true, deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned', readiness: { ...INITIAL_READINESS } });
       }
       snapshot(s, m.messageId);
       return true;
     },
-    disconnect(client) {
-      const id = identities.get(client);
-      if (!id) return;
-      identities.delete(client);
-      clients.delete(id);
+    disconnect(id) {
       for (const s of sessions.values()) {
-        if (s.controllerId === id) {
-          for (const deviceId of new Set([...s.members.keys(), ...s.pending.keys()])) {
-            const other = clients.get(deviceId);
-            if (other) send(other, 'SESSION_CLOSED', s.sessionId, { requestId: randomUUID() });
-          }
-          sessions.delete(s.sessionId);
-          codes.delete(s.code);
-        } else if (s.members.delete(id) || s.pending.has(id)) {
-          recording.disconnect(s, id);
+        if (s.members.has(id) || s.pending.has(id)) {
+          const member = s.members.get(id);
+          if (member) { member.online = false; if (member.kind === 'node') { member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, id); } }
           for (const [messageId, command] of s.roles) if (command.targetId === id) s.roles.delete(messageId);
           s.pending.delete(id);
           snapshot(s, randomUUID());
         }
       }
+    },
+  };
+  const unavailable = (client, text) => {
+    let m; try { m = JSON.parse(text); } catch { return true; }
+    send(client, 'SESSION_ERROR', isProtocolId(m?.sessionId) ? m.sessionId : 'invalid',
+      { requestId: isProtocolId(m?.messageId) ? m.messageId : 'invalid', code: fatal ? 'STORE_RECOVERY_REQUIRED' : 'STORE_UNAVAILABLE' });
+    return true;
+  };
+  return {
+    ready, isReady: () => recovered && !degraded && !fatal,
+    idle: () => queue.catch(() => {}),
+    claimDevice(id, uid) { return enqueue(() => {
+      if (owners.has(id) && owners.get(id) !== uid) throw Object.assign(new Error('AUTH_DEVICE_CONFLICT'), { code: 'AUTH_DEVICE_CONFLICT' });
+      owners.set(id, uid);
+    }); },
+    connect(client) { return enqueue(() => {
+      if (client.readyState !== 1) throw Object.assign(new Error('AUTH_CLOSED'), { code: 'AUTH_CLOSED' });
+      const sameConnection = clients.get(client.studioIdentity.deviceId) === client;
+      if (!bind(client, client.studioIdentity.deviceId)) throw Object.assign(new Error('AUTH_DEVICE_CONFLICT'), { code: 'AUTH_DEVICE_CONFLICT' });
+      for (const s of sessions.values()) if (!s.closedAt) {
+        const member = s.members.get(client.studioIdentity.deviceId);
+        if (member?.uid !== client.studioIdentity.uid) continue;
+        if (member.kind === 'controller') member.online = true;
+        else if (!sameConnection) {
+          member.online = false; member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, member.deviceId);
+          for (const role of s.roles.values()) if (role.targetId === member.deviceId && !role.acked) role.expired = true;
+        }
+      }
+    }); },
+    handle(client, text) { return enqueue(() => core.handle(client, text)).catch(() => unavailable(client, text)); },
+    disconnect(client) {
+      const id = identities.get(client); identities.delete(client);
+      if (!id || clients.get(id) !== client) return Promise.resolve(); clients.delete(id);
+      return enqueue(() => core.disconnect(id)).catch(() => {});
     },
   };
 }

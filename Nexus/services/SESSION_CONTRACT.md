@@ -1,4 +1,4 @@
-# Contrato de sesiones y medios · H1–H3.1
+# Contrato de sesiones y medios · H1–H3.4b
 
 La sección H2 al final amplía las restricciones históricas de H1: ahora existen
 REC/STOP remotos y takeId compartido. No modifica el catálogo de H3.
@@ -498,7 +498,137 @@ con el proyecto EXPO_PUBLIC_FIREBASE_* de la app. No usar API secret Cloudinary,
 EXPO_PUBLIC para Admin ni incluir cuentas privadas en APK/Git. Sin configuración
 Admin mínima el relay no inicia; credenciales inválidas no autorizan conexiones.
 
-H3.4b persistirá Sessions/medios en RTDB; H3.4c reanudará de forma durable;
-H3.4d desplegará y probará APK sin laptop. Ninguna de esas capacidades se declara
-implementada aquí. Originales, catálogo local, importaciones, Cloudinary y resultados
+La sección siguiente sustituye el ciclo de vida en memoria descrito para H3.4a.
+H3.4c completará reapertura/reanudación en interfaz; H3.4d desplegará y probará APK
+sin laptop. Originales, catálogo local, importaciones, Cloudinary y resultados
 desconocidos de H2 mantienen su semántica.
+
+## H3.4b · Persistencia compartida y autoridad del relay
+
+H3.4a fue aceptado físicamente por el operador. Su handshake, Firebase ID token,
+UID verificado y deviceId se conservan. El cliente no escribe Sessions directamente
+en RTDB; los códigos sólo permiten solicitar ingreso, no consultar ni controlar.
+
+### Adaptador y esquema
+
+El proceso exige **FIREBASE_DATABASE_URL** y **FIREBASE_PROJECT_ID**, además de las
+credenciales privadas ADC/GOOGLE_APPLICATION_CREDENTIALS o FIREBASE_ADMIN_CREDENTIALS
+de H3.4a. getRelayAdminApp es compartido por Auth y Database. FIREBASE_DATABASE_URL
+es la URL HTTPS de RTDB, no la URL WebSocket. Si falta, el proceso falla claramente;
+si no puede leer/recuperar, /health responde 503 con ready=false y no autoriza Studio.
+El blueprint añade sólo la variable privada pendiente; no se despliega.
+
+`server/sessionStorage.js` ofrece `load()`, `commit(expectedRevision, next)` y
+`close()`, independientes de WebSocket. La implementación Admin usa una transacción
+RTDB sobre **nexusStudio/relayV1**. Mantiene la consulta inicial activa para que una
+transacción no confunda una caché vacía con un registro existente. Límite de espera
+de 15 s; nunca registra errores privados ni tokens en el protocolo o logs.
+
+Documento versión 1:
+
+```text
+nexusStudio/relayV1
+  schemaVersion: 1
+  revision: entero creciente
+  devices[deviceId]: uid verificado
+  sessions[sessionId]
+    sessionId, code, controllerId, state, closedAt?
+    members[deviceId]: uid, deviceId, nodeId, kind, role, online, readiness?
+    pending[deviceId]: uid, deviceId, requestId
+    roles[messageId]: targetId, role, acked, expired, expiresAt
+    take?, takeHistory[]: takeId, comandos, nodos, ACK, fase, busy, error,
+                        capture {id, bytes}?, cierre?, interrupted?
+    mediaAngles[deviceId:clipId]: takeId, deviceId, nodeId, clipId, bytes,
+                                revision, role?, upload {estado y referencias}
+    usedTakes[], recordingCommands[messageId], closeCommands[messageId]
+```
+
+El UID del Controller está en members[controllerId].uid. Los diarios conservan
+identidades/deduplicación y hechos históricos, no una cola para ejecutar. No hay
+vídeos, tokens, cuentas de servicio ni rutas file://. La proyección de campos es
+explícita; resultados de captura sólo comparten id y bytes, y se omiten rutas
+locales dentro de errores. CaptureReference.localUri es opcional en snapshots;
+el Node sigue usando el sidecar y URI originales para verificar/reproducir/subir.
+
+La cola del relay serializa mutaciones, incluidas conexiones, desconexiones y TTL.
+Cada transacción compara la revisión anterior y cambia atómicamente el documento.
+Dos Nodes no pisan resultados ni ángulos; la identidad de ángulo sigue siendo
+deviceId + clipId, no publicId. Un código duplicado al recuperar es error, no una
+reescritura. Los códigos cerrados quedan reservados y no admiten nuevos ingresos.
+Una segunda instancia con revisión obsoleta falla en lugar de sobrescribir. Esta
+entrega admite **un relay escritor activo**, no un cluster coordinado.
+
+El prefijo debe negar lecturas/escrituras directas desde clientes en las reglas
+RTDB, sin permisos amplios heredados desde un padre; Firebase Admin es el escritor.
+No se cambian ni despliegan reglas existentes de users/devices de la app. Revisar
+esa protección antes de exponer el servicio; no publicar RTDB para hacer la prueba.
+
+### Confirmaciones y fallos
+
+Primero se calcula el cambio, luego se confirma la transacción y sólo entonces se
+envían snapshots, decisiones, comandos REC/STOP o MEDIA_ACCEPTED. Incluye creación,
+solicitud, aceptación/rechazo, rol tras ACK, ACK/resultados de Take, cierre operativo
+y de Session, referencias/revisiones. Fallar descarta los envíos y revierte el estado
+en memoria a la revisión previa. Un error al entregar por socket después del commit
+no revierte datos ya durables. No se confirma guardado local ni subida por inferencia.
+
+`STORE_UNAVAILABLE` significa cambio no confirmado, reintentable tras recuperar la
+base; /health queda degradado hasta una escritura exitosa. Conflicto de revisión o
+timeout de commit ambiguo producen `STORE_RECOVERY_REQUIRED`: reiniciar/recuperar
+antes de continuar, sin repetir REC a ciegas. `AUTH_STORE_UNAVAILABLE` bloquea un
+handshake cuya identidad no pudo guardarse/recuperarse. Datos locales y subidas ya
+confirmadas siguen intactos; no existe fallback silencioso a memoria en producción.
+
+### Desconexión, recuperación y cierre
+
+- Desconectar mantiene Session, código y miembros; pone offline y retira READY del
+  Node, conservando UID/nodeId/rol e historial. No emite SESSION_CLOSED. Si se pierde
+  Controller, los Nodes pueden guardar localmente; no se cierra la Session.
+- Al iniciar se valida/reconstruye todo el registro e índice de códigos antes de
+  ready. Todas las conexiones están offline y preparación desconocida. El vínculo
+  UID/deviceId también es durable: otro UID no puede apropiarse de una instalación
+  después de reiniciar. La cuenta por sí sola tampoco autoriza otro deviceId.
+- Un Controller con mismo UID/deviceId puede consultar/operar su Session conocida.
+  Un Node miembro con la identidad original puede consultar su historial, pero una
+  conexión nueva necesita reingreso aprobado para activar READY/captura. Mientras
+  está offline recibe `REJOIN_REQUIRED` para esos comandos; aceptar de nuevo asigna
+  nodeId nuevo y rol unassigned, conservando las participaciones de Takes anteriores.
+  La renovación de token en el mismo socket no marca offline ni cambia la participación.
+- Las solicitudes pendientes se descartan al recuperar y los roles sin ACK expiran:
+  deben solicitarse otra vez, nunca reenviarse desde un diario restaurado. Las
+  referencias de medios de una participación antigua conservan su nodeId histórico.
+- Una Take no finalizada se conserva con `interrupted {at, reason:'relay-restarted'}`.
+  Saved ya confirmado mantiene id/bytes; los demás resultados activos quedan
+  disconnected/desconocidos, sin inventar archivo ni ACK. Los flags históricos
+  recibidos se conservan. Comandos recuperados nunca se entregan otra vez, ni ante
+  una repetición manual del ID; una Take interrumpida rechaza con TAKE_INTERRUPTED.
+- CLOSE_INTERRUPTED_TAKE puede cerrar una Take recuperada sin STOP previo (el proceso
+  se perdió). Sigue siendo advertido/autorizado y no certifica ni detiene al Node;
+  usar STOP local. Después permite una Take nueva con otro takeId.
+- `closeSession(sessionId)` envía **SESSION_CLOSE**, envelope vacío sin target. Sólo
+  el Controller UID/deviceId autorizado puede cerrar. Requiere finalizar o cerrar
+  operativamente la Take activa (TAKE_ACTIVE si no). Persiste closedAt/state=closed
+  antes de SESSION_CLOSED. Es idempotente; conserva miembros, historial y ángulos.
+  SESSION_GET permite consulta de una Session cerrada por sus miembros originales.
+  No acepta nuevas solicitudes/comandos (INVALID_CODE o SESSION_IS_CLOSED).
+
+### Interfaz y alcance de H3.4c
+
+La pantalla actual muestra offline, retira READY y permite reingreso manual y cierre
+explícito confirmado de Session. REC selecciona sólo Nodes online; el cierre de
+Take no queda bloqueado por miembros offline retenidos. Con la ruta /session/<id>
+todavía abierta, reconectar y refreshSession puede consultar el registro restaurado.
+
+**H3.4c sigue pendiente:** recordar/descubrir Sessions del Controller después de
+abrir la app fría, listar y seleccionar una Session durable sin conocer su ruta,
+reconciliar participación/estado local y reanudar de forma guiada sin duplicar
+comandos. Esta entrega no crea reconexión/reanudación automática. Se mantienen los
+originales, catálogos e importaciones locales. No se intentan migrar Sessions de
+relays anteriores que sólo existían en memoria y nunca escribieron este esquema.
+
+Pruebas: adaptador simulado con semántica RTDB de campos null/contendedores vacíos,
+reinicio con adaptador/relay nuevos, resultados simultáneos, UID, fallos antes de
+confirmar y no replay. La prueba opcional `tests/rtdb-emulator.test.cjs` requiere
+emulador RTDB local y FIREBASE_DATABASE_EMULATOR_HOST=127.0.0.1:9000. Usa proyecto
+demo-nexus-h34b y un prefijo temporal propio, sin credenciales ni datos de producción.
+Sin emulador se marca SKIP, no PASS.

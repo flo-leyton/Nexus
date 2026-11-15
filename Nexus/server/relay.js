@@ -12,20 +12,21 @@ function resolvePort(value, fallback) {
 
 // verifyToken is an explicit dependency for tests. Production supplies Firebase Admin;
 // there is no environment flag that bypasses authentication, even on LAN.
-function createRelay({ port, host = '0.0.0.0', verifyToken, authTimeoutMs = 15000 }) {
+function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerator, authTimeoutMs = 15000 }) {
   if (typeof verifyToken !== 'function') throw new Error('El relay necesita un verificador de Firebase ID tokens.');
+  if (!storage) throw new Error('El relay necesita almacenamiento durable RTDB.');
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
-      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      response.end(JSON.stringify({ ready: true }));
+      response.writeHead(sessions.isReady() ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ ready: sessions.isReady() }));
     } else { response.writeHead(404); response.end(); }
   });
   const relay = new WebSocketServer({ server, maxPayload: 65536 });
   relay.on('error', () => {}); // HTTP server startup errors are handled by the entry point.
-  const owners = new Map(), connections = new Map(); // ephemeral deviceId -> uid / active socket
+  const connections = new Map(); // only active sockets; ownership is durable
   const authenticated = (client) => client.readyState === OPEN && client.studioIdentity?.expiresAt > Date.now();
   const presence = attachDevicePresence(relay, authenticated);
-  const sessions = attachSessions(relay);
+  const sessions = attachSessions(relay, { storage, codeGenerator });
   relay.on('connection', (client) => {
     let verifying = false;
     const reject = (code) => {
@@ -52,10 +53,16 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, authTimeoutMs = 1500
           if (expiresAt <= Date.now()) { reject('AUTH_EXPIRED'); return; }
           const current = client.studioIdentity;
           if (current && (current.uid !== decoded.uid || current.deviceId !== message.deviceId)) { reject('AUTH_IDENTITY_CHANGE'); return; }
-          if ((owners.has(message.deviceId) && owners.get(message.deviceId) !== decoded.uid) ||
-              (connections.has(message.deviceId) && connections.get(message.deviceId) !== client)) { reject('AUTH_DEVICE_CONFLICT'); return; }
-          owners.set(message.deviceId, decoded.uid); connections.set(message.deviceId, client);
+          try { await sessions.claimDevice(message.deviceId, decoded.uid); }
+          catch (error) { reject(error.code === 'AUTH_DEVICE_CONFLICT' ? error.code : 'AUTH_STORE_UNAVAILABLE'); return; }
+          if (client.readyState !== OPEN) return;
+          if (connections.has(message.deviceId) && connections.get(message.deviceId) !== client) { reject('AUTH_DEVICE_CONFLICT'); return; }
+          connections.set(message.deviceId, client);
           client.studioIdentity = Object.freeze({ uid: decoded.uid, deviceId: message.deviceId, expiresAt });
+          try { await sessions.connect(client); }
+          catch { reject('AUTH_STORE_UNAVAILABLE'); return; }
+          if (client.readyState !== OPEN) return;
+          if (expiresAt <= Date.now()) { reject('AUTH_EXPIRED'); return; }
           if (!current) presence.connect(client);
           clearTimeout(deadline);
           deadline = setTimeout(() => reject('AUTH_EXPIRED'), Math.min(expiresAt - Date.now(), 2147483647)); deadline.unref();
@@ -66,7 +73,9 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, authTimeoutMs = 1500
       }
       if (!authenticated(client)) { reject(client.studioIdentity ? 'AUTH_EXPIRED' : 'AUTH_REQUIRED'); return; }
       const text = String(raw);
-      if (sessions.handle(client, text) || presence.handle(client, text)) return;
+      if (await sessions.handle(client, text)) return;
+      if (!authenticated(client)) return;
+      if (presence.handle(client, text)) return;
       for (const other of relay.clients) if (other !== client && authenticated(other)) other.send(text);
     });
     client.on('close', () => {
@@ -78,9 +87,10 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, authTimeoutMs = 1500
     client.on('error', () => {}); // No payloads, credentials or tokens in logs.
   });
   server.listen(port, host);
-  return { server, relay, close: () => new Promise((resolve, reject) => {
+  let closing;
+  return { server, relay, ready: sessions.ready, idle: sessions.idle, close: () => closing ||= new Promise((resolve, reject) => {
     for (const client of relay.clients) client.terminate();
-    relay.close(() => server.close((error) => error ? reject(error) : resolve()));
+    relay.close(() => server.close((error) => sessions.idle().then(() => { storage.close?.(); if (error) reject(error); else resolve(); })));
   }) };
 }
 module.exports = { createRelay, resolvePort };

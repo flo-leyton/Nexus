@@ -16,5 +16,7 @@ services:
         value: production
       - key: FIREBASE_PROJECT_ID
         sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
       - key: FIREBASE_ADMIN_CREDENTIALS
         sync: false

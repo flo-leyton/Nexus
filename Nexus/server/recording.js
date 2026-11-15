@@ -1,6 +1,8 @@
 const { readinessReasons, NODE_STATE_TTL_MS, takeFinished } = require('../services/sessionProtocol.ts');
 
 function recordingState(s) {
+  if (s.closedAt) return 'closed';
+  if (s.take?.interrupted) return 'failed';
   if (!s.take) return 'joining';
   if (s.take.closed) return 'failed'; // operationally closed, never a claim that unknown originals were saved
   const nodes = Object.values(s.take.nodes);
@@ -9,13 +11,12 @@ function recordingState(s) {
   return s.take.stopMessageId ? 'finishing' : nodes.some((n) => n.phase === 'recording') ? 'recording' : 'preparing';
 }
 // Session-scoped command journal. Only states and file references travel here.
-function attachRecording({ clients, stateTimes, snapshot }) {
-  const progressTimes = new WeakMap();
+function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) => client.send(text) }) {
   const deliver = (s, m) => {
     for (const [id, node] of Object.entries(s.take.nodes)) {
       if (!m.payload.targetNodeIds.includes(node.nodeId)) continue;
       const client = clients.get(id);
-      if (s.members.get(id)?.nodeId === node.nodeId && client?.readyState === 1) client.send(JSON.stringify({ ...m, targetId: id }));
+      if (s.members.get(id)?.nodeId === node.nodeId && s.members.get(id)?.online !== false && client?.readyState === 1) emit(client, JSON.stringify({ ...m, targetId: id }));
     }
   };
   return {
@@ -31,14 +32,14 @@ function attachRecording({ clients, stateTimes, snapshot }) {
         const take = s.take?.takeId === m.payload.takeId ? s.take : s.takeHistory?.find((t) => t.takeId === m.payload.takeId);
         if (!take) return error('TAKE_NOT_FOUND');
         if (take.closed) { s.closeCommands.set(m.messageId, take.takeId); snapshot(s, m.messageId); return true; }
-        if (!take.stopMessageId) return error('STOP_REQUIRED');
+        if (!take.stopMessageId && !take.interrupted) return error('STOP_REQUIRED');
         const unknown = [];
         for (const [id, node] of Object.entries(take.nodes)) {
           if (!node.busy && ['saved', 'error'].includes(node.phase)) continue;
           const member = s.members.get(id);
-          if (member?.nodeId === node.nodeId && clients.get(id)?.readyState === 1) return error('TAKE_PARTICIPANT_ACTIVE');
+          if (member?.nodeId === node.nodeId && member.online !== false && clients.get(id)?.readyState === 1) return error('TAKE_PARTICIPANT_ACTIVE');
           // A re-approved participation must also prove it is idle before abandoning the old one.
-          if (member && (clients.get(id)?.readyState !== 1 || readinessReasons(member.readiness).length ||
+          if (member?.online !== false && member && (clients.get(id)?.readyState !== 1 || readinessReasons(member.readiness).length ||
               Date.now() - (stateTimes.get(member) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
           unknown.push(node.nodeId);
         }
@@ -49,6 +50,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
         return true;
       }
       if (m.type === 'RECORDING_ACK' || m.type === 'RECORDING_STATE') {
+        if (s.take?.interrupted) return error('TAKE_INTERRUPTED');
         if (s.take?.closed) return error('TAKE_CLOSED');
         const command = s.recordingCommands.get(m.payload.requestId);
         const node = s.take?.nodes[m.senderId];
@@ -63,8 +65,9 @@ function attachRecording({ clients, stateTimes, snapshot }) {
           if (node.phase !== 'saved') {
             const ranks = { pending: 0, starting: 1, recording: 2, saving: 3, saved: 4 };
             if (node.phase in ranks && m.payload.phase in ranks && ranks[m.payload.phase] < ranks[node.phase]) return error('STALE_RECORDING_STATE');
-            Object.assign(node, { phase: m.payload.phase, error: m.payload.error, capture: m.payload.capture, busy: m.payload.busy });
-            progressTimes.set(node, Date.now());
+            Object.assign(node, { phase: m.payload.phase, error: m.payload.error,
+              capture: m.payload.capture ? { id: m.payload.capture.id, bytes: m.payload.capture.bytes } : null, busy: m.payload.busy });
+            node.progressAt = Date.now();
           }
           if (!['starting'].includes(m.payload.phase)) command.executed.add(m.senderId);
         }
@@ -74,13 +77,14 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
       if (m.targetId) return error('INVALID_TARGET');
+      if (s.take?.interrupted && !s.take.closed && s.take.takeId === m.payload.takeId) return error('TAKE_INTERRUPTED');
       if (s.closeCommands.has(m.messageId)) return error('MESSAGE_ID_CONFLICT');
       if (m.type === 'STOP_RECORDING' && (s.take?.takeId !== m.payload.takeId || s.take.closed)) return error('TAKE_CLOSED');
       const previous = s.recordingCommands.get(m.messageId);
       const signature = JSON.stringify([m.type, m.payload.takeId, [...m.payload.targetNodeIds].sort()]);
       if (previous) {
         if (previous.signature !== signature) return error('MESSAGE_ID_CONFLICT');
-        if (s.take?.takeId === m.payload.takeId && !s.take.closed) deliver(s, m);
+        if (!previous.recovered && s.take?.takeId === m.payload.takeId && !s.take.closed) deliver(s, m);
         snapshot(s, m.messageId);
         return true;
       }
@@ -96,7 +100,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
           nodes: Object.fromEntries(targets.map((n) => [n.deviceId, { nodeId: n.nodeId, role: n.role, phase: 'pending', startReceived: false,
             stopReceived: false, busy: true, error: null, capture: null }])) };
         s.usedTakes.add(m.payload.takeId);
-        for (const node of Object.values(s.take.nodes)) progressTimes.set(node, Date.now());
+        for (const node of Object.values(s.take.nodes)) node.progressAt = Date.now();
       } else {
         if (!s.take || s.take.takeId !== m.payload.takeId) return error('TAKE_NOT_FOUND');
         const ids = Object.values(s.take.nodes).map((n) => n.nodeId);
@@ -112,7 +116,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       return true;
     },
     tick(s) {
-      if (!s.take || s.take.closed) return;
+      if (!s.take || s.take.closed || s.take.interrupted) return;
       let changed = false;
       for (const command of s.recordingCommands?.values() ?? []) {
         if (command.takeId !== s.take.takeId || Date.now() < command.expiresAt) continue;
@@ -125,7 +129,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
         }
       }
       for (const node of Object.values(s.take.nodes)) {
-        const elapsed = Date.now() - (progressTimes.get(node) ?? Date.now());
+        const elapsed = Date.now() - (node.progressAt ?? Date.now());
         if (!node.error && ((['pending', 'starting'].includes(node.phase) && elapsed >= 15000) ||
             (node.phase === 'saving' && elapsed >= 60000))) {
           node.error = 'Sin confirmación de ejecución/guardado reciente; revisa el Node y usa STOP local si hace falta';
@@ -135,9 +139,9 @@ function attachRecording({ clients, stateTimes, snapshot }) {
       if (changed) snapshot(s, s.take.startMessageId);
     },
     disconnect(s, id) {
-      if (s.take?.closed) return;
+      if (s.take?.closed || s.take?.interrupted) return;
       const node = s.take?.nodes[id];
-      if (node && node.phase !== 'saved') { node.phase = 'disconnected'; node.busy = true; node.error = 'Node desconectado; usa STOP local en el teléfono'; }
+      if (node && node.phase !== 'saved' && !(node.phase === 'error' && !node.busy)) { node.phase = 'disconnected'; node.busy = true; node.error = 'Node desconectado; resultado local desconocido; usa STOP local en el teléfono'; }
     },
   };
 }

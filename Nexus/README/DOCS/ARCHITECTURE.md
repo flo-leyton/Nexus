@@ -980,3 +980,24 @@ despliegue/APK sin laptop. No hay garantía de supervivencia al reiniciar el rel
 
 Estado: implementado para prueba; pendiente validación física con Firebase real
 y, en H3.4d, WSS público/Render. No se certifica operación online con simulaciones.
+
+## ADR-H3.4b · Metadatos compartidos durables
+
+Decisión autorizada por el operador tras aceptar H3.4a: el relay sigue siendo la
+autoridad y persiste metadatos en Firebase RTDB mediante Admin, detrás de un
+adaptador independiente de WebSocket. Sustituye la duración sólo en memoria de
+Session/UID-deviceId; no migra sesiones que nunca se escribieron en la base.
+Esquema 1 en nexusStudio/relayV1, proyección explícita sin vídeos, tokens ni rutas
+de teléfonos; cola serial y transacción de revisión antes de confirmar efectos.
+El uso de RTDB para este estado compartido sustituye en este alcance la propuesta
+histórica de SQLite del apartado 15; los originales permanecen en filesystem.
+
+Desconectar conserva miembros offline, retirar READY y mantener historial. Reiniciar
+marca resultados activos desconocidos e interrumpe la Take; jamás reenvía comandos.
+Sólo un cierre explícito autorizado cierra Session y reserva su código. Se mantiene
+un relay escritor activo; una revisión obsoleta se rechaza, no hay coordinación de
+cluster. H3.4c completará descubrimiento/reapertura y reconciliación en interfaz.
+H3.4d sigue siendo despliegue y prueba APK sin laptop; no se ejecuta aquí.
+
+Estado: implementado, validado con adaptador simulado; RTDB/emulador y reinicio
+físico quedan pendientes. Contrato y prueba exacta en SESSION_CONTRACT/ENTREGA.

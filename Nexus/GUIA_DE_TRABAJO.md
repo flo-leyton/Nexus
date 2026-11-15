@@ -37,6 +37,7 @@ Desde Git Bash en Nexus/ (las rutas y project ID siguientes son marcadores):
 
 ```bash
 export FIREBASE_PROJECT_ID='TU_PROJECT_ID'
+export FIREBASE_DATABASE_URL='https://TU_BASE.firebasedatabase.app'
 export GOOGLE_APPLICATION_CREDENTIALS='/ruta/privada/fuera-de-Git/cuenta-servicio.json'
 npm ci
 npm run relay
@@ -71,6 +72,13 @@ Node 24.15.0, raíz Nexus/, npm ci, npm run relay y /health en el puerto de Rend
 Configurar FIREBASE_PROJECT_ID y FIREBASE_ADMIN_CREDENTIALS como variables privadas
 cuando llegue H3.4d. **No crear ni desplegar servicio en H3.4a.** No hay persistencia
 de Sessions tras reinicio; H3.4b/c siguen pendientes.
+
+**Actualización H3.4b:** la frase anterior describe H3.4a. Ahora el relay exige
+FIREBASE_DATABASE_URL y guarda metadatos bajo nexusStudio/relayV1 en esa RTDB.
+Esperar ready=true antes de operar. No publicar acceso directo de clientes a ese
+prefijo: la autoridad y las escrituras pertenecen al relay Admin. No migrar Sessions
+antiguas que sólo vivían en memoria. Ver prueba de reinicio en ENTREGA.md.
+La reapertura automática desde una app fría sigue pendiente para H3.4c.
 
 Abrir el repositorio en la rama desarrollo y enviar este mensaje:
 

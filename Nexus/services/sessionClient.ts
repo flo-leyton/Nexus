@@ -53,7 +53,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     if (isSessionRequest(event) && (event.type === 'START_RECORDING' || event.type === 'STOP_RECORDING') && event.targetId === deviceId) {
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
-      if (!session || session.controllerId !== event.senderId || member?.kind !== 'node' ||
+      if (!session || session.controllerId !== event.senderId || member?.kind !== 'node' || member.online === false ||
           !member.nodeId || !event.payload.targetNodeIds.includes(member.nodeId) || session.take?.takeId !== event.payload.takeId) return;
       const key = `${event.sessionId}:${event.messageId}`;
       const signature = JSON.stringify([event.type, event.payload]);
@@ -100,7 +100,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
         });
       }
       if (event.payload.pending) pending[event.sessionId] = event.payload.pending;
-      if (event.payload.session.members[deviceId]?.kind === 'node') {
+      if (event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
         if (state.sessions[event.sessionId]?.members[deviceId]?.kind !== 'node' || joining?.sessionId === event.sessionId) {
           remember({ sessionId: event.sessionId, code: event.payload.session.code });
         }
@@ -123,7 +123,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
           state.lastNodeSession?.sessionId === joining.sessionId) remember(null);
       joining = null;
     }
-    if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId]) {
+    if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId] && event.payload.session.members[deviceId]?.online !== false) {
       pending[event.sessionId] = (pending[event.sessionId] || []).filter((r) => r.deviceId !== deviceId);
     }
     state = { ...state, sessions, pending, lastEvent: event, joinInFlight: !!joining };
@@ -153,7 +153,8 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     const message: SessionRequest = { ...envelope(sessionId), type: 'SESSION_JOIN_REQUEST', payload: { code: normalized } };
     if (!isSessionRequest(message)) throw new Error('INVALID_MESSAGE');
     if (state.connection !== 'Connected') throw new Error('SOCKET_NOT_CONNECTED');
-    if (state.sessions[sessionId]?.members[deviceId]) throw new Error('ALREADY_MEMBER');
+    const existing = state.sessions[sessionId]?.members[deviceId];
+    if (existing && existing.online !== false) throw new Error('ALREADY_MEMBER');
     if (joining) {
       if (joining.code === normalized && (joining.sessionId === sessionId || sessionId === JOIN_BY_CODE)) return joining.messageId;
       throw new Error('JOIN_PENDING');
@@ -204,7 +205,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     startTake(sessionId: string) {
       const session = state.sessions[sessionId];
       if (!session || session.controllerId !== deviceId) throw new Error('CONTROLLER_REQUIRED');
-      const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node').map((m) => m.nodeId!);
+      const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false).map((m) => m.nodeId!);
       const takeId = uuid();
       const messageId = send({ ...envelope(sessionId), type: 'START_RECORDING', payload: { takeId, targetNodeIds } });
       return { takeId, messageId };
@@ -231,6 +232,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     reportMedia(sessionId: string, controllerId: string, payload: TakeMediaAngle) {
       return send({ ...envelope(sessionId), type: 'MEDIA_STATE', targetId: controllerId, payload });
     },
+    closeSession(sessionId: string) { return send({ ...envelope(sessionId), type: 'SESSION_CLOSE', payload: {} }); },
     dispose() { disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); captureCommands.clear(); captureReports.clear(); },
   };
 }

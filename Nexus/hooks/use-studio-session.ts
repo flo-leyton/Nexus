@@ -8,6 +8,11 @@ import { getSocketError, subscribeToSocketStatus } from '@/services/socket';
 export function sessionErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
   const messages: Record<string, string> = {
+    STORE_UNAVAILABLE: 'El relay no pudo guardar el cambio en RTDB. No se confirmó: vuelve a intentarlo cuando se recupere la base.',
+    STORE_RECOVERY_REQUIRED: 'El resultado durable requiere recuperar el relay. No repitas REC; revisa el servidor y el Node.',
+    REJOIN_REQUIRED: 'El Node está offline en esta Session. Solicita reingreso y espera aprobación.',
+    SESSION_IS_CLOSED: 'La Session está cerrada. Su historial se conserva, pero no admite nuevos comandos.',
+    TAKE_INTERRUPTED: 'La toma se interrumpió al reiniciar el relay. Revisa los originales y cierra la toma explícitamente.',
     SOCKET_NOT_CONNECTED: 'El relay no está conectado. Comprueba la LAN y vuelve a conectar.',
     INVALID_MESSAGE: 'Introduce un código de seis letras o números.',
     INVALID_CODE: 'El código no corresponde a una sesión activa. Compruébalo con el Controller.',

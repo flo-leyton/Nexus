@@ -8,6 +8,7 @@ export function isSocketAuthentication(value: unknown): value is SocketAuthentic
     isProtocolId(value.deviceId) && typeof value.idToken === 'string' && value.idToken.length > 0 && value.idToken.length <= 16384;
 }
 export const socketAuthErrors: Record<string, string> = {
+  AUTH_STORE_UNAVAILABLE: 'El relay no pudo recuperar o guardar su estado en RTDB. Revisa el servidor antes de reconectar.',
   AUTH_REQUIRED: 'El relay exige autenticar el socket antes de enviar mensajes.',
   AUTH_INVALID_TOKEN: 'Firebase rechazó el ID token. Vuelve a conectar para obtener uno nuevo.',
   AUTH_EXPIRED: 'La autorización del relay caducó. Vuelve a conectar para renovar el token.',

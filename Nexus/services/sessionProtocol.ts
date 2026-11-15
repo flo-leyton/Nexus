@@ -25,8 +25,10 @@ export function readinessReasons(state: NodeReadiness | undefined, connected = t
   return reasons;
 }
 
-export type SessionState = 'draft' | 'joining' | 'preparing' | 'ready' | 'recording' | 'finishing' | 'completed' | 'failed';
+export type SessionState = 'draft' | 'joining' | 'preparing' | 'ready' | 'recording' | 'finishing' | 'completed' | 'failed' | 'closed';
 export interface SessionMember {
+  uid?: string;
+  online?: boolean;
   deviceId: string;
   nodeId: string | null; // Controller has no NodeId; Nodes receive a session-scoped ID.
   kind: 'controller' | 'node';
@@ -34,6 +36,7 @@ export interface SessionMember {
   readiness?: NodeReadiness;
 }
 export interface Session {
+  closedAt?: number;
   sessionId: string;
   controllerId: string;
   code: string;
@@ -71,7 +74,7 @@ export function isTakeMediaAngle(value: unknown): value is TakeMediaAngle {
 }
 export type RecordingCommand = Extract<SessionRequest, { type: 'START_RECORDING' | 'STOP_RECORDING' }>;
 export type RecordingPhase = 'starting' | 'recording' | 'saving' | 'saved' | 'error';
-export interface CaptureReference { id: string; localUri: string; bytes: number }
+export interface CaptureReference { id: string; localUri?: string; bytes: number }
 export interface TakeNode {
   nodeId: string;
   role?: string;
@@ -83,6 +86,7 @@ export interface TakeNode {
   capture: CaptureReference | null;
 }
 export interface CoordinatedTake {
+  interrupted?: { at: number; reason: 'relay-restarted' };
   takeId: string;
   startMessageId: string;
   stopMessageId: string | null;
@@ -119,7 +123,7 @@ export interface NexusMessage<T = unknown> {
   payload: T;
 }
 export type SessionRequest =
-  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' })
+  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' })
   | (NexusMessage<{ code: string }> & { type: 'SESSION_JOIN_REQUEST' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
@@ -158,8 +162,8 @@ export function isJoinCode(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Z0-9]{6}$/.test(value);
 }
 export function isCaptureReference(value: unknown): value is CaptureReference {
-  return isRecord(value) && Object.keys(value).length === 3 && isProtocolId(value.id) &&
-    typeof value.localUri === 'string' && value.localUri.startsWith('file://') && value.localUri.length <= 4096 &&
+  return isRecord(value) && Object.keys(value).every((key) => ['id', 'bytes', 'localUri'].includes(key)) && isProtocolId(value.id) &&
+    (value.localUri === undefined || (typeof value.localUri === 'string' && value.localUri.startsWith('file://') && value.localUri.length <= 4096)) &&
     typeof value.bytes === 'number' && Number.isSafeInteger(value.bytes) && value.bytes > 0;
 }
 export function isRecordingReport(value: unknown): value is RecordingReport {
@@ -172,6 +176,7 @@ export function isCoordinatedTake(value: unknown): value is CoordinatedTake {
   if (!isRecord(value) || !isProtocolId(value.takeId) || !isProtocolId(value.startMessageId) ||
       !(value.stopMessageId === null || isProtocolId(value.stopMessageId)) || !isRecord(value.nodes) || !Object.keys(value.nodes).length) return false;
   const nodes = value.nodes;
+  if (value.interrupted !== undefined && (!isRecord(value.interrupted) || value.interrupted.reason !== 'relay-restarted' || !Number.isSafeInteger(value.interrupted.at) || Number(value.interrupted.at) <= 0)) return false;
   if (value.closed !== undefined && (!isRecord(value.closed) || !isProtocolId(value.closed.messageId) ||
       !Number.isSafeInteger(value.closed.at) || Number(value.closed.at) <= 0 || !Array.isArray(value.closed.unconfirmedNodeIds) ||
       !value.closed.unconfirmedNodeIds.every((id) => isProtocolId(id) && Object.values(nodes).some((n) => isRecord(n) && n.nodeId === id)))) return false;
@@ -194,6 +199,7 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
     case 'SESSION_CREATE':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_GET':
+    case 'SESSION_CLOSE':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_JOIN_REQUEST':
       // JOIN_BY_CODE for a new session; a concrete ID pins a remembered rejoin to that exact session.
@@ -238,14 +244,16 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
     case 'SESSION_SNAPSHOT': {
       const s = p.session;
       if (!isRecord(s) || s.sessionId !== value.sessionId || !isProtocolId(s.controllerId) ||
-          !isJoinCode(s.code) || !['draft', 'joining', 'preparing', 'ready', 'recording', 'finishing', 'completed', 'failed'].includes(String(s.state)) ||
+            (s.closedAt !== undefined && (!Number.isSafeInteger(s.closedAt) || Number(s.closedAt) <= 0)) ||
+          !isJoinCode(s.code) || !['draft', 'joining', 'preparing', 'ready', 'recording', 'finishing', 'completed', 'failed', 'closed'].includes(String(s.state)) ||
           !isRecord(s.members) || (s.take !== undefined && !isCoordinatedTake(s.take)) ||
           (s.takeHistory !== undefined && (!Array.isArray(s.takeHistory) || !s.takeHistory.every(isCoordinatedTake))) ||
           (s.mediaAngles !== undefined && (!isRecord(s.mediaAngles) || !Object.entries(s.mediaAngles).every(([key, angle]) =>
             isTakeMediaAngle(angle) && key === `${angle.deviceId}:${angle.clipId}`)))) return false;
       const members = Object.entries(s.members);
       return members.filter(([, m]) => isRecord(m) && m.kind === 'controller').length === 1 &&
-        members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&
+          members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&
+            (m.uid === undefined || (typeof m.uid === 'string' && m.uid.length > 0)) && (m.online === undefined || typeof m.online === 'boolean') &&
           isNodeRole(m.role) && (m.readiness === undefined || isNodeReadiness(m.readiness)) && (m.kind === 'controller'
             ? id === s.controllerId && m.nodeId === null : m.kind === 'node' && isProtocolId(m.nodeId))) &&
         (p.pending === undefined || (Array.isArray(p.pending) && p.pending.every((r) =>

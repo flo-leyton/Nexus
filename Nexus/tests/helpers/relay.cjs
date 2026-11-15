@@ -1,12 +1,14 @@
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { createRelay } = require('../../server/relay');
+const { createMemoryStore } = require('./storage.cjs');
 
 async function startTestRelay(t, options = {}) {
-  const runtime = createRelay({ port: 0, host: '127.0.0.1',
+  const runtime = createRelay({ port: 0, host: '127.0.0.1', storage: createMemoryStore(),
     verifyToken: async (token) => ({ uid: `user-${token}`, exp: Math.floor(Date.now() / 1000) + 3600 }), ...options });
   t.after(() => runtime.close());
   await once(runtime.server, 'listening');
+  if (options.waitForReady !== false) await runtime.ready;
   return runtime;
 }
 async function authenticate(ws, deviceId, idToken = deviceId) {
