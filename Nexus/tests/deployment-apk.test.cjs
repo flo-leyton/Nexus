@@ -48,5 +48,5 @@ test('H3.4d APK: app-root No VCS archive rules exclude server, environment, keys
   for (const dir of ['app', 'assets', 'components', 'config', 'hooks', 'services', 'types', 'scripts']) assert.equal(rules.ignores(dir), false, dir);
   for (const file of ['server/firebaseAdmin.js', 'server/sessionStorage.js', '.env', '.env.local', '.claude/settings.json',
     'android/app/build/outputs/app.apk', 'app/private/serviceAccount.json', 'config/firebase-adminsdk.json', 'app/local/video.mp4', 'release.jks']) assert.equal(rules.ignores(file), true, file);
-  for (const file of ['app/(tabs)/index.tsx', 'services/sessionClient.ts', 'config/relay.ts', 'app.config.js', 'google-services.json', 'scripts/check-native.cjs', 'assets/images/icon.png']) assert.equal(rules.ignores(file), false, file);
+  for (const file of ['app/(tabs)/index.tsx', 'services/sessionClient.ts', 'config/relay.ts', 'app.config.js', 'package.json', 'package-lock.json', 'google-services.json', 'scripts/check-native.cjs', 'assets/images/icon.png']) assert.equal(rules.ignores(file), false, file);
 });

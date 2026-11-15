@@ -62,23 +62,34 @@ EAS CLI >=27.5.0 (local verificado 27.7.2), sesión del operador y permisos al p
 Primero aprobar/publicar los commits de desarrollo y desplegar Render. Configurar
 los diez valores públicos reales de preview. No escribir secretos en comandos.
 
-PowerShell desde Nexus/; crea una carpeta temporal nueva y no toca la original:
+PowerShell desde Nexus/; ejecuta archive desde la raíz Git (C:\Projects\Nexus),
+con el commit y la ruta Nexus separados. El ZIP conserva la carpeta Nexus/;
+no usar SHA:Nexus desde el subdirectorio, que puede producir un archivo vacío.
+La carpeta temporal es nueva y no modifica la original:
 
 ```powershell
 $apkSourceSha = git rev-parse HEAD
+$apkRepoRoot = git rev-parse --show-toplevel
 $apkStage = Join-Path $env:TEMP ('nexus-preview-' + [guid]::NewGuid().ToString('N'))
 $apkArchive = $apkStage + '.zip'
-git archive --format=zip --output=$apkArchive ($apkSourceSha + ':Nexus')
+git -C $apkRepoRoot archive --format=zip --output=$apkArchive $apkSourceSha Nexus
 if ($LASTEXITCODE) { throw 'No se pudo preparar la copia del commit' }
 Expand-Archive -LiteralPath $apkArchive -DestinationPath $apkStage
-Set-Location -LiteralPath $apkStage
+$apkProject = Join-Path $apkStage 'Nexus'
+foreach ($apkRequired in @('package.json', 'package-lock.json', 'google-services.json')) {
+  if (-not (Test-Path -LiteralPath (Join-Path $apkProject $apkRequired) -PathType Leaf)) {
+    throw "Copia del commit incompleta: falta $apkRequired. No ejecutar npm ci."
+  }
+}
+Set-Location -LiteralPath $apkProject
 npm.cmd ci
+if ($LASTEXITCODE) { throw 'npm ci falló; no continuar con EAS' }
 $env:EAS_NO_VCS = '1'
-$env:EAS_PROJECT_ROOT = $apkStage
+$env:EAS_PROJECT_ROOT = $apkProject
 $env:EXPO_NO_DOTENV = '1'
-eas.cmd env:exec --environment preview 'npm run check:preview'
+eas.cmd env:exec preview 'npm run check:preview'
 if ($LASTEXITCODE) { throw 'Preflight preview falló; no iniciar build' }
-eas.cmd env:exec --environment preview 'eas build --profile preview --platform android'
+eas.cmd env:exec preview 'eas build --profile preview --platform android'
 ```
 
 El último comando inicia el trabajo remoto y puede consumir cuota/costo: NO se ha

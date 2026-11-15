@@ -1354,3 +1354,17 @@ H3 no se marca verificado por autolinking o pruebas simuladas. Costos propuestos
 Render USD 7/mes base más uso/workspace; EAS sujeto a cuota/plan (Free actualmente
 15 builds Android/mes). No se contrató/compiló nada; precios/fuentes y límites están
 en ambos documentos de revisión.
+
+### 2026-11-15 · Corrección del preflight de APK
+
+APK_PREVIEW.md ejecuta git archive desde la raíz Git con SHA y ruta Nexus separados;
+tras extraer trabaja en temporal/Nexus. Comprueba package.json, package-lock.json y
+google-services.json antes de npm ci y detiene el flujo si npm ci falla. EAS 27.7.2
+usa el argumento posicional `env:exec preview`, confirmado en su CLI instalada.
+.easignore conserva explícitamente google-services.json como configuración cliente.
+
+Comprobación local: ZIP de 973883 bytes, tres archivos presentes; copia filtrada
+real de EAS con 91 archivos, sin server/, .env, credenciales privadas ni vídeos
+(incluidas sondas sintéticas). Archivos requeridos copiados sin alteración. Suite
+103 PASS / 1 SKIP; TypeScript, lint y diff-check propios PASS. No npm ci, subida,
+build remoto ni push. LAN y cambios ajenos preparados permanecen intactos.
