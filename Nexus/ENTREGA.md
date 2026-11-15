@@ -748,3 +748,33 @@ datos, reintentar el mismo clip y comprobar Subida completada, publicación y
 reproducción remota en Controller. Si falla, compartir el diagnóstico nuevo con
 los IDs esperado/recibido. **H3 sigue no verificado**; el fallo físico se registra
 sin presentar la presencia en Media Library como una validación completa del flujo.
+
+### 2026-11-15 · H3 · Reproducción directa del fallo de naming
+
+Se añadió `scripts/diagnose-cloudinary.cjs`, ejecutable con Node 24:
+`node --env-file=.env scripts/diagnose-cloudinary.cjs`. Usa sólo las dos variables
+públicas Cloudinary; sube un PNG sintético de 1 píxel y 68 bytes, nunca originales.
+Si el proveedor conserva el ID, repite el mismo para comprobar idempotencia;
+si lo sustituye, se detiene para no generar otro recurso aleatorio.
+
+**Resultado real contra el proveedor:** preset `nexus_studio_demo`, public_id
+solicitado `nexus/diagnostic-f1bdbeef-a674-428f-8a83-f7497ca02a96`, HTTP 200,
+public_id recibido `kvacnsmm2e2aoj0z5e2c`, resource_type image, bytes 67,
+identityPreserved false. Se creó una imagen sintética de diagnóstico en Cloudinary;
+no se borró ni se enviaron vídeos personales. El primer intento no salió de la
+restricción de red; el segundo se ejecutó con aprobación de acceso a red.
+
+Esto reproduce la sustitución en una petición multipart directa desde Node,
+independiente del teléfono, Expo, relay y captura. No se atribuye ya el fallo
+únicamente a Android ni se exige cambiar controles visuales sin evidencia.
+La documentación Cloudinary establece que public_id del request prevalece en
+unsigned salvo disallow_public_id=true; corresponde inspeccionar ese valor efectivo
+y establecerlo a false mediante administración del proveedor. No se dispone de
+credenciales privadas y no se cambió el preset ni .env; no añadir secretos a la app.
+
+La prueba usa imagen con el mismo endpoint auto/upload y el mismo preset para
+aislar naming; no certifica vídeo, reintentos de vídeo ni reproducción H3. El
+diagnóstico pasa ESLint. Suite existente 60/60, TypeScript y lint PASS.
+Siguiente paso: administrador corrige el preset, repetir el diagnóstico y exigir
+identityPreserved true en ambos intentos; luego reintentar el clip real desde Node
+y comprobar publicación/reproducción en Controller. **H3 sigue no verificado**.
