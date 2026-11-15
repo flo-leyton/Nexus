@@ -25,6 +25,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | H3.4a | Aceptado físicamente por el operador | e3fedbb819d67c44c6ac57e684efb3ab17e65c0b | Aceptación comunicada al solicitar H3.4b | Sin despliegue |
 | H3.4b | Persistencia compartida implementada; pendiente prueba RTDB/reinicio real | Commit H3.4b (ver registro) | Ver validación actual de H3.4c | Probar reinicio real con la reanudación H3.4c |
 | H3.4c | Reanudación implementada; pendiente entrega física | Commit local H3.4c (ver registro) | 97 PASS, 1 SKIP; TypeScript y lint PASS | Apagar teléfonos, reiniciar relay, reabrir Session y grabar otra Take sin replay |
+| H3.4d | Render/APK preparados localmente; sin despliegue ni APK compilado | Relay 4eac17b; APK ver registro/entrega | 103 PASS, 1 SKIP; autolinking Android y archivo EAS local comprobados | Aprobar push/despliegue y después build; prueba sin laptop pendiente |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -1306,3 +1307,50 @@ Pruebas: contrato del blueprint y cierre con éxito/error, más suites existente
 puerto/health/recuperación/deduplicación: **99 PASS / 1 SKIP / 0 fallos**. TypeScript,
 lint, ESLint ampliado y diff-check propios PASS. Faltan aprobación de push/despliegue, RTDB real y prueba
 física con laptop apagada; H3/H3.4d no verificados.
+
+### 2026-11-15 · H3.4d · Preparación del APK preview (sin compilar)
+
+Primer commit de relay: 4eac17bc0df0f99cea420f4b7c066322a49523ee. Este segundo
+commit prepara APK/documentación sin publicar ni consumir un build EAS. Conserva
+LAN y cambios ajenos del índice. No se ha creado servicio Render ni elegido una URL
+ficticia: el hostname público real queda pendiente del despliegue aprobado.
+
+Perfil preview explícito: Release/APK interno, sin developmentClient, entorno EAS
+preview, Node 24.15.0 y versión Android incremental. EXPO_NO_DOTENV=1 no mezcla .env
+LAN. app.config valida URL wss pública sin IP/puerto interno, variables Firebase y
+Cloudinary completas y ausencia de credenciales Admin/emuladores. Development
+conserva la alternativa LAN; producción también usa validación online.
+
+Expo SDK resuelto 54.0.0. Autolinking Android real detectó ExpoVideo 3.0.16,
+expo.modules.video.VideoModule/Name ExpoVideo; cámara, archivos, AsyncStorage/Auth
+y otros módulos de UI/presencia están enlazados. app.json ya incluía plugin Video;
+no se cambian cámara/audio ni applicationId. Hook EAS comprueba módulos tras instalar
+dependencias. Esto no prueba el contenido/funcionamiento de un APK todavía inexistente.
+
+.easignore limita fuentes del APK y excluye servidor, variables, claves, vídeos y
+caches. Por ser repositorio padre + Nexus/, se documenta copia aislada del commit
+y EAS_NO_VCS/EAS_PROJECT_ROOT para usar ese filtro sin subir archivos ajenos.
+APK_PREVIEW.md documenta diez variables públicas, comandos exactos, firma compatible
+y prueba sin laptop. No desinstalar/borrar datos si la firma no permite actualización:
+se perderían originales/identidad. Firma de APK nuevo sigue pendiente de comprobar.
+
+Pruebas nuevas: bloqueo de URL LAN/variables ausentes/Admin, conservación de config
+development, autolinking nativo real y fallo si falta Video, filtros de archivo EAS.
+Resultado: **103 PASS / 1 SKIP / 0 fallos** en suite completa; TypeScript, lint,
+ESLint ampliado y diff-check propios PASS. Copia local con la implementación real
+del filtro EAS 27.7.2: 91 archivos, incluidas pantallas/servicios/assets; sin server,
+.env ni caches nativos. Se corrigió el filtro de directorios sin slash que usa
+fs.cp/EAS y se añadió regresión; no se subió el archivo de revisión. El preflight
+de configuración REAL queda pendiente de URL/entorno reales, no sustituido por
+fixtures. Pendientes: aprobar push,
+crear/desplegar una instancia Render, configurar URL pública real/EAS preview,
+aprobar/compilar APK, verificar firma/instalar y ejecutar prueba física.
+
+Aceptación H3.4c/H3.4d PENDIENTE: laptop APAGADA; Controller + Node crean/reabren
+misma Session, ingreso/reanudación autorizado, READY nuevo, otra Take, subida y
+reproducción local/remota. Apagar ambos teléfonos, reabrir/reanudar y grabar otra
+Take sin REC/STOP antiguo ni pérdida/duplicación de historial. Repetir con dos Nodes.
+H3 no se marca verificado por autolinking o pruebas simuladas. Costos propuestos:
+Render USD 7/mes base más uso/workspace; EAS sujeto a cuota/plan (Free actualmente
+15 builds Android/mes). No se contrató/compiló nada; precios/fuentes y límites están
+en ambos documentos de revisión.

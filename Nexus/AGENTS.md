@@ -30,5 +30,9 @@ y rol. Reiniciar/conectar no autoriza por código ni recupera READY automáticam
 exigir confirmación nueva con readyEpoch actual. Caducar destinos de comandos de
 conexiones interrumpidas; no repetir REC/STOP ni inferir resultados/ACK. Reconciliar
 originales y cerrar explícitamente la Take interrumpida antes de una nueva.
+H3.4d: DEPLOY_RELAY.md y APK_PREVIEW.md son la revisión previa a push/despliegue/build
+remoto. Preview exige entorno público separado y URL wss real; nunca credenciales
+Admin en EAS. Compilar desde copia aislada del commit, conservar firma y datos al
+instalar. No marcar H3 verificado sin la prueba física con laptop apagada.
 
 Desde el directorio de la aplicación ejecuta `npx tsc --noEmit`, `npm run lint` y `node --test tests/*.test.cjs` (Git Bash). Añade pruebas para routing, aislamiento y comandos duplicados cuando implementes esos comportamientos. En ENTREGA registra qué pasó, qué falló y qué falta probar físicamente. Entrega al operador el SHA y los pasos exactos para repetir la prueba. Marca el hito como verificado cuando exista la evidencia indicada.

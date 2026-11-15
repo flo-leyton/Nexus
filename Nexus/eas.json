@@ -5,13 +5,30 @@
   },
   "build": {
     "development": {
+      "environment": "development",
       "developmentClient": true,
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "environment": "preview",
+      "developmentClient": false,
+      "distribution": "internal",
+      "node": "24.15.0",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_NO_DOTENV": "1",
+        "NEXUS_ONLINE_BUILD": "1"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
+      "environment": "production",
+      "env": {
+        "EXPO_NO_DOTENV": "1",
+        "NEXUS_ONLINE_BUILD": "1"
+      },
       "autoIncrement": true
     }
   },

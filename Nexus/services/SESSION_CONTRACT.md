@@ -758,3 +758,26 @@ campos; al recuperar, todas las conexiones están offline, preparación nueva pe
 y comandos antiguos caducados. No hay cambios de variables, Firebase Auth, LAN,
 Cloudinary, configuración nativa ni migración de Sessions que nunca se persistieron.
 Validación física de apagado/reinicio/reapertura/nueva Take pendiente del operador.
+
+### H3.4d · Preparación de alojamiento y APK
+
+render.yaml propone una instancia Node 24.15.0, 0.0.0.0 + PORT, /health condicionado
+a recuperación RTDB y autodeploy Off. No se usa disco para Sessions/Takes. SIGTERM
+drena la cola y desconecta sin comandos de captura, con límite de 25 s; no presupone
+un guardado. Render puede solapar procesos durante redeploy incluso con una instancia
+configurada: CAS rechaza revisiones obsoletas, no proporciona coordinación de cluster.
+Operar en ventana sin capturas/clientes; detener el relay LAN antes de usar la misma
+RTDB desde Render. Ver DEPLOY_RELAY.md para variables privadas, costos y aprobación.
+
+eas.json preview produce APK Release interno sin dev-client/Metro, entorno preview,
+URL pública EXPO_PUBLIC_RELAY_URL wss obligatoria y EXPO_NO_DOTENV=1. Config de build
+rechaza Admin/emuladores y variables públicas ausentes. Autolinking Android comprueba
+ExpoVideo y los módulos instalados de SDK 54; el hook EAS repite el control tras npm
+install. No se añade otra conexión ni se cambian protocolo, ACK, roles o recuperación.
+La copia a EAS usa fuentes del commit de Nexus/ y .easignore desde esa raíz, con
+EAS_NO_VCS=1/EAS_PROJECT_ROOT. No incluye secretos, server/, vídeos o trabajo ajeno.
+
+No hay URL real ni APK producido hasta aprobar despliegue/build. Mantener applicationId
+y firma compatibles al actualizar, sin borrar datos ni perder identidad anónima.
+APK_PREVIEW.md contiene variables públicas, comandos y prueba con laptop apagada.
+Esta preparación no constituye verificación física de H3.4c/H3.4d ni de H3.
