@@ -28,6 +28,7 @@ function attachSessions(relay) {
   };
   const recording = attachRecording({ clients, stateTimes, snapshot });
   const bind = (client, id) => {
+    if (client.studioIdentity?.deviceId !== id) return false;
     if (identities.has(client) && identities.get(client) !== id) return false;
     if (clients.has(id) && clients.get(id) !== client) return false;
     identities.set(client, id);
@@ -66,7 +67,7 @@ function attachSessions(relay) {
         if (client.readyState === 1) client.send(JSON.stringify({
           protocolVersion: SESSION_PROTOCOL_VERSION, messageId: randomUUID(), type: 'SESSION_ERROR',
           sessionId: isProtocolId(m.sessionId) ? m.sessionId : 'invalid', senderId: RELAY_ID,
-          targetId: identities.get(client) || (isProtocolId(m.senderId) ? m.senderId : 'unknown'),
+          targetId: identities.get(client) || client.studioIdentity?.deviceId || (isProtocolId(m.senderId) ? m.senderId : 'unknown'),
           sentAt: Date.now(), payload: { requestId: isProtocolId(m.messageId) ? m.messageId : 'invalid', code },
         }));
         return true;

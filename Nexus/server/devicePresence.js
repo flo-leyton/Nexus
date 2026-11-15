@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const { isDeviceInfo } = require('../services/deviceProtocol.ts');
 
 // Metadatos efímeros por conexión; no se guardan identificadores del hardware.
-function attachDevicePresence(relay) {
+function attachDevicePresence(relay, authenticated = () => true) {
   const devices = new Map();
   const ids = new WeakMap();
   const alive = new WeakMap();
@@ -10,7 +10,7 @@ function attachDevicePresence(relay) {
     if (client.readyState === 1) client.send(JSON.stringify(message));
   };
   const broadcast = (source, message) => {
-    for (const client of relay.clients) if (client !== source) send(client, message);
+    for (const client of relay.clients) if (client !== source && authenticated(client)) send(client, message);
   };
 
   const heartbeat = setInterval(() => {

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getOrCreateDeviceId } from '@/services/deviceIdentity';
 import { getSessionService } from '@/services/session';
 import type { SessionSnapshot } from '@/services/sessionClient';
+import { getSocketError, subscribeToSocketStatus } from '@/services/socket';
 
 export function sessionErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
@@ -38,6 +39,8 @@ export function useStudioSession(onUpdate?: (snapshot: SessionSnapshot) => void)
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [error, setError] = useState('');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  useEffect(() => subscribeToSocketStatus(() => setSocketError(getSocketError())), []);
   const update = useRef(onUpdate);
   update.current = onUpdate;
 
@@ -59,5 +62,5 @@ export function useStudioSession(onUpdate?: (snapshot: SessionSnapshot) => void)
     return () => { active = false; unsubscribe?.(); };
   }, []);
 
-  return { service, snapshot, deviceId, error };
+  return { service, snapshot, deviceId, error: socketError || error };
 }

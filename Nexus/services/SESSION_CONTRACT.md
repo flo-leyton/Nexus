@@ -5,7 +5,9 @@ REC/STOP remotos y takeId compartido. No modifica el catálogo de H3.
 
 Entrada de la aplicación: `await getSessionService()` de `services/session.ts`.
 Reutiliza `getOrCreateDeviceId()` y el único socket de `services/socket.ts`.
-No requiere usuario, Firebase Auth ni RTDB. No construir mensajes en pantallas.
+Desde H3.4a el transporte requiere Firebase Auth (cuenta existente o anónima
+persistente). La lógica de Session sigue independiente de Firebase/RTDB.
+No construir mensajes en pantallas.
 
 1. Suscribirse con `service.subscribe(snapshot => ...)`; devuelve la baja y entrega el estado actual inmediatamente.
 2. Esperar `snapshot.connection === 'Connected'` para enviar. El servicio conecta el socket existente; un envío sin conexión lanza `SOCKET_NOT_CONNECTED`.
@@ -56,9 +58,9 @@ crear/solicitar ingreso de nuevo. H1.1 no implementa reconexión automática.
 `dispose()` corresponde al propietario del cliente (pruebas); las pantallas
 deben dar de baja sólo su suscripción al servicio compartido.
 
-La identidad es declarada por la instalación en una LAN de confianza; no hay
+Histórico H1 (sustituido por H3.4a al final): la identidad era declarada en LAN; no había
 SessionToken, WSS ni autenticación criptográfica de dispositivos en este módulo.
-La autorización de sesión es independiente de Firebase. H1.3 añade roles y
+La autorización de sesión continúa independiente de Firebase. H1.3 añade roles y
 preparación individual (ver abajo). La grabación sigue pendiente; no hay START/STOP.
 
 Firebase existente: sin las siete variables públicas completas, los exports
@@ -416,3 +418,87 @@ clip histórico exige que esa Session y Take aún existan y reingreso autorizado
 su original y subida remota permanecen accesibles localmente aunque ya no existan.
 La validación del relay es del protocolo y propietario dentro de la LAN; no es
 una consulta independiente a Cloudinary para certificar la respuesta del Node.
+
+## H3.4a · Configuración y acceso autenticado (decisión online)
+
+Esta sección sustituye los supuestos de transporte LAN sin Auth de H1. La cuenta
+Firebase autentica el socket; no concede membresía, rol, READY ni acceso a una Take.
+Se conservan el código de ingreso, aprobación del Controller, 1→N y los contratos
+H1–H3. El relay y su asociación de dispositivos siguen **en memoria**.
+
+Configuración de conexión:
+
+- La app sólo consulta `getRelayUrl()` de config/relay.ts desde el socket compartido.
+  Lee EXPO_PUBLIC_RELAY_URL mediante acceso directo compatible con Metro. En JS de
+  desarrollo (__DEV__=true), ausencia usa SERVER_CONFIG.SOCKET_URL sin cambiar IP/PORT.
+  Preview/producción (__DEV__=false) requiere wss:// explícito. Se rechazan otros
+  esquemas, credenciales, query/fragmento y URL inválida. Fallar no impide abrir
+  archivos locales; Studio muestra la causa y nunca se declara conectado.
+- El proceso usa PORT (entero 1–65535) o SERVER_CONFIG.PORT local. Escucha 0.0.0.0.
+  GET /health devuelve sólo `{ "ready": true }`, 200/no-store. HTTP y upgrade WebSocket
+  comparten servidor/puerto. Configurar PORT no modifica la URL de la app.
+- Nexus/render.yaml es preparación reproducible: rootDir Nexus, Node 24.15.0,
+  npm ci, npm run relay, healthCheckPath /health, despliegue automático desactivado.
+  No se ha creado servicio, certificado TLS ni despliegue. En Render futuro TLS
+  terminará en el proxy y la app usará wss://; el proceso seguirá HTTP interno.
+
+Identidad y handshake (relayProtocol.ts):
+
+1. `getStudioCredentials()` espera authStateReady() para restaurar Firebase Auth
+   persistido con AsyncStorage, reutiliza currentUser o llama signInAnonymously
+   una vez si no existe. No usa RTDB para autenticar. Fuerza getIdToken(true) antes
+   de cada nueva conexión y renovación. Firebase ausente, Anonymous deshabilitado
+   o error de red producen causas claras. Habilitar **Anonymous** en Firebase
+   Console → Authentication → Sign-in method. No se simula identidad sin Firebase.
+2. El único WebSocket de services/socket.ts envía primero
+   `{ type: 'SOCKET_AUTH', protocolVersion: 1, deviceId, idToken }`. El token no
+   está en URL, parámetros de consulta, logs ni almacenamiento propio de la app.
+   El socket está Connecting y sendSocketMessage devuelve false hasta autorización.
+3. server/firebaseAdmin.js usa Firebase Admin SDK y verifyIdToken(token, true):
+   firma, emisor, proyecto, expiración y revocación/usuario deshabilitado. Sólo el
+   servidor importa Admin. Un uid/exp declarado por el cliente no es prueba válida.
+4. El relay vincula UID verificado + deviceId al socket, mantiene un propietario
+   por deviceId y una conexión activa. Rechaza otro UID y sockets duplicados para
+   el mismo dispositivo. senderId debe coincidir con el deviceId autenticado;
+   todas las comprobaciones previas de Session/membresía/target/ACK siguen vigentes.
+5. Responde `{ type: 'SOCKET_AUTH_OK', uid, deviceId, expiresAt }` o
+   `{ type: 'SOCKET_AUTH_ERROR', code }`. Sólo AUTH_OK válido habilita Connected.
+   AUTH_REQUIRED, AUTH_INVALID_TOKEN, AUTH_EXPIRED, AUTH_TIMEOUT,
+   AUTH_INVALID_MESSAGE, AUTH_DEVICE_CONFLICT y AUTH_IDENTITY_CHANGE son errores
+   de transporte consumidos por el socket, no envelopes Session ni broadcast.
+6. Antes de autorizar se rechazan tanto Studio como DEVICE_INFO/REQUEST y comandos
+   heredados. Un socket no autorizado tampoco recibe presencia/broadcast de otros.
+   El handshake tiene límite de 15 s y payload de 64 KiB; tokens no se registran.
+7. Se renueva un minuto antes de expiresAt mediante otro SOCKET_AUTH en el mismo
+   socket, con mismo uid/deviceId. No altera Connected ni reenvía comandos. Cambio
+   de usuario, fallo de renovación o expiración cierra acceso y muestra causa.
+   El servidor comprueba expiración al recibir mensajes y mediante temporizador.
+
+Desconexión y límites:
+
+- Reconectar es la acción manual existente CONECTAR AL RELAY. Obtiene token fresco
+  y conserva un solo intento/socket compartido; callbacks de sockets antiguos se
+  ignoran. No hay outbox ni reenvío automático de REC/STOP/ACK. El cliente conserva
+  deduplicación de comandos de captura dentro de su vida; no se reproduce un START
+  al autenticar. El Node puede continuar REC y detener localmente sin red como H2.
+- Se mantienen las consecuencias H2: salir un Node retira membresía/READY, salir
+  Controller termina Session. Reingreso requiere aprobación nueva; no restaura
+  nodeId ni rol. La renovación en el mismo socket evita esa desconexión periódica.
+- La asociación UID/deviceId es primer vínculo en este proceso, no una prueba de
+  hardware ni almacenamiento durable. Cambiar a otra cuenta con el mismo deviceId
+  se rechaza mientras el proceso conserve al propietario anterior; no hay traspaso
+  automático entre cuentas. Reiniciar pierde también Sessions: no usarlo como una
+  reanudación. H3.4b/c resolverán persistencia/vinculación y reanudación durable.
+
+Variables privadas del **proceso relay**: FIREBASE_PROJECT_ID y credenciales ADC
+(GOOGLE_APPLICATION_CREDENTIALS apunta a un archivo privado fuera de Git) o
+FIREBASE_ADMIN_CREDENTIALS (JSON de cuenta de servicio en secret env del servidor).
+También se admite GOOGLE_CLOUD_PROJECT con ADC. El proyecto Admin debe coincidir
+con el proyecto EXPO_PUBLIC_FIREBASE_* de la app. No usar API secret Cloudinary,
+EXPO_PUBLIC para Admin ni incluir cuentas privadas en APK/Git. Sin configuración
+Admin mínima el relay no inicia; credenciales inválidas no autorizan conexiones.
+
+H3.4b persistirá Sessions/medios en RTDB; H3.4c reanudará de forma durable;
+H3.4d desplegará y probará APK sin laptop. Ninguna de esas capacidades se declara
+implementada aquí. Originales, catálogo local, importaciones, Cloudinary y resultados
+desconocidos de H2 mantienen su semántica.

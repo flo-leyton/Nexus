@@ -22,6 +22,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
 | H3 | H3.1–H3.3 implementados; corregido falso fallo por public_id generado | H3.1: 4416702; corrección actual (ver registro) | 62 tests automáticos; pendiente confirmar subida/reproducción reales con la corrección | Reintentar clip existente sin cambiar preset y ejecutar A–D; H3 no verificado |
+| H3.4a | Configuración y acceso implementados; listo para prueba LAN autenticada | Commit H3.4a (ver registro) | 73 tests automáticos; pendiente Firebase real y teléfonos | Sin despliegue, persistencia de Sessions ni reanudación durable |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -838,3 +839,116 @@ Prueba física pendiente, sin tocar preset, LAN ni reinstalar/borrar datos:
    sobrescrito. Mantener separados REC ACK, STOP ACK, guardado y subida confirmada.
 
 **H3 sigue no verificado** hasta recibir evidencia física de estos pasos.
+
+### 2026-11-15 · H3.4a · Configuración y acceso autenticado
+
+Base `desarrollo@6a3d3cea0fd299b134f08b008162d182cf778e90`, coincidente con
+origin/desarrollo conocido. Se leyeron AGENTS, esta entrega, GUIA_DE_TRABAJO,
+contrato y arquitectura. Había **dos cambios ajenos ya en el índice**: IP LAN en
+config/server.ts y un espacio en línea vacía del registro H2 de ENTREGA. Se conservan
+fuera del commit propio y se restituye su estado preparado en el índice. No se
+modifican los valores IP/PORT, stashes, main ni el remoto. No se hace push.
+
+Estado: **implementado, listo para prueba física LAN con Auth**. Obtener SHA con
+`git log -1 --format=%H --grep='feat(relay): add H3.4a authenticated access and connection config'`.
+
+- URL única de la app en config/relay.ts: EXPO_PUBLIC_RELAY_URL explícita o LAN
+  manual sólo en desarrollo. Preview/producción exige wss:// válido y muestra la
+  causa si falta. No se incluyen credenciales ni tokens en URL/query.
+- Relay HTTP + WebSocket en un puerto sobre 0.0.0.0, PORT de proceso o puerto
+  manual local como alternativa. GET /health sólo informa ready=true. Blueprint
+  Nexus/render.yaml: raíz Nexus/, Node 24.15.0, npm ci, npm run relay y health
+  sin despliegue automático. No se crea servicio ni se despliega nada.
+- Firebase Auth reutiliza cuenta existente o restaura/crea anónima persistente.
+  Espera authStateReady antes de crear una cuenta y fuerza getIdToken(true) por
+  conexión/renovación. Firebase ausente, Anonymous deshabilitado y red fallida
+  muestran causa sin simular autorización. El motor de Session sigue independiente.
+- Handshake SOCKET_AUTH en el único socket, Firebase Admin verifica token y
+  revocación en servidor. Vincula UID verificado y deviceId, rechaza suplantación,
+  conexiones duplicadas y otros UID para la instalación ya vinculada. Antes de
+  autorizar no se admite ni recibe presencia, Studio ni broadcast heredado.
+  senderId se coteja con el dispositivo autenticado; membresía/destino/H2 conservados.
+- Connected sólo tras AUTH_OK. Se renueva token en el mismo socket antes de expirar;
+  cambio de cuenta o expiración corta acceso. Reconnect manual espera cierre físico
+  anterior, pide token nuevo y no guarda/reenvía REC/STOP ni ACK pendientes. No hay
+  reanudación durable ni sockets paralelos. Callbacks antiguos se ignoran.
+- Admin sólo se importa en server/firebaseAdmin.js. Se añade firebase-admin 13.10.0
+  y lockfile. No se copian claves, cuentas de servicio ni tokens a EXPO_PUBLIC,
+  APK o Git. La instalación informó 50 avisos de auditoría del árbol completo;
+  no se ejecutó audit fix ni se afirma resolver vulnerabilidades del árbol existente.
+- ADR-H3.4a documenta la decisión online autorizada y sustituye Auth opcional de
+  la LAN histórica. Contrato/guía/AGENTS incluyen variables y preparación LAN.
+  No cambian captura, medios locales, subidas Cloudinary ni ACK/desconocidos H2.
+
+Variables de app: las EXPO_PUBLIC_FIREBASE_* actuales del mismo proyecto Firebase
+y EXPO_PUBLIC_RELAY_URL opcional en desarrollo, obligatoria wss:// en preview y
+producción. En Firebase Console habilitar **Authentication → Sign-in method → Anonymous**.
+No configurar Anonymous en una RTDB: se usa Firebase Auth.
+
+Variables privadas del servidor: **FIREBASE_PROJECT_ID** y ADC mediante
+**GOOGLE_APPLICATION_CREDENTIALS** (ruta privada fuera de Git), o
+**FIREBASE_ADMIN_CREDENTIALS** (JSON en secret env del servidor). ADC también admite
+GOOGLE_CLOUD_PROJECT. PORT es opcional local y lo suministrará Render. Los permisos
+de la cuenta deben permitir Firebase Authentication y comprobación de revocación.
+No guardar esas variables en el .env público de Expo ni versionar valores secretos.
+
+Validación automática en Node 24.15.0:
+
+- `npx tsc --noEmit`: PASS.
+- `npm run lint`: PASS; ESLint ampliado de todos los TS/JS/tests afectados: PASS.
+- `node --test tests/*.test.cjs` desde Git Bash: **73/73 PASS**. Doce casos H3.4a
+  sustituyen/amplían la prueba anterior de socket único: health/puerto/bind, LAN y
+  WSS, tráfico/broadcast pre-auth, tokens inválidos/expirados, otro UID/deviceId,
+  timeout, renovación y continuidad de Session, socket único incluso mientras
+  cierra, reconexión sin REC/STOP, Auth existente/anónimo/ausente/deshabilitado,
+  y entrada PORT + adaptador Admin con revocación. Suites anteriores de ingreso,
+  3 Nodes, aislamiento, presencia, captura, ACK/desconexión/cierre, importaciones
+  y catálogo/Cloudinary siguen pasando con transporte autenticado de prueba.
+- Diff-check de los cambios del commit: PASS. El espacio ajeno preparado de
+  ENTREGA permanece fuera del commit. Las primeras ejecuciones detectaron import
+  TypeScript sin extensión en Node y cierre excesivo ante JSON inválido ya
+  autenticado: se corrigieron; no quedan fallos de validación pendientes.
+
+Las pruebas inyectan un verificador o Admin simulado; no se usaron secretos ni
+Firebase real, no se subieron archivos al proveedor y no se certifica WSS público.
+Node puede advertir MODULE_TYPELESS_PACKAGE_JSON por el contrato TS compartido;
+no altera el resultado ni exige migrar todo el proyecto a ESM.
+
+Prueba LAN exacta pendiente (Controller y dos Nodes):
+
+1. Mantener los datos del cliente H2 y los originales. Habilitar Anonymous en el
+   proyecto Firebase de la app. Si ya hay cuenta iniciada, se reutiliza sin crear
+   otra anónima. Preparar credenciales privadas Admin fuera de Git del mismo proyecto.
+2. En Git Bash desde Nexus/, con project ID/ruta privados propios:
+
+   ```bash
+   export FIREBASE_PROJECT_ID='TU_PROJECT_ID'
+   export GOOGLE_APPLICATION_CREDENTIALS='/ruta/privada/fuera-del-repo/servicio.json'
+   npm ci
+   npm run relay
+   ```
+
+   En otra terminal, dejar EXPO_PUBLIC_RELAY_URL ausente para la LAN manual actual
+   y ejecutar `npx expo start --dev-client --lan --clear`. No requiere cambio nativo.
+3. Consultar `curl http://<IP-actual>:<PORT-actual>/health`: sólo ready=true. PORT
+   privado de escucha es independiente de la app. Si se prueba otro PORT, poner
+   la URL explícita de desarrollo correspondiente sin editar config/server.ts.
+4. Recargar los tres clientes, CONECTAR AL RELAY. Deben llegar a Conectado sólo
+   después de autenticar. Sin Firebase o con Anonymous deshabilitado (en proyecto
+   de prueba sin usuario restaurado), debe aparecer su causa y no presencia falsa.
+5. Crear Session, introducir código desde ambos Nodes y aceptarlos. Roles distintos,
+   ambos READY. REC breve/STOP en Controller: comprobar ACK y guardado individual,
+   reproducción original y subida/remoto como H3. No duplicar capturas por reconectar.
+6. Cerrar/reabrir un Node sin borrar datos: Firebase debe restaurar el usuario;
+   conectar y solicitar reingreso autorizado, con nodeId nuevo como H2. Cortar
+   la red durante otra toma, detener/guardar offline y conservar desconocido en
+   Controller; reconectar no debe disparar otro REC/STOP. Probar cierre advertido.
+7. Reiniciar relay: las Sessions se pierden (resultado esperado). No afirmar que
+   recuperar credenciales o referencias locales restaura membresía/Take del relay.
+
+Límites: vínculo UID/deviceId y sesiones sólo viven en el proceso; no hay atestación
+del hardware ni transferencia automática de instalación entre cuentas. Cambiar
+cuenta cierra socket; el propietario anterior sigue protegido mientras viva el
+proceso. No usar reinicio como reanudación. **H3.4b** guardará Sessions/medios en
+RTDB; **H3.4c** reanudará durablemente; **H3.4d** desplegará Render/probará APK sin
+laptop. Ninguno está implementado ni H3 se marca verificado por esta entrega.

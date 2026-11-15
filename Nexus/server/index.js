@@ -1,41 +1,12 @@
-const WebSocket = require('ws');
 const { SERVER_CONFIG } = require('../config/server.ts');
-const { attachDevicePresence } = require('./devicePresence');
-const { attachSessions } = require('./sessions');
-const { WebSocketServer } = WebSocket;
+const { createRelay, resolvePort } = require('./relay');
+const { createTokenVerifier } = require('./firebaseAdmin');
 
-const relay = new WebSocketServer({ host: SERVER_CONFIG.LISTEN_HOST, port: SERVER_CONFIG.PORT });
-const devicePresence = attachDevicePresence(relay);
-const sessions = attachSessions(relay);
-
-relay.on('listening', () => {
-  console.log(`WebSocket relay listening on ws://${SERVER_CONFIG.LISTEN_HOST}:${SERVER_CONFIG.PORT}`);
-});
-
-relay.on('connection', (client) => {
-  devicePresence.connect(client);
-  console.log('Client connected');
-
-  client.on('message', (message) => {
-    const messageText = message.toString();
-    if (sessions.handle(client, messageText)) return;
-    if (devicePresence.handle(client, messageText)) return;
-    console.log('Message received:', messageText);
-
-    for (const otherClient of relay.clients) {
-      if (otherClient !== client && otherClient.readyState === WebSocket.OPEN) {
-        otherClient.send(messageText);
-      }
-    }
-  });
-
-  client.on('close', () => {
-    sessions.disconnect(client);
-    devicePresence.disconnect(client);
-    console.log('Client disconnected');
-  });
-
-  client.on('error', (error) => {
-    console.error('Client error:', error.message);
-  });
-});
+try {
+  const { server } = createRelay({ port: resolvePort(process.env.PORT, SERVER_CONFIG.PORT), verifyToken: createTokenVerifier() });
+  server.on('listening', () => console.log('NEXUS relay ready; HTTP health and authenticated WebSocket enabled.'));
+  server.on('error', () => { console.error('No se pudo iniciar el puerto del relay.'); process.exitCode = 1; });
+} catch {
+  console.error('Relay no iniciado. Configura PORT válido, FIREBASE_PROJECT_ID y credenciales privadas Firebase Admin (ADC o FIREBASE_ADMIN_CREDENTIALS).');
+  process.exitCode = 1;
+}

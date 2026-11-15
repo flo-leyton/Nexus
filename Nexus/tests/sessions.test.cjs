@@ -10,6 +10,7 @@ const test = require('node:test');
 const WebSocket = require('ws');
 const ts = require('typescript');
 const protocol = require('../services/sessionProtocol.ts');
+const { startTestRelay, authenticate } = require('./helpers/relay.cjs');
 
 function loadTs(file, dependencies) {
   const exports = {};
@@ -26,27 +27,16 @@ const { createSessionClient } = loadTs('../services/sessionClient.ts', { './sess
 const { createLastNodeSessionStore } = loadTs('../services/lastNodeSession.ts', { './sessionProtocol': protocol });
 
 async function harness(t) {
-  let relay;
-  class TestServer extends WebSocket.WebSocketServer {
-    constructor(options) { super({ ...options, host: '127.0.0.1', port: 0 }); relay = this; }
-  }
-  const serverPath = path.resolve(__dirname, '../server/index.js');
-  const serverRequire = createRequire(serverPath);
-  vm.runInNewContext(fs.readFileSync(serverPath, 'utf8'), {
-    require: (name) => name === 'ws' ? { WebSocketServer: TestServer, OPEN: WebSocket.OPEN } : serverRequire(name),
-    console: { log() {}, error() {} },
-  });
-  await once(relay, 'listening');
+  const { relay } = await startTestRelay(t);
   const sockets = [];
   t.after(async () => {
     sockets.forEach((s) => s.terminate());
-    relay.clients.forEach((s) => s.terminate());
-    await new Promise((resolve) => relay.close(resolve));
   });
   return async (deviceId, history) => {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.address().port}`);
     sockets.push(ws);
     await once(ws, 'open');
+    await authenticate(ws, deviceId);
     const inbox = [], sent = [];
     ws.on('message', (raw) => inbox.push(JSON.parse(String(raw))));
     const service = createSessionClient(deviceId, randomUUID, {
@@ -178,8 +168,9 @@ test('H1.1: authorization, schema, code and target validation never leak to broa
   const duplicateCreate = request('SESSION_CREATE', 'controller', session.sessionId);
   c.ws.send(JSON.stringify(duplicateCreate));
   assert.equal((await c.wait(replyTo(duplicateCreate.messageId))).payload.code, 'SESSION_EXISTS');
-  const collision = await connect('controller');
-  const collisionId = collision.service.refreshSession(session.sessionId);
+  const collision = await connect('collision');
+  const collisionId = randomUUID();
+  collision.ws.send(JSON.stringify({ ...request('SESSION_GET', 'controller', session.sessionId), messageId: collisionId }));
   assert.equal((await collision.wait(replyTo(collisionId))).payload.code, 'IDENTITY_CONFLICT');
   const nClosed = once(n.ws, 'close');
   n.ws.close();
@@ -370,8 +361,8 @@ test('H1.3: relay expires silent READY and missing role ACK without trusting cli
     setInterval(callback) { tick = callback; return { unref() {} }; }, clearInterval() {},
   });
   const relay = module.exports.attachSessions({ on() {} });
-  const c = { readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
-  const n = { readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
+  const c = { studioIdentity: { deviceId: 'controller' }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
+  const n = { studioIdentity: { deviceId: 'node' }, readyState: 1, inbox: [], send(raw) { this.inbox.push(JSON.parse(raw)); } };
   const handle = (peer, message) => relay.handle(peer, JSON.stringify(message));
   handle(c, request('SESSION_CREATE', 'controller', 'session'));
   const code = c.inbox.at(-1).payload.session.code;

@@ -1,0 +1,20 @@
+# Blueprint path from repository root: Nexus/render.yaml. Not deployed by this file.
+services:
+  - type: web
+    name: nexus-relay
+    runtime: node
+    branch: desarrollo
+    rootDir: Nexus
+    buildCommand: npm ci
+    startCommand: npm run relay
+    healthCheckPath: /health
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: NODE_VERSION
+        value: 24.15.0
+      - key: NODE_ENV
+        value: production
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_ADMIN_CREDENTIALS
+        sync: false

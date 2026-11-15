@@ -4,12 +4,12 @@ const { once } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { createRequire } = require('node:module');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
 const WebSocket = require('ws');
 const ts = require('typescript');
 const protocol = require('../services/sessionProtocol.ts');
+const { startTestRelay, authenticate } = require('./helpers/relay.cjs');
 
 function load(file, dependencies) {
   const exports = {};
@@ -104,26 +104,15 @@ const request = (type, senderId, sessionId, payload, targetId) => ({ protocolVer
   senderId, sessionId, sentAt: Date.now(), payload, ...(targetId ? { targetId } : {}) });
 const reply = (id) => (m) => m.payload.requestId === id;
 async function harness(t) {
-  let relay;
-  class TestServer extends WebSocket.WebSocketServer {
-    constructor(options) { super({ ...options, host: '127.0.0.1', port: 0 }); relay = this; }
-  }
-  const serverPath = path.resolve(__dirname, '../server/index.js');
-  const serverRequire = createRequire(serverPath);
-  vm.runInNewContext(fs.readFileSync(serverPath, 'utf8'), {
-    require: (name) => name === 'ws' ? { WebSocketServer: TestServer, OPEN: WebSocket.OPEN } : serverRequire(name),
-    console: { log() {}, error() {} },
-  });
-  await once(relay, 'listening');
+  const { relay } = await startTestRelay(t);
   const peers = [];
   t.after(async () => {
     for (const peer of peers) { peer.service.dispose(); peer.ws.terminate(); }
-    for (const ws of relay.clients) ws.terminate();
-    await new Promise((resolve) => relay.close(resolve));
   });
   return async (deviceId, mediaHistory) => {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.address().port}`);
     await once(ws, 'open');
+    await authenticate(ws, deviceId);
     const inbox = [], sent = [];
     ws.on('message', (raw) => inbox.push(JSON.parse(String(raw))));
     const service = createSessionClient(deviceId, randomUUID, {

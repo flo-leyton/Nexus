@@ -90,7 +90,7 @@ export default function StudioScreen() {
           <ThemedText type="subtitle">Controller + Nodes + Session</ThemedText>
           <ThemedText>Relay: {connectionLabel(snapshot?.connection)}</ThemedText>
           <ThemedText selectable style={styles.identity}>Este dispositivo: {deviceId || 'Preparando identidad…'}</ThemedText>
-          {!connected && <ThemedText style={styles.error}>El relay no está conectado. Comprueba que esté iniciado y que los dispositivos estén en la misma LAN.</ThemedText>}
+          {!connected && <ThemedText style={styles.error}>{error || 'El relay no está conectado. Comprueba la URL, la red y el servidor.'}</ThemedText>}
           {!connected && <Pressable accessibilityRole="button" onPress={connectSocket} style={styles.button}>
             <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONECTAR AL RELAY</ThemedText>
           </Pressable>}
