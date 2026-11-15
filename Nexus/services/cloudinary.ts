@@ -31,6 +31,12 @@ type CloudinaryUploadResponse = {
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 
+// A preset may prepend a folder/public_id_prefix. The complete requested identity
+// must remain intact at a path boundary; a renamed/random basename is not a match.
+export function matchesCapturePublicId(actual: string, requested: string): boolean {
+  return actual === requested || actual.endsWith(`/${requested}`);
+}
+
 function requiredPublicEnv(name: string, value: string | undefined) {
   const normalized = value?.trim();
   if (!normalized) throw new Error(`CONFIGURATION ERROR: falta configurar ${name} en .env.`);
@@ -173,9 +179,13 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
   ) {
     throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`), { code: 'UPLOAD_UNCERTAIN' });
   }
-  if (input.publicId && (payload.public_id !== input.publicId || payload.resource_type !== 'video' ||
-      !isCloudinaryVideoUrl(payload.secure_url) || typeof payload.bytes !== 'number' || payload.bytes <= 0)) {
-    throw Object.assign(new Error('CLOUDINARY RESPONSE ERROR: no se confirmó el vídeo con la identidad esperada. El preset debe permitir y conservar public_id.'), { code: 'UPLOAD_UNCERTAIN' });
+  if (input.publicId) {
+    const problems: string[] = [];
+    if (!matchesCapturePublicId(payload.public_id, input.publicId)) problems.push(`public_id esperado "${input.publicId.slice(0, 100)}", recibido "${payload.public_id.slice(0, 150)}". Revisa las opciones de nombre del preset`);
+    if (payload.resource_type !== 'video') problems.push(`resource_type esperado video, recibido ${payload.resource_type}`);
+    if (!isCloudinaryVideoUrl(payload.secure_url)) problems.push('secure_url no es una URL HTTPS de vídeo de Cloudinary compatible');
+    if (typeof payload.bytes !== 'number' || !Number.isFinite(payload.bytes) || payload.bytes <= 0) problems.push('bytes ausentes o no positivos en la respuesta');
+    if (problems.length) throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR: ${problems.join('; ')}. Subida sin confirmar.`), { code: 'UPLOAD_UNCERTAIN' });
   }
 
   return {

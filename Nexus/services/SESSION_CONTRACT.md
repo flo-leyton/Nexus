@@ -360,7 +360,10 @@ Dos pulsaciones simultáneas comparten la misma operación. Los reintentos conse
 catalogId y solicitan `public_id = nexus/<SHA256(catalogId)>`; unsigned upload no
 sobrescribe un recurso existente. La app exige respuesta validada con ese public_id,
 resource_type video, bytes positivos y secure_url de vídeo HTTPS de Cloudinary.
-El preset debe permitir/conservar public_id; si lo cambia no se anuncia éxito.
+El preset debe permitir/conservar public_id (Disallow public ID desactivado).
+Puede anteponer folder/public_id_prefix: se acepta sólo si el ID solicitado
+completo permanece como sufijo en un límite de ruta; se guarda el ID completo
+devuelto. Renombrar el basename o generar un ID aleatorio sigue sin anunciar éxito.
 No se inventa ni reconstruye una URL para resolver una respuesta perdida.
 
 Configuración pública: `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` y

@@ -42,7 +42,7 @@ export function CaptureUploadControls({ id, disabled = false }: { id: string; di
       <ThemedText type="link">ABRIR VÍDEO REMOTO</ThemedText>
     </Pressable>}
     {!asset.takeId && <ThemedText>Clip manual sin Take: la subida se conserva en este teléfono; no se agrega a una toma del Controller.</ThemedText>}
-    {!!notice && <ThemedText accessibilityLiveRegion="polite">{notice}</ThemedText>}
+    {!!notice && !((asset.upload.state === 'failed' || asset.upload.state === 'uncertain') && notice === asset.upload.error) && <ThemedText accessibilityLiveRegion="polite">{notice}</ThemedText>}
   </View>;
 }
 const styles = StyleSheet.create({ panel: { gap: 8 }, button: { backgroundColor: '#474FE7', borderRadius: 12, padding: 14, alignItems: 'center' } });

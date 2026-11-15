@@ -20,7 +20,7 @@ function uploaderFixture(overrides = {}) {
   const asset = { id: 'catalog-id', localId: 'clip', sessionId: 'session', takeId: 'take', deviceId: 'device',
     nodeId: 'original-node', bytes: 256, localUri: 'file:///original.mp4', upload: { state: 'local' }, uploadRevision: 0 };
   const uploads = [], notifications = [], states = [];
-  const module = load('../services/captureUpload.ts', { 'expo-crypto': {}, './deviceIdentity': {}, './mediaCatalog': {}, './cloudinary': {}, './session': {} });
+  const module = load('../services/captureUpload.ts', { 'expo-crypto': {}, './deviceIdentity': {}, './mediaCatalog': {}, './cloudinary': adapterFixture().adapter, './session': {} });
   const deps = {
     getAsset: async () => ({ ...asset }), getAssets: async () => [{ ...asset }], owner: async () => 'device',
     setState: async (id, state) => { assert.equal(id, asset.id); asset.upload = state; asset.uploadRevision++; states.push(state.state); },
@@ -92,8 +92,36 @@ function adapterFixture() {
   }, { __DEV__: false, process: { env: { EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME: 'test', EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET: 'unsigned-test' } } });
   const input = { uri: 'file:///original.mp4', fileName: 'video.mp4', mimeType: 'video/mp4', sessionId: 'session', source: 'capture',
     expectedBytes: 256, assetId: 'same-catalog-id', publicId: 'nexus/stable' };
-  return { state, calls, input, upload: () => adapter.uploadMediaAsset(input) };
+  return { state, calls, input, adapter, upload: () => adapter.uploadMediaAsset(input) };
 }
+
+test('H3 regression: preset folder prefix preserves clip identity through adapter, worker and retry', async () => {
+  const h = adapterFixture();
+  const payload = JSON.parse(h.state.response.body);
+  h.state.response.body = JSON.stringify({ ...payload, public_id: 'team/captures/nexus/stable',
+    secure_url: 'https://res.cloudinary.com/test/video/upload/team/captures/nexus/stable.mp4' });
+  const result = await h.upload();
+  assert.equal(result.publicId, 'team/captures/nexus/stable');
+  assert.equal((await h.upload()).publicId, result.publicId);
+  assert.equal(h.calls[0][2].parameters.public_id, h.calls[1][2].parameters.public_id);
+  const worker = uploaderFixture({ upload: async (clip, uri, id) => ({ resourceType: 'video', publicId: `team/${id}`, url: result.url }) });
+  await worker.uploader.upload(worker.asset.id);
+  assert.equal(worker.asset.upload.state, 'uploaded');
+  assert.equal(worker.asset.upload.publicId, 'team/nexus/hash-of-catalog-id');
+  for (const id of ['team/notnexus/stable', 'team/nexus/stable-random', 'lghocqr1xsfm7mn5ztde']) {
+    h.state.response.body = JSON.stringify({ ...payload, public_id: id });
+    await assert.rejects(h.upload(), /public_id esperado.*recibido/);
+  }
+});
+
+test('H3 regression: upload diagnostics identify the failing field rather than blaming every error on preset', async () => {
+  const h = adapterFixture(); const payload = JSON.parse(h.state.response.body);
+  for (const [patch, diagnostic] of [[{ bytes: undefined }, /bytes ausentes/],
+    [{ secure_url: 'https://other.invalid/clip' }, /secure_url/], [{ resource_type: 'image' }, /resource_type esperado/]]) {
+    h.state.response.body = JSON.stringify({ ...payload, ...patch });
+    await assert.rejects(h.upload(), (error) => error.code === 'UPLOAD_UNCERTAIN' && diagnostic.test(error.message) && !/preset/.test(error.message));
+  }
+});
 
 test('H3.2 adapter: verifies original existence, bytes and 80 MB limit before HTTP', async () => {
   const h = adapterFixture(); h.state.exists = false;

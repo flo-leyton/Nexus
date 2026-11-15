@@ -711,3 +711,40 @@ reingresar y publicar su clip original sin convertir su resultado desconocido en
 STOP ACK/guardado confirmado. Los tests lo cubren sin hardware; falta evidencia
 física del proveedor, preset, transferencia, decodificación y persistencia nativa.
 **H3 no se marca verificado por estas pruebas simuladas.**
+
+### 2026-11-15 · H3 · Diagnóstico de subida rechazada en teléfono
+
+Base `desarrollo@a1eadbf`. El operador grabó un vídeo y reportó Subida sin confirmar,
+con original disponible. Encontró en Cloudinary el public_id `lghocqr1xsfm7mn5ztde`.
+Ese ID no conserva el `nexus/<hash>` solicitado por la app: si corresponde a la
+misma operación, el preset está ignorando/sustituyendo la identidad. Revisar el
+preset de EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET, mantener Unsigned y desactivar
+Disallow public ID. No se accedió ni se modificó la consola del proveedor.
+
+Se encontraron además dos defectos concretos del diagnóstico/compatibilidad:
+
+- El adaptador y worker rechazaban un prefijo de carpeta legítimo. Ahora permiten
+  folder/public_id_prefix manteniendo íntegro el ID solicitado en límite de ruta;
+  persisten el public_id completo recibido y la URL real. Mantienen el rechazo
+  de un basename renombrado o aleatorio, conservando original y estado sin confirmar.
+- El mensaje genérico culpaba al preset ante cualquier campo inválido. Ahora
+  identifica public_id esperado/recibido, resource_type, secure_url o bytes según
+  el campo que falló. La pantalla evita repetir el mismo error persistido.
+
+La corrección de prefijos no resuelve por sí sola un preset que genera IDs
+aleatorios. No se acepta ese ID ni se reconstruye una URL; hacerlo eliminaría la
+garantía de identidad estable en reintentos. Reintentar después de corregir el
+preset puede dejar en Cloudinary el recurso aleatorio del intento anterior; la
+app no lo borra ni lo atribuye automáticamente a una Take.
+
+Validación: TypeScript PASS, lint y ESLint ampliado PASS, **60/60 tests PASS**.
+Dos casos nuevos cubren prefijo de carpeta en adaptador/worker/reintento y el
+diagnóstico por campo. Se comprueba rechazo del ID aleatorio reportado y de
+sufijos parciales/renombrados. Diff-check del commit PASS; espacio ajeno previo
+en ENTREGA y configuración LAN preservados fuera del commit.
+
+Pendiente físico: guardar el ajuste del preset, recargar JS sin reinstalar ni borrar
+datos, reintentar el mismo clip y comprobar Subida completada, publicación y
+reproducción remota en Controller. Si falla, compartir el diagnóstico nuevo con
+los IDs esperado/recibido. **H3 sigue no verificado**; el fallo físico se registra
+sin presentar la presencia en Media Library como una validación completa del flujo.

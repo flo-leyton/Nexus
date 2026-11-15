@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { getOrCreateDeviceId } from './deviceIdentity';
 import { getMediaAssetById, getMediaCatalog, getMediaPlaybackUri, setCaptureUpload } from './mediaCatalog';
-import { uploadMediaAsset } from './cloudinary';
+import { matchesCapturePublicId, uploadMediaAsset } from './cloudinary';
 import { getSessionService } from './session';
 import type { CaptureUpload, LocalCaptureMediaAsset, RemoteMediaAsset } from '../types/media';
 import type { TakeMediaAngle } from './sessionProtocol';
@@ -39,7 +39,7 @@ export function createCaptureUploader(deps: UploadDependencies) {
       await set(id, { state: 'uploading' });
       try { await notify(id); } catch { /* Offline relay does not prevent uploading an owned original. */ }
       confirmed = await deps.upload(asset, uri, publicId);
-      if (confirmed.resourceType !== 'video' || confirmed.publicId !== publicId || !confirmed.url.startsWith('https://')) throw Object.assign(new Error('Respuesta de subida incompleta o ajena al clip.'), { code: 'UPLOAD_UNCERTAIN' });
+      if (confirmed.resourceType !== 'video' || !matchesCapturePublicId(confirmed.publicId, publicId) || !confirmed.url.startsWith('https://')) throw Object.assign(new Error('Respuesta de subida incompleta o ajena al clip.'), { code: 'UPLOAD_UNCERTAIN' });
       await set(id, { state: 'uploaded', publicId: confirmed.publicId, url: confirmed.url });
     } catch (error) {
       const uncertain = !!confirmed || (error && typeof error === 'object' && 'code' in error && error.code === 'UPLOAD_UNCERTAIN');
