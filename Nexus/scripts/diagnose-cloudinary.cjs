@@ -20,11 +20,16 @@ async function main() {
     });
     const body = await response.json();
     const preserved = typeof body.public_id === 'string' && (body.public_id === requested || body.public_id.endsWith(`/${requested}`));
+    const confirmed = response.ok && typeof body.public_id === 'string' && !!body.public_id.trim() &&
+      body.resource_type === 'image' && typeof body.bytes === 'number' && body.bytes > 0 &&
+      typeof body.secure_url === 'string' && /^https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(body.secure_url);
     console.log(JSON.stringify({ attempt, status: response.status, publicId: body.public_id,
       resourceType: body.resource_type, bytes: body.bytes, existing: body.existing, identityPreserved: preserved,
+      uploadConfirmed: confirmed,
       error: typeof body.error?.message === 'string' ? body.error.message : undefined }));
-    // A mismatch is enough to diagnose naming: do not create a second random resource.
-    if (!response.ok || !preserved) { process.exitCode = 1; return; }
+    if (!confirmed) { process.exitCode = 1; return; }
+    // Generated IDs are valid results. Do not create another resource just to test naming.
+    if (!preserved) return;
   }
 }
 main().catch((error) => { console.error(error.message); process.exitCode = 1; });

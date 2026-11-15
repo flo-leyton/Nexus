@@ -20,7 +20,7 @@ function uploaderFixture(overrides = {}) {
   const asset = { id: 'catalog-id', localId: 'clip', sessionId: 'session', takeId: 'take', deviceId: 'device',
     nodeId: 'original-node', bytes: 256, localUri: 'file:///original.mp4', upload: { state: 'local' }, uploadRevision: 0 };
   const uploads = [], notifications = [], states = [];
-  const module = load('../services/captureUpload.ts', { 'expo-crypto': {}, './deviceIdentity': {}, './mediaCatalog': {}, './cloudinary': adapterFixture().adapter, './session': {} });
+  const module = load('../services/captureUpload.ts', { 'expo-crypto': {}, './deviceIdentity': {}, './mediaCatalog': {}, './cloudinary': adapterFixture().adapter, './session': {}, './sessionProtocol': protocol });
   const deps = {
     getAsset: async () => ({ ...asset }), getAssets: async () => [{ ...asset }], owner: async () => 'device',
     setState: async (id, state) => { assert.equal(id, asset.id); asset.upload = state; asset.uploadRevision++; states.push(state.state); },
@@ -108,9 +108,9 @@ test('H3 regression: preset folder prefix preserves clip identity through adapte
   await worker.uploader.upload(worker.asset.id);
   assert.equal(worker.asset.upload.state, 'uploaded');
   assert.equal(worker.asset.upload.publicId, 'team/nexus/hash-of-catalog-id');
-  for (const id of ['team/notnexus/stable', 'team/nexus/stable-random', 'lghocqr1xsfm7mn5ztde']) {
+  for (const id of ['team/notnexus/stable', 'team/nexus/stable-random', 'rzobn7ekss6c49y8iiqi']) {
     h.state.response.body = JSON.stringify({ ...payload, public_id: id });
-    await assert.rejects(h.upload(), /public_id esperado.*recibido/);
+    assert.equal((await h.upload()).publicId, id);
   }
 });
 
@@ -132,13 +132,19 @@ test('H3.2 adapter: verifies original existence, bytes and 80 MB limit before HT
   await assert.rejects(h.upload(), /80 MB/); assert.equal(h.calls.length, 0);
 });
 
-test('H3.2 adapter: no success on lost, malformed or mismatched response; retry uses same public_id', async () => {
+test('H3.2 adapter: no success on timeout or invalid response; generated remote ID is authoritative', async () => {
   const h = adapterFixture(); const valid = h.state.response;
   h.state.error = new Error('connection lost');
   await assert.rejects(h.upload(), { code: 'UPLOAD_UNCERTAIN' }); delete h.state.error;
+  h.state.error = Object.assign(new Error('request timeout'), { name: 'TimeoutError' });
+  await assert.rejects(h.upload(), { code: 'UPLOAD_UNCERTAIN' }); delete h.state.error;
   h.state.response = { status: 200, body: 'not-json' }; await assert.rejects(h.upload(), { code: 'UPLOAD_UNCERTAIN' });
-  h.state.response = { status: 200, body: JSON.stringify({ ...JSON.parse(valid.body), public_id: 'different' }) };
-  await assert.rejects(h.upload(), { code: 'UPLOAD_UNCERTAIN' });
+  h.state.response = { status: 200, body: JSON.stringify({ ...JSON.parse(valid.body), public_id: 'rzobn7ekss6c49y8iiqi' }) };
+  assert.equal((await h.upload()).publicId, 'rzobn7ekss6c49y8iiqi');
+  for (const public_id of ['', ' ', null]) {
+    h.state.response = { status: 200, body: JSON.stringify({ ...JSON.parse(valid.body), public_id }) };
+    await assert.rejects(h.upload(), { code: 'UPLOAD_UNCERTAIN' });
+  }
   h.state.response = { status: 400, body: JSON.stringify({ error: { message: 'unsigned preset rejected' } }) };
   await assert.rejects(h.upload(), /unsigned preset rejected/);
   h.state.response = valid;
@@ -163,4 +169,73 @@ test('H3.3: independent persisted angles survive concurrent notifications, dupli
   assert.ok(recovered.every((r) => r.angle.upload.state === 'uploaded' && r.angle.takeId === 'take'));
   assert.equal(new Set(recovered.map((r) => r.angle.upload.url)).size, 2);
   await assert.rejects(store.saveTakeMedia('session', { a: { ...a, upload: { state: 'uploaded', publicId: 'bad', url: 'http://invalid' } } }), /inválida/);
+});
+
+test('H3 real ID regression: timeout, retry, persisted success before publication and reopen keep one playable angle', async () => {
+  const original = { id: 'original-clip', sessionId: 'session', takeId: 'take', deviceId: 'device', nodeId: 'original-node',
+    bytes: 256, localUri: 'file:///original.mp4', fileName: 'video.mp4', audio: false, createdAt: '2026-11-15T12:00:00.000Z' };
+  const data = new Map();
+  const storage = { getItem: async (key) => data.get(key) ?? null,
+    setItem: async (key, value) => { await new Promise(setImmediate); data.set(key, value); }, getAllKeys: async () => [...data.keys()] };
+  const storageDep = { '@react-native-async-storage/async-storage': { default: storage }, './sessionProtocol': protocol };
+  const reloadCatalog = () => load('../services/mediaCatalog.ts', { ...storageDep, './localCaptures': {
+    scanLocalCaptures: async () => ({ entries: [{ capture: { ...original } }], problems: [] }), verifyLocalCapture: async (clip) => clip,
+  } });
+  const reloadAngles = () => load('../services/takeMedia.ts', storageDep);
+  let catalog = reloadCatalog(), angles = reloadAngles();
+  const id = await catalog.incorporateLocalCapture(original);
+  const h = adapterFixture();
+  const remoteId = 'rzobn7ekss6c49y8iiqi', remoteUrl = `https://res.cloudinary.com/test/video/upload/v1/${remoteId}.mp4`;
+  h.state.response.body = JSON.stringify({ public_id: remoteId, secure_url: remoteUrl, resource_type: 'video', bytes: 256 });
+  const { createCaptureUploader } = load('../services/captureUpload.ts', {
+    'expo-crypto': {}, './deviceIdentity': {}, './mediaCatalog': {}, './cloudinary': h.adapter, './session': {}, './sessionProtocol': protocol,
+  });
+  const notified = [];
+  let published = 0;
+  const deps = {
+    getAsset: (clipId) => catalog.getMediaAssetById(clipId), getAssets: async () => (await catalog.getMediaCatalog()).assets,
+    setState: (clipId, state) => catalog.setCaptureUpload(clipId, state), owner: async () => original.deviceId,
+    verify: (clip) => catalog.getMediaPlaybackUri(clip), publicId: async () => 'nexus/requested-local-hash',
+    upload: (clip, uri, publicId) => { Object.assign(h.input, { uri, publicId, assetId: clip.id }); return h.upload(); },
+    notify: async (clip) => {
+      const persisted = await reloadCatalog().getMediaAssetById(clip.id);
+      assert.equal(JSON.stringify(persisted.upload), JSON.stringify(clip.upload));
+      notified.push(clip.upload.state);
+      if (clip.upload.state === 'uploaded') published++;
+      await angles.saveTakeMedia(clip.sessionId, { clip: { clipId: clip.localId, takeId: clip.takeId, deviceId: clip.deviceId,
+        nodeId: clip.nodeId, bytes: clip.bytes, revision: clip.uploadRevision, upload: clip.upload } });
+    },
+  };
+  let worker = createCaptureUploader(deps);
+  h.state.error = Object.assign(new Error('request timeout'), { name: 'TimeoutError' });
+  await assert.rejects(worker.upload(id), { code: 'UPLOAD_UNCERTAIN' });
+  assert.equal((await catalog.getMediaAssetById(id)).upload.state, 'uncertain');
+  assert.equal(published, 0);
+  catalog = reloadCatalog(); angles = reloadAngles(); worker = createCaptureUploader(deps);
+  await worker.recover(); assert.equal(h.calls.length, 1); // reopening never silently retransmits
+  delete h.state.error;
+  const task = worker.upload(id); assert.equal(task, worker.upload(id)); await task;
+  const saved = await catalog.getMediaAssetById(id);
+  assert.equal(saved.upload.state, 'uploaded'); assert.equal(saved.upload.publicId, remoteId); assert.equal(saved.upload.url, remoteUrl);
+  assert.equal(saved.id, id); assert.equal(saved.localId, original.id); assert.equal(saved.nodeId, original.nodeId);
+  assert.equal(saved.takeId, original.takeId); assert.equal(saved.sessionId, original.sessionId); assert.equal(saved.localUri, original.localUri);
+  const { mediaUploadLabel } = load('../types/media.ts', {});
+  assert.equal(mediaUploadLabel(saved), 'Subido');
+  assert.equal(await catalog.getMediaPlaybackUri(saved), original.localUri);
+  assert.equal(await catalog.getMediaPlaybackUri({ storage: 'remote', url: saved.upload.url }), remoteUrl);
+  catalog = reloadCatalog(); angles = reloadAngles(); worker = createCaptureUploader(deps);
+  await worker.recover(); await worker.upload(id); await worker.publish(id);
+  assert.equal(h.calls.length, 2); // one timed-out transfer, one confirmed transfer; no upload after reopen
+  assert.equal((await catalog.getMediaCatalog()).assets.length, 1);
+  const restoredAngles = await reloadAngles().getTakeMedia(original.sessionId);
+  assert.equal(restoredAngles.length, 1); assert.equal(restoredAngles[0].angle.upload.url, remoteUrl);
+  assert.equal(restoredAngles[0].angle.nodeId, original.nodeId); assert.ok(notified.includes('uncertain'));
+});
+
+test('H3: invalid success response stays uncertain; no uploaded reference is published', async () => {
+  const h = adapterFixture(); h.state.response.body = JSON.stringify({ public_id: 'rzobn7ekss6c49y8iiqi', resource_type: 'video', bytes: 256 });
+  const worker = uploaderFixture({ upload: () => h.upload() });
+  await assert.rejects(worker.uploader.upload(worker.asset.id), { code: 'UPLOAD_UNCERTAIN' });
+  assert.equal(worker.asset.upload.state, 'uncertain'); assert.equal(worker.asset.localUri, 'file:///original.mp4');
+  assert.ok(!worker.notifications.some((clip) => clip.upload.state === 'uploaded'));
 });

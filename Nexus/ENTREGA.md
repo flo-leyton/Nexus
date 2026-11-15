@@ -21,7 +21,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 |---|---|---|---|---|
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
-| H3 | H3.1–H3.3 implementados, listos para prueba física | H3.1: 4416702; commit H3.2/H3.3 (ver registro) | 58 tests automáticos; pendiente subida y reproducción reales en teléfonos | Ejecutar pruebas A–D con Cloudinary y dos Nodes; H3 no verificado |
+| H3 | H3.1–H3.3 implementados; corregido falso fallo por public_id generado | H3.1: 4416702; corrección actual (ver registro) | 62 tests automáticos; pendiente confirmar subida/reproducción reales con la corrección | Reintentar clip existente sin cambiar preset y ejecutar A–D; H3 no verificado |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -778,3 +778,63 @@ diagnóstico pasa ESLint. Suite existente 60/60, TypeScript y lint PASS.
 Siguiente paso: administrador corrige el preset, repetir el diagnóstico y exigir
 identityPreserved true en ambos intentos; luego reintentar el clip real desde Node
 y comprobar publicación/reproducción en Controller. **H3 sigue no verificado**.
+
+### 2026-11-15 · H3.2/H3.3 · Respuesta Cloudinary como identidad remota definitiva
+
+Base comprobada `desarrollo@8c47dfeb7ee7a7fd17bc381a8aa90fdaae012030`.
+Cambios ajenos iniciales: LAN en config/server.ts y espacio en línea vacía de H2
+en ENTREGA.md; ambos preservados fuera del commit. No se cambió .env, el preset,
+el relay ni los ACK/estado histórico H2. Catálogo local, takeMedia y relay se
+inspeccionaron: sus claves por identidad local ya evitan duplicar entradas.
+
+**Causa del falso fallo:** adaptador y worker exigían correspondencia entre
+public_id solicitado y devuelto. Una subida HTTP exitosa y completa se rechazaba
+cuando Cloudinary generaba un nombre distinto. La identidad local del clip no
+depende del nombre remoto; esa restricción se elimina. Las indicaciones anteriores
+de cambiar el preset o exigir identityPreserved quedan sustituidas por este contrato.
+
+- Respuesta exitosa válida: public_id no vacío, resource_type video, bytes positivos
+  y secure_url HTTPS de vídeo Cloudinary. Se usan exactamente los valores devueltos,
+  aunque el solicitado sea nexus/<hash> y el devuelto rzobn7ekss6c49y8iiqi.
+- El worker espera la persistencia de uploaded antes de anunciarlo. Node muestra
+  **Subido**; publicId/URL son referencias remotas y no sustituyen catalogId,
+  localId, sessionId, takeId, deviceId ni nodeId de la participación original.
+- Dos pulsaciones comparten operación. Tras persistir éxito, volver a pulsar o
+  reabrir sólo comunica la referencia guardada, sin repetir la transferencia.
+  takeMedia y relay siguen deduplicando por dispositivo + id local, no por publicId.
+  Controller conserva una referencia reproducible por ángulo de la Take.
+- Timeout/error de red sin respuesta y respuesta inválida siguen sin confirmar.
+  Una reapertura interrumpida no anuncia éxito ni reintenta automáticamente.
+  Un reintento explícito con respuesta previamente perdida puede crear otro archivo
+  en un proveedor que genera IDs; no se promete deduplicación física en Cloudinary.
+  El catálogo y la agregación mantienen una única entrada del clip local.
+- El diagnóstico sintético ahora distingue identityPreserved de uploadConfirmed:
+  un ID generado con respuesta válida no es fallo. Se detiene tras ese éxito para
+  evitar crear otra imagen innecesaria. No se ejecutó otra subida real en esta revisión.
+
+Validación: **62/62 tests PASS**, TypeScript PASS, npm run lint y ESLint ampliado
+PASS; sintaxis del script PASS. Diff-check de los cambios del commit PASS (el
+espacio ajeno previo de ENTREGA sigue fuera del índice). Regresión con respuesta
+realista nexus/… → rzobn7ekss6c49y8iiqi: timeout, reintento, catálogo y referencias
+persistentes recargados, comprobación de persistencia antes de notificar, etiqueta
+Subido, URI remota exacta, original intacto y repetición/reapertura sin otro HTTP
+ni entrada duplicada. Prueba de relay con el ID generado verifica routing, dos
+ángulos, notificaciones repetidas y conservación de H2. Respuesta inválida no
+publica uploaded. No se afirma decodificar vídeo mediante pruebas simuladas.
+
+Prueba física pendiente, sin tocar preset, LAN ni reinstalar/borrar datos:
+
+1. Recargar JS en los teléfonos. Con Session viva y Node autorizado, abrir el clip
+   que mostraba Subida sin confirmar. Si necesita reingreso, autorizarlo; conservar
+   el nodeId original del clip. Pulsar REINTENTAR SUBIDA en esa misma entrada.
+2. Con respuesta válida debe mostrar Subido y permitir ABRIR VÍDEO REMOTO.
+   Comprobar en Controller el ángulo bajo el takeId correcto, con Node original;
+   pulsar REPRODUCIR ÁNGULO REMOTO y ▶, comprobar imagen/duración.
+3. COMUNICAR RESULTADO otra vez y salir/volver: un solo ángulo. Cerrar/reabrir sin
+   borrar datos; en Node conservar original/Subido, en Controller Medios recuperar
+   referencia y reproducir. La Session puede terminar si cierra Controller; la
+   referencia persistida no restaura membresía ni diario H2.
+4. Repetir con dos Nodes de la misma Take: dos ángulos individuales, nunca uno
+   sobrescrito. Mantener separados REC ACK, STOP ACK, guardado y subida confirmada.
+
+**H3 sigue no verificado** hasta recibir evidencia física de estos pasos.

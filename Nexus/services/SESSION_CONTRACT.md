@@ -357,18 +357,23 @@ Los estados y `uploadRevision` se guardan por clip. Reabrir recupera interrupted
 uploading como uncertain, sin reenvío automático. Un fallo explícito queda failed.
 La revisión aumenta al cambiar de estado, no al redescubrir el sidecar.
 Dos pulsaciones simultáneas comparten la misma operación. Los reintentos conservan
-catalogId y solicitan `public_id = nexus/<SHA256(catalogId)>`; unsigned upload no
-sobrescribe un recurso existente. La app exige respuesta validada con ese public_id,
-resource_type video, bytes positivos y secure_url de vídeo HTTPS de Cloudinary.
-El preset debe permitir/conservar public_id (Disallow public ID desactivado).
-Puede anteponer folder/public_id_prefix: se acepta sólo si el ID solicitado
-completo permanece como sufijo en un límite de ruta; se guarda el ID completo
-devuelto. Renombrar el basename o generar un ID aleatorio sigue sin anunciar éxito.
-No se inventa ni reconstruye una URL para resolver una respuesta perdida.
+catalogId y solicitan `public_id = nexus/<SHA256(catalogId)>` como preferencia de
+nombre. **El public_id solicitado no es una condición de éxito.** Una respuesta
+HTTP exitosa con public_id no vacío, resource_type video, bytes positivos y
+secure_url de vídeo HTTPS válida confirma la subida aunque el proveedor genere
+otro ID. Se guardan exactamente public_id y secure_url recibidos, asociados al
+catalogId original, antes de comunicar uploaded al relay. No cambia la identidad
+local, sessionId, takeId, deviceId ni nodeId histórico. La UI del Node indica Subido.
+Si se vuelve a pulsar o se reabre con uploaded persistido, sólo se comunica ese
+resultado; no se repite el HTTP ni se incorpora otra captura/ángulo.
+Si no llega una respuesta válida se mantiene uncertain; no se inventa ni reconstruye
+una URL. Al reintentar una respuesta perdida, un proveedor que genera IDs puede
+crear otro recurso remoto: no se promete deduplicación de archivos en Cloudinary
+sin respuesta. El catálogo y el Controller siguen usando una sola identidad local.
 
 Configuración pública: `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` y
-`EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` (preset unsigned para vídeo que admita el
-public_id enviado). No se usa API secret, Firebase ni otra base remota. Las
+`EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` (preset unsigned para vídeo; puede generar
+public_id). No se usa API secret, Firebase ni otra base remota. Las
 importaciones siguen usando el adaptador y sus IDs previos. Los manuales H1
 (takeId null) se pueden subir/reproducir, pero no se atribuyen a una Take.
 

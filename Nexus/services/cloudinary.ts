@@ -31,12 +31,6 @@ type CloudinaryUploadResponse = {
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 
-// A preset may prepend a folder/public_id_prefix. The complete requested identity
-// must remain intact at a path boundary; a renamed/random basename is not a match.
-export function matchesCapturePublicId(actual: string, requested: string): boolean {
-  return actual === requested || actual.endsWith(`/${requested}`);
-}
-
 function requiredPublicEnv(name: string, value: string | undefined) {
   const normalized = value?.trim();
   if (!normalized) throw new Error(`CONFIGURATION ERROR: falta configurar ${name} en .env.`);
@@ -173,15 +167,16 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
   }
   if (
     !payload ||
-    typeof payload.public_id !== 'string' ||
+    typeof payload.public_id !== 'string' || !payload.public_id.trim() || payload.public_id.length > 512 ||
     typeof payload.secure_url !== 'string' ||
     (payload.resource_type !== 'image' && payload.resource_type !== 'video')
   ) {
     throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`), { code: 'UPLOAD_UNCERTAIN' });
   }
-  if (input.publicId) {
+  if (input.source === 'capture') {
     const problems: string[] = [];
-    if (!matchesCapturePublicId(payload.public_id, input.publicId)) problems.push(`public_id esperado "${input.publicId.slice(0, 100)}", recibido "${payload.public_id.slice(0, 150)}". Revisa las opciones de nombre del preset`);
+    // The requested ID is a naming hint. Only the provider response defines the
+    // remote identity; catalogId and original participation remain local identities.
     if (payload.resource_type !== 'video') problems.push(`resource_type esperado video, recibido ${payload.resource_type}`);
     if (!isCloudinaryVideoUrl(payload.secure_url)) problems.push('secure_url no es una URL HTTPS de vídeo de Cloudinary compatible');
     if (typeof payload.bytes !== 'number' || !Number.isFinite(payload.bytes) || payload.bytes <= 0) problems.push('bytes ausentes o no positivos en la respuesta');

@@ -54,5 +54,5 @@ export type NexusMediaAsset = RemoteMediaAsset | LocalCaptureMediaAsset;
 
 export function mediaUploadLabel(asset: NexusMediaAsset): string {
   if (asset.storage === 'remote') return 'Subida completada';
-  return { local: 'Sólo local', queued: 'Subida pendiente', uploading: 'Subiendo', uploaded: 'Subida completada', failed: 'Error de subida', uncertain: 'Subida sin confirmar' }[asset.upload.state];
+  return { local: 'Sólo local', queued: 'Subida pendiente', uploading: 'Subiendo', uploaded: 'Subido', failed: 'Error de subida', uncertain: 'Subida sin confirmar' }[asset.upload.state];
 }

@@ -39,8 +39,11 @@ test('H3: two remote angles aggregate in reverse arrival order; duplicate/stale 
   await c.wait(hasNode(start.takeId, a.deviceId, 'saved')); await c.wait(hasNode(start.takeId, b.deviceId, 'saved'));
   const take = c.service.getSnapshot().sessions[s.sessionId].take;
   const frozen = JSON.stringify(take);
+  const generatedId = 'rzobn7ekss6c49y8iiqi';
   const angle = (peer) => ({ clipId: take.nodes[peer.deviceId].capture.id, takeId: start.takeId, deviceId: peer.deviceId,
-    nodeId: take.nodes[peer.deviceId].nodeId, bytes: take.nodes[peer.deviceId].capture.bytes, revision: 2, upload: uploadedFixture(peer.deviceId) });
+    nodeId: take.nodes[peer.deviceId].nodeId, bytes: take.nodes[peer.deviceId].capture.bytes, revision: 2,
+    upload: peer === a ? { state: 'uploaded', publicId: generatedId,
+      url: `https://res.cloudinary.com/test/video/upload/v1/${generatedId}.mp4` } : uploadedFixture(peer.deviceId) });
   for (const peer of [b, a]) {
     const id = peer.service.reportMedia(s.sessionId, c.deviceId, angle(peer));
     await peer.wait((m) => m.type === 'MEDIA_ACCEPTED' && m.payload.requestId === id);
@@ -49,6 +52,7 @@ test('H3: two remote angles aggregate in reverse arrival order; duplicate/stale 
   let media = c.service.getSnapshot().sessions[s.sessionId].mediaAngles;
   assert.equal(Object.keys(media).length, 2);
   assert.equal(persisted.size, 2);
+  assert.equal(media[`${a.deviceId}:${angle(a).clipId}`].upload.publicId, generatedId);
   assert.notEqual(media[`${a.deviceId}:${angle(a).clipId}`].upload.url, media[`${b.deviceId}:${angle(b).clipId}`].upload.url);
   assert.equal(media[`${a.deviceId}:${angle(a).clipId}`].role, 'main-camera');
   for (const payload of [angle(a), { ...angle(a), revision: 1, upload: { state: 'uploading' } }]) {
