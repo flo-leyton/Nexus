@@ -70,6 +70,28 @@ const request = (type, senderId, sessionId, payload = {}, targetId) => ({
 });
 const replyTo = (id) => (m) => m.payload.requestId === id;
 
+test('H3.4c service: fresh Node discovers and resumes its approved participation, automatic camera reports cannot restore READY', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('resume-service-controller'), first = await connect('resume-service-node');
+  const created = c.service.createSession(), s = (await c.wait(replyTo(created.messageId))).payload.session;
+  const member = await approveForRejoin(c, first, s);
+  const role = c.service.assignRole(s.sessionId, first.deviceId, 'SIDE'); await c.wait(replyTo(role));
+  first.ws.close(); await once(first.ws, 'close');
+  const node = await connect(first.deviceId);
+  await node.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.sessionId === s.sessionId);
+  assert.equal(node.service.getSnapshot().sessions[s.sessionId].members[node.deviceId].online, false);
+  const resumed = node.service.resumeSession(s.sessionId); await node.wait(replyTo(resumed));
+  const self = node.service.getSnapshot().sessions[s.sessionId].members[node.deviceId];
+  assert.equal(self.nodeId, member.nodeId); assert.equal(self.role, 'SIDE'); assert.equal(self.requiresReadyConfirmation, true);
+  const readiness = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
+  const automatic = node.service.reportNodeState(s.sessionId, c.deviceId, readiness); await node.wait(replyTo(automatic));
+  assert.equal(node.sent.find((m) => m.messageId === automatic).payload.readiness.enginePrepared, false);
+  assert.equal(node.service.getSnapshot().sessions[s.sessionId].members[node.deviceId].readiness.enginePrepared, false);
+  assert.throws(() => node.service.confirmNodeReady(s.sessionId, c.deviceId, { ...readiness, cameraPermission: 'denied' }), /NODE_NOT_READY/);
+  const confirmed = node.service.confirmNodeReady(s.sessionId, c.deviceId, readiness); await node.wait(replyTo(confirmed));
+  assert.equal(node.service.getSnapshot().sessions[s.sessionId].members[node.deviceId].readiness.enginePrepared, true);
+  assert.equal(node.sent.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+});
+
 test('discovery: fresh Controller client opens durable Sessions and resolves a request sent while offline', async (t) => {
   const connect = await harness(t), c = await connect('discover-controller');
   const created = c.service.createSession();

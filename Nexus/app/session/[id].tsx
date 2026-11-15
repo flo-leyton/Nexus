@@ -240,6 +240,10 @@ export default function SessionScreen() {
         </ThemedView>
 
         {session && <>
+          {!isController && session.members[deviceId]?.online === false && <Pressable accessibilityRole="button" disabled={captureBusy} onPress={() => {
+            try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
+            catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
+          }} style={styles.primaryButton}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REANUDAR PARTICIPACIÓN · CONSERVAR ROL</ThemedText></Pressable>}
           <ThemedView style={styles.section}>
             <ThemedText type="subtitle">{isController ? 'Eres el Controller' : 'Ingreso aceptado · Eres un Node'}</ThemedText>
             <ThemedText selectable style={styles.code}>Código: {session.code}</ThemedText>
@@ -287,6 +291,7 @@ export default function SessionScreen() {
                 {member.nodeId && <ThemedText selectable style={styles.sessionId}>nodeId: {member.nodeId}</ThemedText>}
                 {member.kind === 'node' && <>
                   <ThemedText>Rol: {member.role}</ThemedText>
+                  {member.requiresReadyConfirmation && <ThemedText>Preparación anterior caducada. Este Node debe confirmar READY para una nueva toma.</ThemedText>}
                   <ThemedText accessibilityLiveRegion="polite">{readinessReasons(member.readiness, connected && member.online !== false).length === 0 ? 'READY' : `NO LISTO: ${readinessReasons(member.readiness, connected && member.online !== false).join(' · ')}`}</ThemedText>
                   <ThemedText>Permiso: {member.readiness?.cameraPermission ?? 'unknown'} · Cámara: {member.readiness?.cameraAvailable === true ? 'disponible' : member.readiness?.cameraAvailable === false ? 'no disponible' : 'sin comprobar'} · Motor: {member.readiness?.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
                   {isController && service && member.online !== false && session.state !== 'closed' && <NodeRoleEditor service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}

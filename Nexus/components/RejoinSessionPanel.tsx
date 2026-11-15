@@ -17,12 +17,12 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
     let connectedBefore = service.getSnapshot().connection === 'Connected';
     return service.subscribe((state) => {
     if (state.connection !== 'Connected') { connectedBefore = false; request.current = null; setNotice('Conecta al relay y vuelve a solicitar reingreso.'); return; }
-    if (!connectedBefore) { connectedBefore = true; setNotice('Conexión recuperada. Solicita reingreso con una nueva aprobación.'); }
+    if (!connectedBefore) { connectedBefore = true; setNotice('Conexión recuperada. Reanuda tu membresía autorizada o solicita una nueva participación.'); }
     if (!request.current) return;
     const event = state.lastEvent;
     if (!event) return;
     if (event.type === 'SESSION_SNAPSHOT' && event.sessionId === target.current && event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
-      request.current = null; setNotice('Reingreso aceptado por el Controller. Abre la sesión para preparar la cámara.');
+      request.current = null; setNotice('Participación autorizada. Abre la Session, prepara la cámara y confirma READY si se solicita.');
     } else if (event.payload.requestId === request.current) {
       if (event.type === 'SESSION_JOIN_PENDING') setNotice('Solicitud enviada. Espera una nueva aprobación del Controller.');
       if (event.type === 'SESSION_JOIN_REJECTED' || event.type === 'SESSION_ERROR') {
@@ -45,7 +45,11 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
   return <View style={styles.panel}>
     <ThemedText type="subtitle">Última sesión como Node</ThemedText>
     <ThemedText selectable>{last.sessionId}</ThemedText>
-    <ThemedText>Recordarla no autoriza el ingreso. El Controller debe aceptarte otra vez.</ThemedText>
+    <ThemedText>Reanudar verifica tu cuenta y membresía persistida; conserva nodeId y rol. Si no perteneces a esta Session, solicita aprobación.</ThemedText>
+    <Pressable accessibilityRole="button" disabled={disabled} style={[styles.button, disabled && styles.disabled]} onPress={() => {
+      try { target.current = last.sessionId; request.current = service.resumeSession(last.sessionId); setNotice('Verificando participación persistida…'); }
+      catch (error) { setNotice(sessionErrorMessage(error)); }
+    }}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REANUDAR PARTICIPACIÓN</ThemedText></Pressable>
     {snapshot.joinInFlight && <ThemedText>Solicitud pendiente de aceptación por el Controller.</ThemedText>}
     {!connected && <ThemedText>Conecta al relay para solicitar reingreso sin escribir el código.</ThemedText>}
     {blocked && <ThemedText>Detén y guarda la captura local antes de solicitar una nueva participación.</ThemedText>}

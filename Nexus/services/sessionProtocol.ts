@@ -27,6 +27,8 @@ export function readinessReasons(state: NodeReadiness | undefined, connected = t
 
 export type SessionState = 'draft' | 'joining' | 'preparing' | 'ready' | 'recording' | 'finishing' | 'completed' | 'failed' | 'closed';
 export interface SessionMember {
+  readyEpoch?: string;
+  requiresReadyConfirmation?: boolean;
   uid?: string;
   online?: boolean;
   deviceId: string;
@@ -76,6 +78,7 @@ export type RecordingCommand = Extract<SessionRequest, { type: 'START_RECORDING'
 export type RecordingPhase = 'starting' | 'recording' | 'saving' | 'saved' | 'error';
 export interface CaptureReference { id: string; localUri?: string; bytes: number }
 export interface TakeNode {
+  connectionLost?: boolean;
   nodeId: string;
   role?: string;
   phase: 'pending' | RecordingPhase | 'disconnected';
@@ -86,7 +89,7 @@ export interface TakeNode {
   capture: CaptureReference | null;
 }
 export interface CoordinatedTake {
-  interrupted?: { at: number; reason: 'relay-restarted' };
+  interrupted?: { at: number; reason: 'relay-restarted' | 'connection-lost' };
   takeId: string;
   startMessageId: string;
   stopMessageId: string | null;
@@ -125,11 +128,11 @@ export interface NexusMessage<T = unknown> {
   payload: T;
 }
 export type SessionRequest =
-  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' | 'SESSION_LIST' })
+  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' | 'SESSION_LIST' | 'SESSION_RESUME' })
   | (NexusMessage<{ code: string }> & { type: 'SESSION_JOIN_REQUEST' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
-  | (NexusMessage<{ readiness: NodeReadiness }> & { type: 'NODE_STATE'; targetId: string })
+  | (NexusMessage<{ readiness: NodeReadiness; readyEpoch?: string; confirmReady?: true }> & { type: 'NODE_STATE'; targetId: string })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'START_RECORDING' | 'STOP_RECORDING' })
   | (NexusMessage<{ takeId: string; acknowledgeUnknown: true }> & { type: 'CLOSE_INTERRUPTED_TAKE' })
   | (NexusMessage<{ requestId: string; takeId: string; command: 'START_RECORDING' | 'STOP_RECORDING' }> & { type: 'RECORDING_ACK'; targetId: string })
@@ -179,13 +182,14 @@ export function isCoordinatedTake(value: unknown): value is CoordinatedTake {
   if (!isRecord(value) || !isProtocolId(value.takeId) || !isProtocolId(value.startMessageId) ||
       !(value.stopMessageId === null || isProtocolId(value.stopMessageId)) || !isRecord(value.nodes) || !Object.keys(value.nodes).length) return false;
   const nodes = value.nodes;
-  if (value.interrupted !== undefined && (!isRecord(value.interrupted) || value.interrupted.reason !== 'relay-restarted' || !Number.isSafeInteger(value.interrupted.at) || Number(value.interrupted.at) <= 0)) return false;
+  if (value.interrupted !== undefined && (!isRecord(value.interrupted) || !['relay-restarted', 'connection-lost'].includes(String(value.interrupted.reason)) || !Number.isSafeInteger(value.interrupted.at) || Number(value.interrupted.at) <= 0)) return false;
   if (value.closed !== undefined && (!isRecord(value.closed) || !isProtocolId(value.closed.messageId) ||
       !Number.isSafeInteger(value.closed.at) || Number(value.closed.at) <= 0 || !Array.isArray(value.closed.unconfirmedNodeIds) ||
       !value.closed.unconfirmedNodeIds.every((id) => isProtocolId(id) && Object.values(nodes).some((n) => isRecord(n) && n.nodeId === id)))) return false;
   return Object.entries(value.nodes).every(([id, node]) => isProtocolId(id) && isRecord(node) && isProtocolId(node.nodeId) &&
     ['pending', 'starting', 'recording', 'saving', 'saved', 'error', 'disconnected'].includes(String(node.phase)) &&
     typeof node.startReceived === 'boolean' && typeof node.stopReceived === 'boolean' && typeof node.busy === 'boolean' &&
+    (node.connectionLost === undefined || typeof node.connectionLost === 'boolean') &&
     (node.error === null || (typeof node.error === 'string' && node.error.length <= 256)) &&
     (node.phase === 'saved' ? !node.busy && isCaptureReference(node.capture) : node.capture === null));
 }
@@ -204,6 +208,7 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
     case 'SESSION_GET':
     case 'SESSION_CLOSE':
     case 'SESSION_LIST':
+    case 'SESSION_RESUME':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_JOIN_REQUEST':
       // JOIN_BY_CODE for a new session; a concrete ID pins a remembered rejoin to that exact session.
@@ -215,7 +220,8 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
     case 'ASSIGN_ROLE':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isNodeRole(value.payload.role);
     case 'NODE_STATE':
-      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isNodeReadiness(value.payload.readiness);
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.every((k) => ['readiness', 'readyEpoch', 'confirmReady'].includes(k)) && isNodeReadiness(value.payload.readiness) &&
+        (value.payload.readyEpoch === undefined || isProtocolId(value.payload.readyEpoch)) && (value.payload.confirmReady === undefined || value.payload.confirmReady === true);
     case 'START_RECORDING':
     case 'STOP_RECORDING':
       return value.sessionId !== JOIN_BY_CODE && keys.length === 2 && isProtocolId(value.payload.takeId) &&
@@ -259,6 +265,7 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
       const members = Object.entries(s.members);
       return members.filter(([, m]) => isRecord(m) && m.kind === 'controller').length === 1 &&
           members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&
+            (m.readyEpoch === undefined || isProtocolId(m.readyEpoch)) && (m.requiresReadyConfirmation === undefined || typeof m.requiresReadyConfirmation === 'boolean') &&
             (m.uid === undefined || (typeof m.uid === 'string' && m.uid.length > 0)) && (m.online === undefined || typeof m.online === 'boolean') &&
           isNodeRole(m.role) && (m.readiness === undefined || isNodeReadiness(m.readiness)) && (m.kind === 'controller'
             ? id === s.controllerId && m.nodeId === null : m.kind === 'node' && isProtocolId(m.nodeId))) &&

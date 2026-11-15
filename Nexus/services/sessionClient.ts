@@ -1,7 +1,7 @@
 import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
-  type RecordingCommand, type RecordingReport, type TakeMediaAngle,
+  type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -54,7 +54,9 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
       if (!session || session.controllerId !== event.senderId || member?.kind !== 'node' || member.online === false ||
-          !member.nodeId || !event.payload.targetNodeIds.includes(member.nodeId) || session.take?.takeId !== event.payload.takeId) return;
+          (event.type === 'START_RECORDING' && member.requiresReadyConfirmation) ||
+          !member.nodeId || !event.payload.targetNodeIds.includes(member.nodeId) || session.take?.takeId !== event.payload.takeId ||
+          session.take.interrupted || session.take.closed || session.take.nodes[deviceId]?.connectionLost) return;
       const key = `${event.sessionId}:${event.messageId}`;
       const signature = JSON.stringify([event.type, event.payload]);
       const previous = captureCommands.get(key);
@@ -192,6 +194,9 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       return requestJoin(code);
     },
     discoverSessions,
+    resumeSession(sessionId: string) {
+      return send({ ...envelope(sessionId), type: 'SESSION_RESUME', payload: {} });
+    },
     requestRejoin() {
       const last = state.lastNodeSession;
       if (!last) throw new Error('NO_REMEMBERED_SESSION');
@@ -210,7 +215,18 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       return send({ ...envelope(sessionId), type: 'ASSIGN_ROLE', targetId: deviceId, payload: { role: role.trim() } });
     },
     reportNodeState(sessionId: string, controllerId: string, readiness: NodeReadiness) {
-      return send({ ...envelope(sessionId), type: 'NODE_STATE', targetId: controllerId, payload: { readiness } });
+      const member = state.sessions[sessionId]?.members[deviceId];
+      return send({ ...envelope(sessionId), type: 'NODE_STATE', targetId: controllerId, payload: {
+        readiness: member?.requiresReadyConfirmation ? { ...readiness, enginePrepared: false } : readiness,
+        ...(member?.readyEpoch ? { readyEpoch: member.readyEpoch } : {}),
+      } });
+    },
+    confirmNodeReady(sessionId: string, controllerId: string, readiness: NodeReadiness) {
+      const member = state.sessions[sessionId]?.members[deviceId];
+      if (member?.kind !== 'node' || member.online === false || readinessReasons(readiness).length) throw new Error('NODE_NOT_READY');
+      return send({ ...envelope(sessionId), type: 'NODE_STATE', targetId: controllerId, payload: {
+        readiness, confirmReady: true, ...(member.readyEpoch ? { readyEpoch: member.readyEpoch } : {}),
+      } });
     },
     startTake(sessionId: string) {
       const session = state.sessions[sessionId];

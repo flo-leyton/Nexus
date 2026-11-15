@@ -122,7 +122,14 @@ async function admit(c, n, s) {
   const accepted = await c.call('SESSION_JOIN_ACCEPT', s.sessionId, { requestId: join.message.messageId }, n.id);
   return accepted.event.payload.session.members[n.id];
 }
-async function ready(n, s) { await n.call('NODE_STATE', s.sessionId, { readiness }, s.controllerId); }
+async function ready(n, s) {
+  const member = n.inbox.findLast((m) => m.type === 'SESSION_SNAPSHOT' && m.sessionId === s.sessionId)?.payload.session.members[n.id];
+  await n.call('NODE_STATE', s.sessionId, { readiness, ...(member?.readyEpoch ? { readyEpoch: member.readyEpoch } : {}) }, s.controllerId);
+}
+async function confirmReady(n, s) {
+  const member = (await n.call('SESSION_GET', s.sessionId)).event.payload.session.members[n.id];
+  return n.call('NODE_STATE', s.sessionId, { readiness, readyEpoch: member.readyEpoch, confirmReady: true }, s.controllerId);
+}
 async function ack(n, s, command) {
   return n.call('RECORDING_ACK', s.sessionId, { requestId: command.messageId, takeId: command.payload.takeId, command: command.type }, s.controllerId);
 }
@@ -144,6 +151,134 @@ async function completeTake(c, nodes, members, s, takeId = 'take') {
   await Promise.all(nodes.map((n) => saved(n, s, stop.message)));
   return { start, stop };
 }
+
+test('H3.4c: Node resumes approved UID/device membership and role, requires fresh READY and expires pending role', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'resume-a'), b = await peer(t, runtime, 'resume-b');
+  const ma = await admit(c, a, s), mb = await admit(c, b, s);
+  const assigned = c.send('ASSIGN_ROLE', s.sessionId, { role: 'MAIN' }, a.id);
+  await a.wait((m) => m.messageId === assigned.message.messageId);
+  await a.call('SESSION_ROLE_ACK', s.sessionId, { requestId: assigned.message.messageId }, c.id); await assigned.result;
+  await completeTake(c, [a, b], [ma, mb], s, 'before-resume');
+  await Promise.all([a.call('MEDIA_STATE', s.sessionId, angle(a, ma, 'before-resume'), c.id), b.call('MEDIA_STATE', s.sessionId, angle(b, mb, 'before-resume'), c.id)]);
+  await ready(a, s); await ready(b, s);
+  const pending = c.send('ASSIGN_ROLE', s.sessionId, { role: 'OTHER' }, a.id);
+  await a.wait((m) => m.messageId === pending.message.messageId);
+  a.ws.close(); await once(a.ws, 'close'); await runtime.idle();
+  const node = await peer(t, runtime, a.id);
+  assert.deepEqual((await node.call('SESSION_LIST', 'studio-index')).event.payload.sessionIds, [s.sessionId]);
+  const offline = (await node.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(offline.members[a.id].online, false); assert.equal(offline.members[a.id].nodeId, ma.nodeId);
+  storage.backing.fail = true;
+  assert.equal((await node.call('SESSION_RESUME', s.sessionId)).event.payload.code, 'STORE_UNAVAILABLE');
+  assert.equal(storage.backing.document.sessions[s.sessionId].members[a.id].online, false);
+  storage.backing.fail = false;
+  const restored = (await node.call('SESSION_RESUME', s.sessionId)).event.payload.session;
+  const member = restored.members[a.id];
+  assert.equal(member.online, true); assert.equal(member.role, 'MAIN'); assert.equal(member.nodeId, ma.nodeId);
+  assert.equal(member.readiness.enginePrepared, false); assert.equal(member.requiresReadyConfirmation, true);
+  assert.equal(restored.members[b.id].readiness.enginePrepared, true); // independent Node
+  assert.equal((await node.call('SESSION_RESUME', s.sessionId)).event.payload.session.members[a.id].readyEpoch, member.readyEpoch);
+  for (const payload of [{ readiness }, { readiness, readyEpoch: 'old-epoch', confirmReady: true }, { readiness, readyEpoch: member.readyEpoch }]) {
+    assert.equal((await node.call('NODE_STATE', s.sessionId, payload, c.id)).event.payload.code, 'READY_CONFIRMATION_REQUIRED');
+  }
+  assert.equal((await node.call('SESSION_ROLE_ACK', s.sessionId, { requestId: pending.message.messageId }, c.id)).event.payload.code, 'ROLE_ACK_TIMEOUT');
+  await confirmReady(node, s);
+  assert.equal((await c.call('SESSION_GET', s.sessionId)).event.payload.session.members[a.id].readiness.enginePrepared, true);
+  assert.equal(Object.keys(restored.mediaAngles).length, 1); // Node receives only its own angle
+  assert.equal(Object.keys((await c.call('SESSION_GET', s.sessionId)).event.payload.session.mediaAngles).length, 2);
+  assert.equal(restored.take.takeId, 'before-resume');
+  assert.equal(node.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING', 'ASSIGN_ROLE'].includes(m.type)), false);
+  const foreign = await peer(t, runtime, 'resume-foreign');
+  assert.equal((await foreign.call('SESSION_RESUME', s.sessionId)).event.payload.code, 'NOT_MEMBER');
+});
+
+test('H3.4c: Controller reconnect expires old commands, keeps unknown outcomes and starts exactly one new Take after reconciliation', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'controller-resume-a'), b = await peer(t, runtime, 'controller-resume-b');
+  const members = [await admit(c, a, s), await admit(c, b, s)]; await ready(a, s); await ready(b, s);
+  const original = await c.call('START_RECORDING', s.sessionId, { takeId: 'unknown-take', targetNodeIds: members.map((m) => m.nodeId) });
+  await ack(a, s, original.message);
+  c.ws.close(); await once(c.ws, 'close'); await runtime.idle();
+  const owner = await peer(t, runtime, c.id);
+  const restored = (await owner.call('SESSION_RESUME', s.sessionId)).event.payload.session;
+  assert.equal(restored.take.interrupted.reason, 'connection-lost');
+  for (const n of [a, b]) {
+    assert.equal(restored.members[n.id].readiness.enginePrepared, false);
+    assert.equal(restored.take.nodes[n.id].phase, 'disconnected'); assert.equal(restored.take.nodes[n.id].capture, null);
+    assert.equal(restored.take.nodes[n.id].stopReceived, false); assert.equal(restored.take.nodes[n.id].connectionLost, true);
+  }
+  assert.equal(restored.take.nodes[a.id].startReceived, true); assert.equal(restored.take.nodes[b.id].startReceived, false);
+  assert.equal((await ack(b, s, original.message)).event.payload.code, 'TAKE_INTERRUPTED');
+  assert.equal((await owner.call('START_RECORDING', s.sessionId, original.message.payload, undefined, original.message.messageId)).event.payload.code, 'TAKE_INTERRUPTED');
+  assert.equal((await owner.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'unknown-take', acknowledgeUnknown: true })).event.payload.code, 'NODE_NOT_READY');
+  await confirmReady(a, s); await confirmReady(b, s);
+  const closure = (await owner.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'unknown-take', acknowledgeUnknown: true })).event;
+  assert.equal(closure.type, 'SESSION_SNAPSHOT', JSON.stringify(closure.payload));
+  const closed = closure.payload.session.take;
+  assert.equal(closed.closed.unconfirmedNodeIds.length, 2);
+  const next = await completeTake(owner, [a, b], members, s, 'resumed-new-take');
+  const cutoff = owner.inbox.length;
+  owner.ws.send(JSON.stringify(original.message));
+  const duplicate = await owner.wait((m) => owner.inbox.indexOf(m) >= cutoff && m.payload?.requestId === original.message.messageId);
+  const final = duplicate.payload.session;
+  assert.equal(final.take.takeId, next.start.message.payload.takeId); assert.equal(final.takeHistory.length, 1);
+  assert.equal(final.takeHistory[0].nodes[b.id].capture, null); assert.equal(final.takeHistory[0].nodes[b.id].startReceived, false);
+  for (const n of [a, b]) assert.equal(n.inbox.filter((m) => m.type === 'START_RECORDING' && m.payload.takeId === 'unknown-take').length, 1);
+});
+
+test('H3.4c: Node reconnect during REC cannot acknowledge old commands or receive the old STOP', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'cut-a'), b = await peer(t, runtime, 'cut-b');
+  const ma = await admit(c, a, s), mb = await admit(c, b, s); await ready(a, s); await ready(b, s);
+  const rec = await c.call('START_RECORDING', s.sessionId, { takeId: 'node-cut-take', targetNodeIds: [ma.nodeId, mb.nodeId] });
+  await ack(b, s, rec.message);
+  a.ws.close(); await once(a.ws, 'close'); await runtime.idle();
+  const node = await peer(t, runtime, a.id);
+  await node.call('SESSION_RESUME', s.sessionId);
+  assert.equal((await ack(node, s, rec.message)).event.payload.code, 'COMMAND_EXPIRED');
+  const stop = await c.call('STOP_RECORDING', s.sessionId, { takeId: 'node-cut-take', targetNodeIds: [ma.nodeId, mb.nodeId] });
+  await ack(b, s, stop.message); await saved(b, s, stop.message);
+  assert.equal(node.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+  const restored = (await c.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(restored.take.nodes[a.id].startReceived, false); assert.equal(restored.take.nodes[a.id].stopReceived, false);
+  assert.equal(restored.take.nodes[a.id].capture, null); assert.equal(restored.take.nodes[a.id].phase, 'disconnected');
+  await confirmReady(node, s); // local engine must already be idle; no inferred saved report
+  const closed = (await c.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'node-cut-take', acknowledgeUnknown: true })).event;
+  assert.equal(closed.type, 'SESSION_SNAPSHOT');
+  await completeTake(c, [node, b], [ma, mb], s, 'after-node-cut');
+  assert.equal((await c.call('SESSION_GET', s.sessionId)).event.payload.session.takeHistory[0].nodes[a.id].capture, null);
+});
+
+test('H3.4c: abrupt restart restores approved participants and durable saved result, never unknown ACKs, and permits a new Take', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'crash-a'), b = await peer(t, runtime, 'crash-b');
+  const ma = await admit(c, a, s), mb = await admit(c, b, s); await ready(a, s); await ready(b, s);
+  const startCommand = await c.call('START_RECORDING', s.sessionId, { takeId: 'crash-take', targetNodeIds: [ma.nodeId, mb.nodeId] });
+  await ack(a, s, startCommand.message);
+  const stopCommand = await c.call('STOP_RECORDING', s.sessionId, { takeId: 'crash-take', targetNodeIds: [ma.nodeId, mb.nodeId] });
+  await ack(a, s, stopCommand.message); await saved(a, s, stopCommand.message);
+  const crashBacking = { document: structuredClone(storage.backing.document) }; // exact durable data at sudden power loss
+  await runtime.close();
+  const second = await start(t, createMemoryStore(crashBacking));
+  const owner = await peer(t, second, c.id), na = await peer(t, second, a.id), nb = await peer(t, second, b.id);
+  const before = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(before.take.interrupted.reason, 'relay-restarted');
+  assert.equal(before.take.nodes[a.id].phase, 'saved'); assert.ok(before.take.nodes[a.id].capture);
+  assert.equal(before.take.nodes[b.id].phase, 'disconnected'); assert.equal(before.take.nodes[b.id].capture, null);
+  assert.equal(before.take.nodes[b.id].startReceived, false); assert.equal(before.take.nodes[b.id].stopReceived, false);
+  for (const [node, member] of [[na, ma], [nb, mb]]) {
+    const resumed = (await node.call('SESSION_RESUME', s.sessionId)).event.payload.session.members[node.id];
+    assert.equal(resumed.nodeId, member.nodeId); assert.equal(resumed.readiness.enginePrepared, false);
+    await confirmReady(node, s);
+    assert.equal(node.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+  }
+  assert.equal((await nb.call('RECORDING_ACK', s.sessionId, { requestId: stopCommand.message.messageId, takeId: 'crash-take', command: 'STOP_RECORDING' }, c.id)).event.payload.code, 'TAKE_INTERRUPTED');
+  await owner.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'crash-take', acknowledgeUnknown: true });
+  const newer = await completeTake(owner, [na, nb], [ma, mb], s, 'post-crash');
+  assert.equal(newer.start.event.payload.session.takeHistory[0].nodes[b.id].capture, null);
+  assert.equal(newer.start.event.payload.session.takeHistory[0].nodes[a.id].phase, 'saved');
+});
 
 test('H3.4b: cold restart preserves code, owners, members, roles, Takes and simultaneous angles without phone paths', { timeout: 10000 }, async (t) => {
   const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
@@ -300,7 +435,7 @@ test('H3.4b: interrupted Take survives restart without saved inference or comman
   await runtime.close();
   const second = await start(t, createMemoryStore(storage.backing)), owner = await peer(t, second, c.id), node = await peer(t, second, n.id);
   const restored = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
-  assert.equal(restored.take.interrupted.reason, 'relay-restarted'); assert.equal(restored.take.nodes.node.capture, null);
+  assert.ok(['relay-restarted', 'connection-lost'].includes(restored.take.interrupted.reason)); assert.equal(restored.take.nodes.node.capture, null);
   assert.equal(restored.take.nodes.node.startReceived, true); assert.equal(restored.take.nodes.node.stopReceived, false);
   assert.match(restored.take.nodes.node.error, /desconocido/); assert.equal(restored.members.node.online, false);
   assert.equal(node.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);

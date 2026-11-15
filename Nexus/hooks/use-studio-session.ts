@@ -8,6 +8,8 @@ import { getSocketError, subscribeToSocketStatus } from '@/services/socket';
 export function sessionErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
   const messages: Record<string, string> = {
+    COMMAND_EXPIRED: 'El comando pertenece a una conexión interrumpida y ha caducado. No se repetirá ni confirmará.',
+    READY_CONFIRMATION_REQUIRED: 'La preparación anterior caducó. El Node debe confirmar READY para una nueva toma.',
     STORE_UNAVAILABLE: 'El relay no pudo guardar el cambio en RTDB. No se confirmó: vuelve a intentarlo cuando se recupere la base.',
     STORE_RECOVERY_REQUIRED: 'El resultado durable requiere recuperar el relay. No repitas REC; revisa el servidor y el Node.',
     REJOIN_REQUIRED: 'El Node está offline en esta Session. Solicita reingreso y espera aprobación.',

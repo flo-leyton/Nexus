@@ -71,13 +71,14 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
     {!!notice && <ThemedText accessibilityLiveRegion="polite">{notice}</ThemedText>}
     {take && <>
       <ThemedText selectable>takeId: {take.takeId}</ThemedText>
+      {take.interrupted && <ThemedText>Toma interrumpida. Detén y comprueba cada original local; los resultados sin confirmación durable siguen desconocidos. Confirma READY en los Nodes que regresen y cierra explícitamente esta toma antes de otra.</ThemedText>}
       {take.closed && <ThemedText>Toma cerrada operativamente. Sin confirmar: {take.closed.unconfirmedNodeIds.join(', ')}. Los ACK y resultados originales se conservan.</ThemedText>}
       <ThemedText>No se certifica sincronización exacta. Los vídeos son silenciados y permanecen en cada teléfono.</ThemedText>
       {Object.entries(take.nodes).map(([id, node]) => <View key={node.nodeId} style={styles.panel}>
         <ThemedText selectable>Node: {node.nodeId} · dispositivo: {id}</ThemedText>
         <ThemedText>Recepción REC: {node.startReceived ? 'ACK' : 'sin ACK'} · STOP: {node.stopReceived ? 'ACK' : 'sin ACK'}</ThemedText>
         <ThemedText accessibilityLiveRegion="polite">{phases[node.phase]}</ThemedText>
-        {node.error && <ThemedText>Fallo parcial: {node.error}. Revisa este Node; no se da por guardado.</ThemedText>}
+        {node.error && <ThemedText>{node.phase === 'disconnected' ? 'Resultado desconocido' : 'Fallo parcial'}: {node.error}. Revisa este Node; no se da por guardado.</ThemedText>}
         {node.capture && <ThemedText selectable>Original {node.capture.id} · {node.capture.bytes} bytes. Reproduce el vídeo en ese Node.</ThemedText>}
       </View>)}
     </>}

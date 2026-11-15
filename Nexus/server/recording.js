@@ -15,6 +15,7 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
   const deliver = (s, m) => {
     for (const [id, node] of Object.entries(s.take.nodes)) {
       if (!m.payload.targetNodeIds.includes(node.nodeId)) continue;
+      if (node.connectionLost || s.recordingCommands?.get(m.messageId)?.expiredTargets?.has(node.nodeId)) continue;
       const client = clients.get(id);
       if (s.members.get(id)?.nodeId === node.nodeId && s.members.get(id)?.online !== false && client?.readyState === 1) emit(client, JSON.stringify({ ...m, targetId: id }));
     }
@@ -37,7 +38,7 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
         for (const [id, node] of Object.entries(take.nodes)) {
           if (!node.busy && ['saved', 'error'].includes(node.phase)) continue;
           const member = s.members.get(id);
-          if (member?.nodeId === node.nodeId && member.online !== false && clients.get(id)?.readyState === 1) return error('TAKE_PARTICIPANT_ACTIVE');
+          if (!node.connectionLost && member?.nodeId === node.nodeId && member.online !== false && clients.get(id)?.readyState === 1) return error('TAKE_PARTICIPANT_ACTIVE');
           // A re-approved participation must also prove it is idle before abandoning the old one.
           if (member?.online !== false && member && (clients.get(id)?.readyState !== 1 || readinessReasons(member.readiness).length ||
               Date.now() - (stateTimes.get(member) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
@@ -54,6 +55,7 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
         if (s.take?.closed) return error('TAKE_CLOSED');
         const command = s.recordingCommands.get(m.payload.requestId);
         const node = s.take?.nodes[m.senderId];
+        if (command?.recovered || command?.expiredTargets?.has(node?.nodeId) || node?.connectionLost) return error('COMMAND_EXPIRED');
         if (m.targetId !== s.controllerId || !command || !node || s.members.get(m.senderId)?.kind !== 'node' ||
             s.members.get(m.senderId)?.nodeId !== node.nodeId || s.take.takeId !== m.payload.takeId ||
             command.takeId !== m.payload.takeId || !command.targetNodeIds.includes(node.nodeId)) return error('INVALID_RECORDING_REPORT');
@@ -93,7 +95,7 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
         if (!takeFinished(s.take)) return error('TAKE_ACTIVE');
         const targets = [...s.members.values()].filter((n) => m.payload.targetNodeIds.includes(n.nodeId));
         if (targets.length !== m.payload.targetNodeIds.length || targets.some((n) => n.kind !== 'node')) return error('INVALID_TARGET');
-        if (targets.some((n) => clients.get(n.deviceId)?.readyState !== 1 || readinessReasons(n.readiness).length ||
+        if (targets.some((n) => n.online === false || n.requiresReadyConfirmation || clients.get(n.deviceId)?.readyState !== 1 || readinessReasons(n.readiness).length ||
             Date.now() - (stateTimes.get(n) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
         if (s.take) (s.takeHistory ??= []).push(s.take);
         s.take = { takeId: m.payload.takeId, startMessageId: m.messageId, stopMessageId: null,
@@ -139,9 +141,21 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
       if (changed) snapshot(s, s.take.startMessageId);
     },
     disconnect(s, id) {
+      for (const command of s.recordingCommands?.values() ?? []) {
+        command.expiredTargets ??= new Set();
+        const nodeId = s.take?.nodes[id]?.nodeId;
+        for (const target of command.targetNodeIds) if (id === s.controllerId || target === nodeId) command.expiredTargets.add(target);
+      }
+      if (id === s.controllerId && !takeFinished(s.take)) {
+        s.take.interrupted ||= { at: Date.now(), reason: 'connection-lost' };
+        for (const node of Object.values(s.take.nodes)) if (node.phase !== 'saved' && !(node.phase === 'error' && !node.busy)) {
+          node.phase = 'disconnected'; node.busy = true; node.connectionLost = true; node.capture = null;
+          node.error = 'Conexión del Controller interrumpida; resultado local desconocido';
+        }
+      }
       if (s.take?.closed || s.take?.interrupted) return;
       const node = s.take?.nodes[id];
-      if (node && node.phase !== 'saved' && !(node.phase === 'error' && !node.busy)) { node.phase = 'disconnected'; node.busy = true; node.error = 'Node desconectado; resultado local desconocido; usa STOP local en el teléfono'; }
+      if (node && node.phase !== 'saved' && !(node.phase === 'error' && !node.busy)) { node.phase = 'disconnected'; node.busy = true; node.connectionLost = true; node.error = 'Node desconectado; resultado local desconocido; usa STOP local en el teléfono'; }
     },
   };
 }

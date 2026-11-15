@@ -58,7 +58,8 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     let mounted = true;
     const report = () => {
       const current = service.getSnapshot();
-      if (current.connection !== 'Connected' || current.sessions[sessionId]?.members[deviceId]?.nodeId !== nodeId) return;
+      if (current.connection !== 'Connected' || current.sessions[sessionId]?.state === 'closed' ||
+          current.sessions[sessionId]?.members[deviceId]?.online === false || current.sessions[sessionId]?.members[deviceId]?.nodeId !== nodeId) return;
       try {
         service.reportNodeState(sessionId, controllerId, engine.getReadiness());
         if (mounted) setReportError('');
@@ -97,10 +98,13 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const canMount = busy || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
   const reasons = readinessReasons(engine.getReadiness(), service.getSnapshot().connection === 'Connected');
+  const self = service.getSnapshot().sessions[sessionId]?.members[deviceId];
+  if (!accepted || self?.online === false) reasons.push('Reanuda tu participación autorizada');
+  if (self?.requiresReadyConfirmation) reasons.push('Confirma preparación para una nueva grabación');
   const coordinatedTake = service.getSnapshot().sessions[sessionId]?.take;
   const takeNode = coordinatedTake?.nodes[deviceId]?.nodeId === nodeId ? coordinatedTake.nodes[deviceId] : undefined;
   const remotePending = nodeTakePending(coordinatedTake, deviceId, nodeId);
-  const canRecord = Platform.OS !== 'web' && accepted && focused && appState === 'active' && !remotePending && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
+  const canRecord = Platform.OS !== 'web' && accepted && !self?.requiresReadyConfirmation && focused && appState === 'active' && !remotePending && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
   const phaseLabels = { idle: 'Cámara inactiva', preparing: 'Preparando cámara', ready: 'Cámara lista', starting: 'Iniciando grabación', recording: 'Grabando', saving: 'Guardando archivo', saved: 'Archivo disponible', error: 'Error de captura' };
   const run = (action: () => void | Promise<void>) => {
     setControlError('');
@@ -114,6 +118,9 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       <ThemedText accessibilityLiveRegion="polite">Estado: {phaseLabels[preparation.phase]}</ThemedText>
       <ThemedText accessibilityLiveRegion="polite">{reasons.length === 0 ? 'READY' : `NO LISTO: ${reasons.join(' · ')}`}</ThemedText>
       <ThemedText>Permiso: {readiness.cameraPermission} · Cámara: {readiness.cameraAvailable === null ? 'sin comprobar' : readiness.cameraAvailable ? 'disponible' : 'no disponible'} · Motor: {busy ? 'ocupado' : readiness.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
+      {self?.requiresReadyConfirmation && <Pressable accessibilityRole="button" disabled={!accepted || busy || readinessReasons(engine.getReadiness()).length > 0} onPress={() => run(() => {
+        service.confirmNodeReady(sessionId, controllerId, engine.getReadiness());
+      })} style={styles.button}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONFIRMAR READY PARA NUEVA TOMA</ThemedText></Pressable>}
       {canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={styles.preview}
         onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
         onMountError={(event) => engine.cameraFailed(generation, event.message)} />}

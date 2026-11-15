@@ -1,17 +1,19 @@
 const { isSessionEvent, isProtocolId, isNodeRole, INITIAL_READINESS } = require('../services/sessionProtocol.ts');
 const { recordingState } = require('./recording');
+const { randomUUID } = require('node:crypto');
 
 const entries = (value) => Object.entries(value || {});
 function sharedMember(member) {
   return { uid: member.uid, deviceId: member.deviceId, nodeId: member.nodeId, kind: member.kind,
-    role: member.role, online: member.online, ...(member.readiness ? { readiness: member.readiness } : {}) };
+    role: member.role, online: member.online, ...(member.readiness ? { readiness: member.readiness } : {}),
+    ...(member.readyEpoch ? { readyEpoch: member.readyEpoch, requiresReadyConfirmation: member.requiresReadyConfirmation } : {}) };
 }
 function sharedTake(take) {
   if (!take) return undefined;
   return { takeId: take.takeId, startMessageId: take.startMessageId, stopMessageId: take.stopMessageId,
     nodes: Object.fromEntries(entries(take.nodes).map(([id, n]) => [id, { nodeId: n.nodeId, ...(n.role ? { role: n.role } : {}),
       phase: n.phase, startReceived: n.startReceived, stopReceived: n.stopReceived, busy: n.busy, error: n.error,
-      capture: n.capture ? { id: n.capture.id, bytes: n.capture.bytes } : null }])),
+      capture: n.capture ? { id: n.capture.id, bytes: n.capture.bytes } : null, ...(n.connectionLost ? { connectionLost: true } : {}) }])),
     ...(take.closed ? { closed: { messageId: take.closed.messageId, at: take.closed.at, unconfirmedNodeIds: take.closed.unconfirmedNodeIds } } : {}),
     ...(take.interrupted ? { interrupted: { at: take.interrupted.at, reason: take.interrupted.reason } } : {}) };
 }
@@ -34,7 +36,7 @@ function encodeRegistry(sessions, owners, revision) {
     usedTakes: [...(s.usedTakes || [])], closeCommands: Object.fromEntries(s.closeCommands || []),
     recordingCommands: Object.fromEntries([...(s.recordingCommands || [])].map(([key, cmd]) => [key, {
       signature: cmd.signature, type: cmd.type, takeId: cmd.takeId, targetNodeIds: cmd.targetNodeIds, expiresAt: cmd.expiresAt,
-      responded: [...cmd.responded], executed: [...cmd.executed], notified: [...cmd.notified] }])),
+      responded: [...cmd.responded], executed: [...cmd.executed], notified: [...cmd.notified], expiredTargets: [...(cmd.expiredTargets || [])] }])),
   }])) });
 }
 function validUid(value) { return typeof value === 'string' && value.length > 0 && value.length <= 128; }
@@ -61,20 +63,20 @@ function decodeRegistry(doc) {
     for (const [key, cmd] of entries(raw.recordingCommands)) if (!isProtocolId(key) || !['START_RECORDING', 'STOP_RECORDING'].includes(cmd?.type) ||
       !isProtocolId(cmd.takeId) || typeof cmd.signature !== 'string' || !Number.isFinite(cmd.expiresAt) ||
       !Array.isArray(cmd.targetNodeIds) || !cmd.targetNodeIds.every(isProtocolId) ||
-      !['responded', 'executed', 'notified'].every((field) => cmd[field] == null || (Array.isArray(cmd[field]) && cmd[field].every(isProtocolId)))) throw new Error('Diario de captura durable inválido.');
+      !['responded', 'executed', 'notified', 'expiredTargets'].every((field) => cmd[field] == null || (Array.isArray(cmd[field]) && cmd[field].every(isProtocolId)))) throw new Error('Diario de captura durable inválido.');
     if (raw.usedTakes && (!Array.isArray(raw.usedTakes) || !raw.usedTakes.every(isProtocolId))) throw new Error('Identidades de Take durables inválidas.');
     if (!entries(raw.closeCommands).every(([id, takeId]) => isProtocolId(id) && isProtocolId(takeId))) throw new Error('Cierres durables inválidos.');
     s.usedTakes = new Set([...(raw.usedTakes || []), ...[s.take, ...s.takeHistory].filter(Boolean).map((t) => t.takeId)]); s.closeCommands = new Map(entries(raw.closeCommands));
     s.recordingCommands = new Map(entries(raw.recordingCommands).map(([key, cmd]) => [key, { ...cmd,
-      responded: new Set(cmd.responded || []), executed: new Set(cmd.executed || []), notified: new Set(cmd.notified || []), recovered: true }]));
-    for (const m of s.members.values()) { m.online = false; if (m.kind === 'node') m.readiness = { ...INITIAL_READINESS }; }
+      responded: new Set(cmd.responded || []), executed: new Set(cmd.executed || []), notified: new Set(cmd.notified || []), expiredTargets: new Set(cmd.targetNodeIds), recovered: true }]));
+    for (const m of s.members.values()) { m.online = false; if (m.kind === 'node') { m.readiness = { ...INITIAL_READINESS }; m.readyEpoch = randomUUID(); m.requiresReadyConfirmation = true; } }
     // Pending approvals and unacknowledged roles cannot be replayed after restart.
     for (const role of s.roles.values()) if (!role.acked) role.expired = true;
     for (const take of [s.take, ...s.takeHistory].filter(Boolean)) {
       if (!take.closed && Object.values(take.nodes).some((n) => n.busy || !['saved', 'error'].includes(n.phase))) {
         take.interrupted ||= { at: Date.now(), reason: 'relay-restarted' };
         for (const n of Object.values(take.nodes)) if (n.phase !== 'saved' && (n.busy || n.phase !== 'error')) {
-          n.phase = 'disconnected'; n.busy = true; n.capture = null; n.error = 'Relay reiniciado; resultado local no confirmado/desconocido';
+          n.phase = 'disconnected'; n.busy = true; n.connectionLost = true; n.capture = null; n.error = 'Relay reiniciado; resultado local no confirmado/desconocido';
         }
       }
     }

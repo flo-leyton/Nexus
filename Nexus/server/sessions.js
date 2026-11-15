@@ -72,8 +72,9 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     online: clients.get(p.deviceId)?.readyState === 1 && clients.get(p.deviceId).studioIdentity?.uid === p.uid && clients.get(p.deviceId).studioIdentity.expiresAt > Date.now(),
     controllerOnline: wireSession(s, s.controllerId).members[s.controllerId].online,
   }));
-  const snapshot = (s, requestId) => {
+  const snapshot = (s, requestId, excludeId) => {
     for (const id of s.members.keys()) {
+      if (id === excludeId) continue;
       const client = clients.get(id);
       if (client) send(client, 'SESSION_SNAPSHOT', s.sessionId, {
         requestId, session: wireSession(s, id), ...(id === s.controllerId ? { pending: pendingFor(s) } : {}),
@@ -81,6 +82,19 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     }
   };
   const recording = attachRecording({ clients, stateTimes, snapshot, emit });
+  const resetReady = (member) => {
+    member.readiness = { ...INITIAL_READINESS };
+    member.readyEpoch = randomUUID(); member.requiresReadyConfirmation = true;
+  };
+  const markOffline = (s, id) => {
+    const member = s.members.get(id);
+    if (member) {
+      member.online = false; recording.disconnect(s, id);
+      if (member.kind === 'node') resetReady(member);
+      else for (const node of s.members.values()) if (node.kind === 'node') resetReady(node);
+    }
+    for (const command of s.roles.values()) if (!command.acked && (id === s.controllerId || command.targetId === id)) command.expired = true;
+  };
   const bind = (client, id) => {
     if (!(client.studioIdentity?.expiresAt > Date.now())) return false;
     if (client.studioIdentity?.deviceId !== id) return false;
@@ -95,7 +109,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     for (const s of sessions.values()) {
       if (s.closedAt) continue;
       for (const member of s.members.values()) if (member.online && clients.get(member.deviceId)?.readyState !== 1) {
-        member.online = false; if (member.kind === 'node') { member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, member.deviceId); }
+        markOffline(s, member.deviceId);
         snapshot(s, randomUUID());
       }
       recording.tick(s);
@@ -138,7 +152,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       if (client.readyState !== 1) return true;
       if (m.senderId === RELAY_ID || !bind(client, m.senderId)) return error('IDENTITY_CONFLICT');
       if (m.type === 'SESSION_LIST') {
-        const owned = [...sessions.values()].filter((s) => !s.closedAt && s.controllerId === m.senderId && s.members.get(m.senderId)?.uid === client.studioIdentity.uid);
+        const owned = [...sessions.values()].filter((s) => !s.closedAt && s.members.get(m.senderId)?.uid === client.studioIdentity.uid);
         send(client, 'SESSION_LIST_RESULT', m.sessionId, { requestId: m.messageId, sessionIds: owned.map((s) => s.sessionId) });
         for (const s of owned) send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), pending: pendingFor(s) });
         return true;
@@ -171,6 +185,16 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       if (!s) return error('SESSION_NOT_FOUND');
       if (s.members.get(m.senderId)?.uid !== client.studioIdentity.uid) return error('NOT_MEMBER');
       if (s.closedAt && !['SESSION_GET', 'SESSION_CLOSE'].includes(m.type)) return error('SESSION_IS_CLOSED');
+      if (m.type === 'SESSION_RESUME') {
+        const member = s.members.get(m.senderId);
+        if (!member.online) {
+          member.online = true;
+          if (member.kind === 'node') resetReady(member);
+        }
+        s.pending.delete(m.senderId);
+        snapshot(s, m.messageId);
+        return true;
+      }
       if (m.type === 'MEDIA_STATE') {
         const angle = m.payload;
         if (s.members.get(m.senderId).kind !== 'node' || angle.deviceId !== m.senderId) return error('NODE_REQUIRED');
@@ -199,6 +223,10 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         const member = s.members.get(m.senderId);
         if (member.kind !== 'node') return error('NODE_REQUIRED');
         if (m.targetId !== s.controllerId) return error('INVALID_TARGET');
+        if (member.readyEpoch && m.payload.readyEpoch !== member.readyEpoch) return error('READY_CONFIRMATION_REQUIRED');
+        if (member.requiresReadyConfirmation && m.payload.readiness.enginePrepared && !m.payload.confirmReady) return error('READY_CONFIRMATION_REQUIRED');
+        if (m.payload.confirmReady && (!m.payload.readiness.enginePrepared || m.payload.readiness.cameraPermission !== 'granted' || m.payload.readiness.cameraAvailable !== true || m.payload.readiness.error)) return error('NODE_NOT_READY');
+        if (m.payload.confirmReady) member.requiresReadyConfirmation = false;
         member.readiness = m.payload.readiness;
         stateTimes.set(member, Date.now());
         snapshot(s, m.messageId);
@@ -257,9 +285,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     disconnect(id) {
       for (const s of sessions.values()) {
         if (s.members.has(id) || s.pending.has(id)) {
-          const member = s.members.get(id);
-          if (member) { member.online = false; if (member.kind === 'node') { member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, id); } }
-          for (const [messageId, command] of s.roles) if (command.targetId === id) s.roles.delete(messageId);
+          markOffline(s, id);
           snapshot(s, randomUUID());
           for (const p of pendingFor(s)) send(clients.get(p.deviceId), 'SESSION_JOIN_PENDING', s.sessionId, p);
         }
@@ -298,17 +324,20 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       for (const s of sessions.values()) if (!s.closedAt) {
         const member = s.members.get(client.studioIdentity.deviceId);
         if (member?.uid !== client.studioIdentity.uid) continue;
-        if (member.kind === 'controller') member.online = true;
+        if (member.kind === 'controller') {
+          if (!sameConnection) markOffline(s, member.deviceId);
+          member.online = true;
+        }
         else if (!sameConnection) {
-          member.online = false; member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, member.deviceId);
+          member.online = false; resetReady(member); recording.disconnect(s, member.deviceId);
           for (const role of s.roles.values()) if (role.targetId === member.deviceId && !role.acked) role.expired = true;
         }
       }
     }); },
     announce(client) { return enqueue(() => {
       const id = identities.get(client);
-      for (const s of sessions.values()) if (!s.closedAt && s.pending.size && (s.controllerId === id || s.pending.has(id))) {
-        snapshot(s, randomUUID());
+      for (const s of sessions.values()) if (!s.closedAt && (s.members.has(id) || s.pending.has(id))) {
+        snapshot(s, randomUUID(), id);
         for (const p of pendingFor(s)) send(clients.get(p.deviceId), 'SESSION_JOIN_PENDING', s.sessionId, p);
       }
     }).catch(() => {}); },

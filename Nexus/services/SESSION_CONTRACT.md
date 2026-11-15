@@ -589,9 +589,11 @@ confirmadas siguen intactos; no existe fallback silencioso a memoria en producci
   UID/deviceId también es durable: otro UID no puede apropiarse de una instalación
   después de reiniciar. La cuenta por sí sola tampoco autoriza otro deviceId.
 - Un Controller con mismo UID/deviceId puede consultar/operar su Session conocida.
-  Un Node miembro con la identidad original puede consultar su historial, pero una
-  conexión nueva necesita reingreso aprobado para activar READY/captura. Mientras
-  está offline recibe `REJOIN_REQUIRED` para esos comandos; aceptar de nuevo asigna
+  Un Node miembro con la identidad original puede consultar su historial. Desde
+  H3.4c puede reanudar su aprobación durable con SESSION_RESUME, conservando nodeId
+  y rol, con READY falso hasta confirmación nueva. Mientras
+  está offline recibe `REJOIN_REQUIRED` para comandos operativos. Si en cambio
+  solicita una nueva participación y el Controller la acepta, se asigna
   nodeId nuevo y rol unassigned, conservando las participaciones de Takes anteriores.
   La renovación de token en el mismo socket no marca offline ni cambia la participación.
 - Las solicitudes pendientes verificadas se conservan al recuperar (corrección de
@@ -621,8 +623,8 @@ Take no queda bloqueado por miembros offline retenidos. Con la ruta /session/<id
 todavía abierta, reconectar y refreshSession puede consultar el registro restaurado.
 
 La corrección de identidad posterior a H3.4b incorpora descubrimiento y selección
-desde app fría (ver abajo). Siguen pendientes de H3.4c la reconciliación completa de
-participación local y reanudación guiada. No hay reconexión automática por caída de
+desde app fría (ver abajo). H3.4c incorpora reanudación de participación aprobada,
+reconciliación explícita de tomas y confirmación de preparación nueva. No hay reconexión automática por caída de
 red ni replay de comandos. Se mantienen los
 originales, catálogos e importaciones locales. No se intentan migrar Sessions de
 relays anteriores que sólo existían en memoria y nunca escribieron este esquema.
@@ -678,7 +680,8 @@ persistida; no presumir éxito ni repetir transferencia a ciegas.
 `discoverSessions()` envía SESSION_LIST (payload vacío, sin target, sessionId de
 correlación `studio-index`). SESSION_LIST_RESULT devuelve requestId + sessionIds
 activos, seguido de SESSION_SNAPSHOT por Session con miembros, pending, roles,
-Takes y ángulos autorizados. Sólo devuelve Sessions cuyo Controller tiene el UID
+Takes y ángulos autorizados. Desde H3.4c incluye también las membresías Node ya
+aprobadas. Sólo devuelve Sessions cuya membresía tiene el UID
 verificado Y deviceId vinculado del socket. Otro dispositivo con misma cuenta no
 recibe control automáticamente. El cliente consulta al conectar y Studio permite
 actualizar; abrir la ruta vuelve a SESSION_GET. Salir/desmontar no cierra nada:
@@ -690,9 +693,68 @@ autenticadas. Un Controller offline no impide guardar la solicitud. Reconectar
 notifica su estado y permite al Controller verla/aceptarla (Node conectado con UID
 verificado) o rechazarla, incluso si Node offline. Una nueva solicitud explícita
 del mismo Node actualiza su requestId; nunca otorga membresía por estar pendiente.
-Recuperar el relay conserva pending pero todos los miembros quedan offline y los
-Nodes requieren aprobación de reingreso; no restituye READY ni ejecuta diarios.
+Recuperar el relay conserva pending pero todos los miembros quedan offline.
+Desde H3.4c un Node aprobado puede reanudar con su identidad original sin otra
+aprobación; un solicitante pendiente sigue necesitando al Controller. No restituye
+READY ni ejecuta diarios.
 
 Esquema relayV1/schemaVersion=1 compatible: sin migración de identidad inferida.
 No hay nuevas variables ni secretos. Persistencia, transferencias y descubrimiento
 se prueban con almacén simulado; la validación física Firebase sigue pendiente.
+
+### H3.4c · Reanudación de membresía y preparación
+
+`resumeSession(sessionId)` envía SESSION_RESUME con envelope habitual, payload vacío
+y sin target. El relay vuelve a comprobar token vigente, UID propietario del
+deviceId y membresía UID/deviceId de esa Session. Código/hint local no autorizan.
+No admite Session cerrada. Una membresía Node aprobada vuelve online conservando
+nodeId/rol; no crea otro miembro ni Take. El Controller recupera su participación
+al autenticar; también admite SESSION_RESUME idempotente. Devuelve snapshot completo
+autorizado después de persistir, con members/pending/roles/Takes/mediaAngles. Una
+repetición no reinicia la preparación si ya está online. SESSION_GET sólo consulta,
+no activa la participación del Node. Solicitantes sin aprobación reciben NOT_MEMBER.
+
+Cada pérdida/reanudación cambia `members[deviceId].readyEpoch` y establece
+`requiresReadyConfirmation=true` con readiness desconocida/enginePrepared=false.
+Si se pierde/reconecta el Controller, afecta a todos los Nodes de esa Session.
+Renovar token en el mismo socket no reinicia estos estados. NODE_STATE admite
+readyEpoch y confirmReady:true; epoch anterior devuelve READY_CONFIRMATION_REQUIRED.
+Un informe automático no habilita READY mientras haga falta confirmación. El
+servicio reportNodeState conserva permiso/disponibilidad reales pero bloquea
+enginePrepared=true hasta `confirmNodeReady(sessionId, controllerId, readiness)`.
+La pantalla ofrece CONFIRMAR READY PARA NUEVA TOMA sólo con participación online,
+permiso, cámara y motor preparados/ociosos. El relay valida esas condiciones y
+epoch, persiste y confirma en snapshot. Cámara/permiso fallidos nunca habilitan REC.
+
+Diarios de captura persisten `expiredTargets: nodeId[]`. Perder un Node invalida
+sus destinos; perder Controller o reiniciar invalida todos. Roles sin ACK caducan.
+Se conserva el diario para deduplicación/auditoría, sin retransmisión por reconectar.
+Reportes tardíos de conexión anterior reciben COMMAND_EXPIRED (o TAKE_INTERRUPTED
+si toda la toma fue interrumpida). Tampoco pueden cambiar ACK o resultados históricos.
+La Session incluye `take.nodes[deviceId].connectionLost=true` para un resultado
+activo no confirmado tras la pérdida de conexión. Su phase es disconnected, no
+saved/error; captura ausente y ACK sólo si ya estaban confirmados durables. El
+cliente también ignora REC/STOP de Takes interrumpidas/cerradas o participantes
+connectionLost. Un STOP nuevo de una Take antigua no llega al Node reanudado.
+
+Si se pierde Controller, la Take activa recibe interrupted.reason='connection-lost';
+tras caída abrupta del proceso, 'relay-restarted'. Un motivo anterior se conserva.
+Saved/error finales confirmados se mantienen. Ninguna recuperación infiere archivo,
+subida o ACK; las referencias Cloudinary confirmadas se conservan separadas.
+Si sólo se pierde un Node, los demás aún pueden recibir STOP y guardar como en H2.
+
+Antes de otra Take: detener/guardar localmente originales que continúen activos;
+reanudar y confirmar READY en cada Node que regrese; cerrar explícitamente la Take
+interrumpida con advertencia. Un Node online de participación recuperada debe
+probar preparación ociosa antes del cierre; uno offline queda advertido/desconocido.
+El cierre libera la operación sin convertir desconocidos en guardados/fallidos.
+REC crea otro takeId y archiva el anterior una sola vez. Originales y ángulos
+históricos conservan identidad y revisión. El reingreso con aprobación nueva sigue
+disponible como alternativa explícita, asignando nodeId nuevo como antes.
+
+Esquema relayV1/schemaVersion=1 ampliado de forma compatible: campos opcionales de
+preparación, connectionLost y expiredTargets. Se leen documentos previos sin esos
+campos; al recuperar, todas las conexiones están offline, preparación nueva pendiente
+y comandos antiguos caducados. No hay cambios de variables, Firebase Auth, LAN,
+Cloudinary, configuración nativa ni migración de Sessions que nunca se persistieron.
+Validación física de apagado/reinicio/reapertura/nueva Take pendiente del operador.

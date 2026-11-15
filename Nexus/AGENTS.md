@@ -25,5 +25,10 @@ antes de transferir la instalación; deviceId/código nunca prueban propiedad. N
 prometer recuperar un anónimo abandonado. Studio descubre Sessions activas sólo
 para el Controller UID/deviceId autorizado. Desmontar pantallas no cierra Session;
 solicitudes pendientes sobreviven a Controller offline/reinicio del relay.
+H3.4c: SESSION_RESUME verifica la membresía UID/deviceId durable y conserva nodeId
+y rol. Reiniciar/conectar no autoriza por código ni recupera READY automáticamente:
+exigir confirmación nueva con readyEpoch actual. Caducar destinos de comandos de
+conexiones interrumpidas; no repetir REC/STOP ni inferir resultados/ACK. Reconciliar
+originales y cerrar explícitamente la Take interrumpida antes de una nueva.
 
 Desde el directorio de la aplicación ejecuta `npx tsc --noEmit`, `npm run lint` y `node --test tests/*.test.cjs` (Git Bash). Añade pruebas para routing, aislamiento y comandos duplicados cuando implementes esos comportamientos. En ENTREGA registra qué pasó, qué falló y qué falta probar físicamente. Entrega al operador el SHA y los pasos exactos para repetir la prueba. Marca el hito como verificado cuando exista la evidencia indicada.

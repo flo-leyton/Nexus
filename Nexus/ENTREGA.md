@@ -23,7 +23,8 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
 | H3 | H3.1–H3.3 implementados; corregido falso fallo por public_id generado | H3.1: 4416702; corrección actual (ver registro) | 62 tests automáticos; pendiente confirmar subida/reproducción reales con la corrección | Reintentar clip existente sin cambiar preset y ejecutar A–D; H3 no verificado |
 | H3.4a | Aceptado físicamente por el operador | e3fedbb819d67c44c6ac57e684efb3ab17e65c0b | Aceptación comunicada al solicitar H3.4b | Sin despliegue |
-| H3.4b | Persistencia compartida implementada; listo para prueba RTDB/reinicio real | Commit H3.4b (ver registro) | 80 pruebas PASS; una de emulador omitida | Probar reinicio real; reapertura automática de interfaz pendiente H3.4c |
+| H3.4b | Persistencia compartida implementada; pendiente prueba RTDB/reinicio real | Commit H3.4b (ver registro) | Ver validación actual de H3.4c | Probar reinicio real con la reanudación H3.4c |
+| H3.4c | Reanudación implementada; pendiente entrega física | Commit local H3.4c (ver registro) | 97 PASS, 1 SKIP; TypeScript y lint PASS | Apagar teléfonos, reiniciar relay, reabrir Session y grabar otra Take sin replay |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -1196,3 +1197,88 @@ H3.4b y H3 no se marcan verificados. Se adelanta descubrimiento/reapertura de H3
 siguen pendientes reconciliación completa de participación local/reanudación guiada,
 reconexión de red transparente, despliegue H3.4d y prueba sin laptop. Sin cambios
 nativos, variables nuevas, LAN, Cloudinary, originales ni ACK de H2.
+
+### 2026-11-15 · H3.4c · Reanudación durable de participación
+
+Base exacta desarrollo@00ef263a20d55660911c02a0cd55145afdab610e. Se conservaron
+los cambios ajenos ya preparados en config/server.ts y una línea de ENTREGA.md;
+no se incluyen en este commit. Sin push ni cambios en main.
+
+Reutilizado de 00ef263: Auth con token actual y vínculo UID/deviceId, recuperación
+RTDB antes de health ready, descubrimiento de Controller, pending durable y cierre
+explícito. Faltaban reanudar al Node sin cambiar participación, confirmación nueva
+de READY y caducar comandos al cortar conexión sin reiniciar el proceso.
+
+Completado:
+1. SESSION_RESUME vuelve a verificar Auth/membresía, rechaza cuentas/instalaciones
+   ajenas y Sessions cerradas. Conserva nodeId y rol del Node aprobado. Ingreso
+   inicial y solicitud de participación nueva siguen necesitando aprobación.
+2. SESSION_LIST ahora descubre también membresías Node aprobadas. Studio abre la
+   Session y consulta snapshot de miembros, roles, pending, Takes y referencias.
+   REANUDAR PARTICIPACIÓN activa al Node tras persistir; repetición es idempotente.
+   El Controller se restaura al autenticar; salir de pantalla no cierra Session.
+3. Conexión perdida/nueva invalida READY mediante readyEpoch y confirmación nueva.
+   Perder Controller afecta a todos sus Nodes. Informes automáticos no habilitan
+   READY hasta CONFIRMAR READY PARA NUEVA TOMA con cámara/permiso/motor real y ocioso.
+   Renovar token en el mismo socket no reinicia preparación ni participación.
+4. Destinos de REC/STOP se marcan caducados en el diario durable; roles sin ACK
+   expiran. No se retransmiten por reanudar. ACK/estados tardíos se rechazan;
+   un STOP antiguo tampoco se entrega al Node reanudado con el mismo nodeId.
+5. Resultados activos sin confirmación quedan disconnected/connectionLost y captura
+   desconocida, conservando sólo ACK durables. Controller perdido interrumpe Take;
+   reinicio abrupto también. Saved/error finales y URLs confirmadas se conservan;
+   no se infiere archivo ni subida. Sólo perder un Node permite STOP a los restantes.
+6. Después de STOP local/guardado, reanudación/confirmación READY y cierre explícito
+   advertido de Take interrumpida, REC crea otro takeId sin duplicar historial.
+   El cierre no convierte desconocidos en guardados/fallidos. Originales, catálogos,
+   importaciones e identidades/revisiones de ángulos se conservan.
+
+Pruebas automatizadas: **97 PASS / 1 SKIP / 0 fallos**, suite completa. TypeScript,
+npm run lint, ESLint ampliado y diff-check de cambios propios PASS. El emulador RTDB
+opcional sigue omitido por no estar disponible; adaptador simulado y WebSockets
+reales de prueba, no Firebase productivo ni hardware. Cámara mantiene API instalada
+expo-camera 17.0.10 / Expo SDK 54; sin dependencias/configuración nativa nuevas.
+
+Criterios comprobados:
+- Identidad/autorización: Node aprobado reanuda; cliente ajeno rechazado. Escritura
+  fallida no confirma participación online ni publica snapshot afirmando éxito.
+- Snapshot: Node conserva rol/nodeId, dos miembros independientes, Take y ángulos;
+  lectura de datos anteriores y descubrimiento desde cliente nuevo siguen pasando.
+- READY: false tras reconectar/reiniciar; epoch viejo, informe automático y permiso
+  denegado no confirman. Confirmación nueva habilita preparación de ese Node.
+- Caducidad: rol sin ACK expirado, ACK tardío rechazado y cero REC/STOP antiguos
+  recibidos por Node reanudado. Renovación en mismo socket y deduplicación H2 pasan.
+- Desconocidos: corte de Controller, corte de Node y reinicio abrupto con un Node
+  saved durable y otro sin ACK; no se inventan resultados. ACK existentes se conservan.
+- Toma siguiente: cierre explícito tras reconciliar; nueva Take con ambos Nodes y
+  un solo registro histórico. Repetir ID antiguo no crea ni ejecuta otra captura.
+
+Entrega física PENDIENTE (no marcar H3.4c ni H3 verificados):
+1. Mismo entorno privado/LAN y cliente actual, sin cerrar Auth, borrar datos ni
+   cambiar cuenta. Actualizar Metro/relay; npm run relay y /health ready. Controller
+   crea/abre Session y acepta Node. Anotar UID/deviceId, sessionId/código, nodeId/rol.
+2. REC/STOP breve, comprobar original local y subir/reproducir referencia remota.
+   Anotar takeId. Apagar AMBOS teléfonos (Controller y Node) completamente.
+3. Detener/reiniciar relay con las mismas variables/RTDB. Esperar /health ready.
+   Encender ambos, abrir app y CONECTAR AL RELAY. Studio debe descubrir la misma
+   Session para ambas identidades originales; abrirla y ACTUALIZAR SESIÓN.
+4. Node pulsa REANUDAR PARTICIPACIÓN · CONSERVAR ROL. Verificar nodeId/rol iguales,
+   miembros offline hasta volver, historial y URL anterior intactos, READY falso.
+   Preparar cámara y pulsar CONFIRMAR READY PARA NUEVA TOMA en Node. Controller
+   debe recibir READY nuevo; no debe haberse recibido REC/STOP espontáneo.
+5. Grabar y detener otra Take. Verificar takeId distinto, un vídeo nuevo por Node,
+   una sola entrada por toma/ángulo y reproducción anterior y nueva. Salir/volver de
+   pantalla mantiene Session; sólo CERRAR SESSION explícito la cierra.
+6. Repetir apagado/reinicio DURANTE REC (original podría quedar interrumpido por
+   apagar el teléfono: no se promete guardado). Tras abrir, resultado sin confirmación
+   durable debe seguir desconocido. Si un motor continúa activo en una reconexión
+   sin apagado, usar DETENER Y GUARDAR local. Preparar/confirmar READY, CERRAR TOMA
+   INTERRUMPIDA → confirmar advertencia y crear otra Take. No inventar ACK/archivo.
+7. Repetir con Controller + dos Nodes (tres teléfonos): roles independientes, dos
+   ángulos de la misma Take y ninguna repetición de comandos ni ángulos históricos.
+
+Límites: reconexión de red sigue siendo manual; no recuperación mediante un anónimo
+nuevo ni apropiación de identidad abandonada. Un Node pendiente aún necesita
+aprobación del Controller. No se reconstruye un vídeo dañado/no finalizado al apagar
+el teléfono. Ni pruebas simuladas ni este registro certifican grabación física o
+RTDB real. H3.4d (despliegue y APK sin laptop) permanece pendiente.
