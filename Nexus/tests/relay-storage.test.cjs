@@ -11,6 +11,86 @@ const { decodeRegistry } = require('../server/sessionSchema');
 const readiness = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
 const tick = () => new Promise(setImmediate);
 
+async function transfer(t, runtime, deviceId, previousIdToken, idToken) {
+  const ws = new WebSocket(`ws://127.0.0.1:${runtime.server.address().port}`);
+  t.after(() => ws.terminate()); await once(ws, 'open');
+  const answer = once(ws, 'message');
+  ws.send(JSON.stringify({ type: 'SOCKET_IDENTITY_TRANSFER', protocolVersion: 1, deviceId, previousIdToken, idToken }));
+  return { ws, answer: JSON.parse(String((await answer)[0])) };
+}
+
+test('identity: durable transfer requires both verified identities, preserves history and survives a lost acknowledgement', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'a'), b = await peer(t, runtime, 'b');
+  const ma = await admit(c, a, s), mb = await admit(c, b, s);
+  await completeTake(c, [a, b], [ma, mb], s, 'historical');
+  await Promise.all([a.call('MEDIA_STATE', s.sessionId, angle(a, ma, 'historical'), c.id), b.call('MEDIA_STATE', s.sessionId, angle(b, mb, 'historical'), c.id)]);
+  c.ws.close(); await once(c.ws, 'close'); await runtime.idle();
+  const denied = await transfer(t, runtime, c.id, 'unrelated', 'google-uid');
+  assert.equal(denied.answer.code, 'AUTH_TRANSFER_DENIED');
+  assert.equal(storage.backing.document.devices[c.id], c.uid);
+  const moved = await transfer(t, runtime, c.id, c.uid, 'google-uid');
+  assert.equal(moved.answer.type, 'SOCKET_AUTH_OK');
+  assert.equal(storage.backing.document.sessions[s.sessionId].members[c.id].uid, 'google-uid');
+  moved.ws.close(); await once(moved.ws, 'close'); await runtime.idle();
+  // A lost transfer response is reconciled by a NORMAL fresh connection, not a second migration.
+  const owner = await peer(t, runtime, c.id, 'google-uid');
+  assert.deepEqual((await owner.call('SESSION_LIST', 'studio-index')).event.payload.sessionIds, [s.sessionId]);
+  const restored = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(restored.members.a.nodeId, ma.nodeId); assert.equal(restored.members.b.nodeId, mb.nodeId);
+  assert.equal(restored.take.takeId, 'historical'); assert.equal(Object.keys(restored.mediaAngles).length, 2);
+  assert.equal(a.inbox.filter((m) => m.type === 'START_RECORDING').length, 1);
+  assert.equal(a.inbox.filter((m) => m.type === 'STOP_RECORDING').length, 1);
+  await runtime.close();
+  const restarted = await start(t, createMemoryStore(storage.backing));
+  const reopened = await peer(t, restarted, c.id, 'google-uid');
+  assert.deepEqual((await reopened.call('SESSION_LIST', 'studio-index')).event.payload.sessionIds, [s.sessionId]);
+  const old = await transfer(t, restarted, c.id, c.uid, 'attacker');
+  assert.notEqual(old.answer.type, 'SOCKET_AUTH_OK');
+});
+
+test('identity: failed durable transfer does not change owner or announce success', async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  c.ws.close(); await once(c.ws, 'close'); await runtime.idle(); storage.backing.fail = true;
+  const moved = await transfer(t, runtime, c.id, c.uid, 'new-uid');
+  assert.equal(moved.answer.code, 'AUTH_STORE_UNAVAILABLE');
+  assert.equal(storage.backing.document.devices[c.id], c.uid);
+  assert.equal(storage.backing.document.sessions[s.sessionId].members[c.id].uid, c.uid);
+  storage.backing.fail = false;
+  const original = await peer(t, runtime, c.id, c.uid);
+  assert.equal((await original.call('SESSION_GET', s.sessionId)).event.payload.session.code, s.code);
+});
+
+test('identity: expired or invalid previous token cannot transfer a device or consult its Session', async (t) => {
+  const storage = createMemoryStore(), { runtime, c } = await session(t, storage, { verifyToken: async (token) => {
+    if (token === 'invalid-proof') throw new Error('provider failure');
+    return { uid: token === 'expired-proof' ? 'uid-controller' : token, exp: Math.floor(Date.now() / 1000) + (token === 'expired-proof' ? -10 : 3600) };
+  } });
+  c.ws.close(); await once(c.ws, 'close'); await runtime.idle();
+  for (const [proof, code] of [['expired-proof', 'AUTH_TRANSFER_DENIED'], ['invalid-proof', 'AUTH_TRANSFER_DENIED']]) {
+    const result = await transfer(t, runtime, c.id, proof, 'foreign-uid');
+    assert.equal(result.answer.code, code); assert.equal(storage.backing.document.devices[c.id], c.uid);
+  }
+});
+
+test('reopening: pending join survives Controller offline and relay restart, then authorized Controller resolves it', async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  c.ws.close(); await once(c.ws, 'close'); await runtime.idle();
+  const n = await peer(t, runtime, 'waiting-node');
+  const pending = await n.call('SESSION_JOIN_REQUEST', s.sessionId, { code: s.code });
+  assert.equal(pending.event.payload.controllerOnline, false);
+  await runtime.close();
+  const restarted = await start(t, createMemoryStore(storage.backing));
+  assert.equal(storage.backing.document.sessions[s.sessionId].pending[n.id].requestId, pending.message.messageId);
+  const newNode = await peer(t, restarted, n.id);
+  const controller = await peer(t, restarted, c.id);
+  const snapshot = (await controller.call('SESSION_GET', s.sessionId)).event;
+  assert.equal(snapshot.payload.pending[0].online, true);
+  await controller.call('SESSION_JOIN_ACCEPT', s.sessionId, { requestId: pending.message.messageId }, n.id);
+  assert.equal((await newNode.call('SESSION_GET', s.sessionId)).event.payload.session.members[n.id].kind, 'node');
+  assert.equal(newNode.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+});
+
 async function start(t, storage, options = {}) {
   const runtime = createRelay({ port: 0, host: '127.0.0.1', storage,
     verifyToken: async (token) => ({ uid: token, exp: Math.floor(Date.now() / 1000) + 3600 }), ...options });
@@ -86,6 +166,8 @@ test('H3.4b: cold restart preserves code, owners, members, roles, Takes and simu
   assert.ok(Object.values(restoredBeforeAuth.members).every((m) => !m.online && !m.readiness?.enginePrepared));
   const restoredC = await peer(t, restarted, c.id), restoredA = await peer(t, restarted, a.id);
   const recovered = (await restoredC.call('SESSION_GET', s.sessionId)).event.payload.session;
+  const discovered = (await restoredC.call('SESSION_LIST', 'studio-index')).event;
+  assert.deepEqual(discovered.payload.sessionIds, [s.sessionId]);
   assert.equal(recovered.sessionId, s.sessionId); assert.equal(recovered.code, s.code);
   assert.equal(recovered.members.a.nodeId, ma.nodeId); assert.equal(recovered.members.a.uid, a.uid);
   assert.equal(recovered.members.a.role, 'main-camera'); assert.equal(recovered.members.a.online, false);
@@ -98,6 +180,8 @@ test('H3.4b: cold restart preserves code, owners, members, roles, Takes and simu
   }
   assert.equal(restoredA.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING', 'RECORDING_ACK'].includes(m.type)), false);
   const foreign = await peer(t, restarted, 'foreign');
+  assert.deepEqual((await foreign.call('SESSION_LIST', 'studio-index')).event.payload.sessionIds, []);
+  assert.equal((await foreign.call('SESSION_CLOSE', s.sessionId)).event.payload.code, 'NOT_MEMBER');
   assert.equal((await foreign.call('SESSION_GET', s.sessionId)).event.payload.code, 'NOT_MEMBER');
   await foreign.call('SESSION_JOIN_REQUEST', s.sessionId, { code: s.code });
   assert.equal((await foreign.call('SESSION_GET', s.sessionId)).event.payload.code, 'NOT_MEMBER');
@@ -108,7 +192,7 @@ test('H3.4b: cold restart preserves code, owners, members, roles, Takes and simu
   assert.equal((await foreign.wait((m) => m.payload?.requestId === 'forged-owner')).payload.code, 'IDENTITY_CONFLICT');
   const wrong = new WebSocket(`ws://127.0.0.1:${restarted.server.address().port}`); t.after(() => wrong.terminate()); await once(wrong, 'open');
   const rejected = once(wrong, 'message'); wrong.send(JSON.stringify({ type: 'SOCKET_AUTH', protocolVersion: 1, deviceId: b.id, idToken: 'different-uid' }));
-  assert.equal(JSON.parse(String((await rejected)[0])).code, 'AUTH_DEVICE_CONFLICT');
+  assert.equal(JSON.parse(String((await rejected)[0])).code, 'AUTH_DEVICE_OWNER_MISMATCH');
 });
 
 test('H3.4b: Controller disconnect preserves Session; explicit close is durable and closed code cannot join', async (t) => {

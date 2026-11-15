@@ -92,6 +92,11 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     if (!isSessionEvent(event) || event.targetId !== deviceId) return;
     const sessions = { ...state.sessions };
     const pending = { ...state.pending };
+    if (event.type === 'SESSION_LIST_RESULT') {
+      for (const [id, session] of Object.entries(sessions)) {
+        if (session.controllerId === deviceId && !event.payload.sessionIds.includes(id)) { delete sessions[id]; delete pending[id]; }
+      }
+    }
     if (event.type === 'SESSION_SNAPSHOT') {
       sessions[event.sessionId] = event.payload.session;
       if (mediaHistory && event.payload.session.controllerId === deviceId && event.payload.session.mediaAngles) {
@@ -135,6 +140,9 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     state = connection === 'Connected' ? { ...state, connection } :
       { ...state, connection, sessions: {}, pending: {}, lastEvent: null, joinInFlight: false };
     emit();
+    if (connection === 'Connected') void Promise.resolve().then(() => {
+      if (!disposed && state.connection === 'Connected') discoverSessions();
+    }).catch(() => { /* Explicit refresh remains available. */ });
   });
   const send = (request: SessionRequest) => {
     if (!isSessionRequest(request)) throw new Error('INVALID_MESSAGE');
@@ -144,6 +152,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const envelope = (sessionId: string) => ({
     protocolVersion: SESSION_PROTOCOL_VERSION, messageId: uuid(), sessionId, senderId: deviceId, sentAt: Date.now(),
   });
+  const discoverSessions = () => send({ ...envelope('studio-index'), type: 'SESSION_LIST', payload: {} });
   const reportCapture = (sessionId: string, controllerId: string, payload: RecordingReport) => {
     captureReports.set(`${sessionId}:${payload.takeId}`, payload);
     return send({ ...envelope(sessionId), type: 'RECORDING_STATE', targetId: controllerId, payload });
@@ -182,6 +191,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     requestJoin(code: string) {
       return requestJoin(code);
     },
+    discoverSessions,
     requestRejoin() {
       const last = state.lastNodeSession;
       if (!last) throw new Error('NO_REMEMBERED_SESSION');

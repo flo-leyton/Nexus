@@ -1,6 +1,6 @@
 const http = require('node:http');
 const { WebSocketServer, OPEN } = require('ws');
-const { isSocketAuthentication } = require('../services/relayProtocol.ts');
+const { isSocketAuthentication, isIdentityTransfer } = require('../services/relayProtocol.ts');
 const { attachDevicePresence } = require('./devicePresence');
 const { attachSessions } = require('./sessions');
 
@@ -42,8 +42,9 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
         else reject('AUTH_INVALID_MESSAGE');
         return;
       }
-      if (message?.type === 'SOCKET_AUTH') {
-        if (!isSocketAuthentication(message) || verifying) { reject('AUTH_INVALID_MESSAGE'); return; }
+      if (message?.type === 'SOCKET_AUTH' || message?.type === 'SOCKET_IDENTITY_TRANSFER') {
+        const transfer = message.type === 'SOCKET_IDENTITY_TRANSFER';
+        if (!(transfer ? isIdentityTransfer(message) : isSocketAuthentication(message)) || verifying || (transfer && client.studioIdentity)) { reject('AUTH_INVALID_MESSAGE'); return; }
         verifying = true;
         try {
           const decoded = await verifyToken(message.idToken);
@@ -53,20 +54,34 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
           if (expiresAt <= Date.now()) { reject('AUTH_EXPIRED'); return; }
           const current = client.studioIdentity;
           if (current && (current.uid !== decoded.uid || current.deviceId !== message.deviceId)) { reject('AUTH_IDENTITY_CHANGE'); return; }
-          try { await sessions.claimDevice(message.deviceId, decoded.uid); }
-          catch (error) { reject(error.code === 'AUTH_DEVICE_CONFLICT' ? error.code : 'AUTH_STORE_UNAVAILABLE'); return; }
+          if (connections.has(message.deviceId) && connections.get(message.deviceId) !== client) {
+            const active = connections.get(message.deviceId).studioIdentity;
+            reject(active?.uid === decoded.uid ? 'AUTH_DEVICE_IN_USE' : 'AUTH_DEVICE_OWNER_MISMATCH'); return;
+          }
+          try {
+            if (transfer) {
+              let previous;
+              try { previous = await verifyToken(message.previousIdToken); }
+              catch { reject('AUTH_TRANSFER_DENIED'); return; }
+              if (!previous?.uid || !Number.isFinite(previous.exp) || previous.exp * 1000 <= Date.now() || previous.uid === decoded.uid) { reject('AUTH_TRANSFER_DENIED'); return; }
+              if (connections.has(message.deviceId)) { reject('AUTH_DEVICE_IN_USE'); return; }
+              await sessions.transferDevice(message.deviceId, previous.uid, decoded.uid);
+            } else await sessions.claimDevice(message.deviceId, decoded.uid);
+          }
+          catch (error) { reject(error.code?.startsWith('AUTH_') ? error.code : 'AUTH_STORE_UNAVAILABLE'); return; }
           if (client.readyState !== OPEN) return;
-          if (connections.has(message.deviceId) && connections.get(message.deviceId) !== client) { reject('AUTH_DEVICE_CONFLICT'); return; }
+          if (connections.has(message.deviceId) && connections.get(message.deviceId) !== client) { reject('AUTH_DEVICE_IN_USE'); return; }
           connections.set(message.deviceId, client);
           client.studioIdentity = Object.freeze({ uid: decoded.uid, deviceId: message.deviceId, expiresAt });
           try { await sessions.connect(client); }
-          catch { reject('AUTH_STORE_UNAVAILABLE'); return; }
+          catch (error) { reject(error.code?.startsWith('AUTH_') ? error.code : 'AUTH_STORE_UNAVAILABLE'); return; }
           if (client.readyState !== OPEN) return;
           if (expiresAt <= Date.now()) { reject('AUTH_EXPIRED'); return; }
           if (!current) presence.connect(client);
           clearTimeout(deadline);
           deadline = setTimeout(() => reject('AUTH_EXPIRED'), Math.min(expiresAt - Date.now(), 2147483647)); deadline.unref();
           client.send(JSON.stringify({ type: 'SOCKET_AUTH_OK', uid: decoded.uid, deviceId: message.deviceId, expiresAt }));
+          if (!current) void sessions.announce(client);
         } catch { reject('AUTH_INVALID_TOKEN'); } // Never log raw token or provider errors.
         finally { verifying = false; }
         return;

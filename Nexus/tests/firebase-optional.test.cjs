@@ -1,9 +1,33 @@
 /* global __dirname */
 const assert = require('node:assert/strict');
+const test = require('node:test');
+
+test('account: email Gmail login links anonymous UID first; existing-account collision requires explicit change', async () => {
+  let remembered = 0, signedIn = 0, collision = false;
+  const original = { uid: 'studio-original', isAnonymous: true }, auth = { currentUser: original };
+  const link = load('../services/identityLink.ts', {});
+  const account = load('../services/authService.ts', {
+    '../app/firebase': { requireFirebase: () => ({ auth, database: {} }) },
+    './studioIdentity': { rememberStudioIdentity() { remembered++; } }, './identityLink': link,
+    'firebase/auth': {
+      EmailAuthProvider: { credential: (email, password) => ({ email, password }) },
+      async linkWithCredential(user) { if (collision) throw { code: 'auth/email-already-in-use' }; return { user: { ...user, isAnonymous: false } }; },
+      async signInWithEmailAndPassword() { signedIn++; auth.currentUser = { uid: 'existing-google-email' }; return { user: auth.currentUser }; },
+    },
+    'firebase/database': { ref() {}, serverTimestamp() {}, async update() {} },
+  });
+  assert.equal((await account.loginUser('owner@gmail.com', 'password')).uid, original.uid);
+  assert.equal(signedIn, 0);
+  collision = true;
+  await assert.rejects(account.loginUser('owner@gmail.com', 'password'), (e) => e.code === 'STUDIO_ACCOUNT_COLLISION');
+  assert.equal(auth.currentUser, original); assert.equal(signedIn, 0);
+  assert.equal((await account.loginUser('owner@gmail.com', 'password', true)).uid, 'existing-google-email');
+  assert.equal(signedIn, 1); assert.equal(remembered, 3);
+});
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const test = require('node:test');
+
 const ts = require('typescript');
 
 function load(file, dependencies, env = {}) {
@@ -50,7 +74,7 @@ test('Firebase absent or partial: import and startup diagnostic do not initializ
     load('../services/firebaseTest.ts', { '../app/firebase': result }).testFirebaseInitialization();
     assert.deepEqual(calls, []);
     const account = load('../services/authService.ts', {
-      '../app/firebase': result, 'firebase/auth': {}, 'firebase/database': {},
+      '../app/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {}, 'firebase/auth': {}, 'firebase/database': {},
     });
     await assert.rejects(account.loginUser('test@example.com', 'password'), /Firebase no configurado/);
     await assert.rejects(account.registerUser('test@example.com', 'password'), /Firebase no configurado/);
@@ -70,7 +94,7 @@ test('Firebase configured: persistence, auth and profile writes keep existing be
     const user = { uid: 'user-id', email: 'test@example.com' };
     const actions = [];
     const account = load('../services/authService.ts', {
-      '../app/firebase': result,
+      '../app/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {},
       'firebase/auth': {
         async signInWithEmailAndPassword(a, email) { assert.equal(a, auth); assert.equal(email, user.email); actions.push('login'); return { user }; },
         async createUserWithEmailAndPassword(a, email) { assert.equal(a, auth); assert.equal(email, user.email); actions.push('register'); return { user }; },

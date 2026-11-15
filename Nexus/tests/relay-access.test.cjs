@@ -88,7 +88,7 @@ test('H3.4a: invalid token, expired token, duplicate socket and another uid cann
   for (const token of ['uid-owner', 'uid-foreign']) {
     const ws = await rawClient(t, runtime), next = nextJson(ws);
     ws.send(JSON.stringify({ type: 'SOCKET_AUTH', protocolVersion: 1, deviceId: 'device', idToken: token }));
-    assert.equal((await next).code, 'AUTH_DEVICE_CONFLICT');
+    assert.equal((await next).code, token === 'uid-owner' ? 'AUTH_DEVICE_IN_USE' : 'AUTH_DEVICE_OWNER_MISMATCH');
   }
   const forged = nextJson(owner);
   owner.send(JSON.stringify(request('SESSION_CREATE', 'another-device', 'session')));
@@ -96,7 +96,7 @@ test('H3.4a: invalid token, expired token, duplicate socket and another uid cann
   owner.close(); await once(owner, 'close');
   const foreign = await rawClient(t, runtime), rejected = nextJson(foreign);
   foreign.send(JSON.stringify({ type: 'SOCKET_AUTH', protocolVersion: 1, deviceId: 'device', idToken: 'uid-foreign' }));
-  assert.equal((await rejected).code, 'AUTH_DEVICE_CONFLICT'); // binding remains after disconnect, within this process
+  assert.equal((await rejected).code, 'AUTH_DEVICE_OWNER_MISMATCH'); // binding remains after disconnect, within this process
 });
 
 test('H3.4a: authentication timeout and token expiry close access; renewal retains Session and identity', async (t) => {
@@ -130,6 +130,71 @@ function clientFixture(t, extra = {}) {
   return { client, sockets, refreshes, credentials, authorize, identityChanged: (uid) => identityListener(uid) };
 }
 
+test('identity: Auth change waits for old socket close, uses the new token once, and never replays capture', async (t) => {
+  const h = clientFixture(t); h.client.connect(); await turn(); h.authorize(h.sockets[0]);
+  h.client.send({ type: 'START_RECORDING' }); h.client.send({ type: 'STOP_RECORDING' });
+  const old = h.sockets[0]; old.close = () => { old.readyState = 2; };
+  h.credentials.uid = 'new-user'; h.identityChanged('new-user'); await turn();
+  assert.equal(h.sockets.length, 1); assert.equal(h.client.send({ type: 'START_RECORDING' }), false);
+  old.readyState = 3; old.onclose(); await turn();
+  assert.equal(h.sockets.length, 2); const next = h.sockets[1]; next.readyState = 1; next.onopen();
+  assert.equal(next.sent.length, 1); assert.equal(next.sent[0].idToken, 'token-2');
+  next.onmessage({ data: JSON.stringify({ type: 'SOCKET_AUTH_OK', uid: 'new-user', deviceId: 'device', expiresAt: Date.now() + 3600000 }) });
+  assert.equal(h.client.send({ type: 'DEVICE_INFO' }), true);
+  assert.equal(next.sent.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+});
+
+test('identity: changing account without an open socket waits for explicit connect; transfer binds consent to the expected UID', async (t) => {
+  const h = clientFixture(t); h.credentials.uid = 'new-user'; h.identityChanged('new-user'); await turn();
+  assert.equal(h.sockets.length, 0);
+  const denied = h.client.transferIdentity('previous-proof', 'different-user');
+  await assert.rejects(denied, /cuenta cambió/); assert.equal(h.sockets.length, 0);
+  const moved = h.client.transferIdentity('previous-proof', 'new-user'); await turn();
+  const ws = h.sockets[0]; ws.readyState = 1; ws.onopen();
+  assert.equal(ws.sent[0].type, 'SOCKET_IDENTITY_TRANSFER'); assert.equal(ws.sent[0].previousIdToken, 'previous-proof');
+  ws.onmessage({ data: JSON.stringify({ type: 'SOCKET_AUTH_OK', uid: 'new-user', deviceId: 'device', expiresAt: Date.now() + 3600000 }) });
+  await moved;
+});
+
+test('identity: Auth change while fetching credentials discards the old attempt before creating a socket', async (t) => {
+  const { createSocketClient } = load('../services/socketClient.ts', { './sessionProtocol': protocol, './relayProtocol': relayProtocol });
+  let changed, resolveOld, calls = 0;
+  const sockets = [];
+  const client = createSocketClient({ url: () => 'wss://relay.example', identityChanged(fn) { changed = fn; fn('old'); },
+    credentials() { calls++; return calls === 1 ? new Promise((resolve) => { resolveOld = resolve; }) : Promise.resolve({ uid: 'new', deviceId: 'device', idToken: 'new-token' }); },
+    create() { const ws = { readyState: 0, sent: [], send(raw) { this.sent.push(JSON.parse(raw)); }, close() { this.readyState = 3; this.onclose?.(); } }; sockets.push(ws); return ws; },
+  });
+  t.after(() => client.dispose());
+  client.connect(); await turn(); changed('new'); await turn();
+  resolveOld({ uid: 'old', deviceId: 'device', idToken: 'old-token' }); await turn();
+  assert.equal(sockets.length, 1); sockets[0].readyState = 1; sockets[0].onopen();
+  assert.equal(sockets[0].sent[0].idToken, 'new-token');
+});
+
+test('identity: valid Google linking preserves anonymous UID; existing Google account collision never signs in implicitly', async () => {
+  const { linkAnonymousCredential } = load('../services/identityLink.ts', {});
+  const user = { uid: 'original', isAnonymous: true }, google = { providerId: 'google.com' };
+  const linked = await linkAnonymousCredential(user, google, async (original, credential) => {
+    assert.equal(original, user); assert.equal(credential.providerId, 'google.com'); return { user: { uid: 'original', isAnonymous: false } };
+  });
+  assert.equal(linked.user.uid, 'original');
+  await assert.rejects(linkAnonymousCredential(user, google, async () => { throw { code: 'auth/credential-already-in-use' }; }), (e) => e.code === 'STUDIO_ACCOUNT_COLLISION');
+  assert.equal(user.uid, 'original');
+});
+
+test('identity: retained anonymous user can be verified and restored, but a fresh app cannot reconstruct an abandoned user', async () => {
+  const original = { uid: 'anonymous', isAnonymous: true, getIdToken: async (force) => { assert.equal(force, true); return 'proof'; } };
+  const auth = { currentUser: original }, deps = { '../app/firebase': { auth }, './deviceIdentity': {},
+    'firebase/auth': { updateCurrentUser: async (a, user) => { a.currentUser = user; } } };
+  const recovery = load('../services/studioIdentity.ts', deps);
+  recovery.rememberStudioIdentity(); auth.currentUser = { uid: 'google' };
+  await recovery.restorePreviousStudioIdentity(); assert.equal(auth.currentUser.uid, 'anonymous');
+  auth.currentUser = { uid: 'google' };
+  const cold = load('../services/studioIdentity.ts', deps);
+  await assert.rejects(cold.restorePreviousStudioIdentity(), /nuevo anónimo no recupera/);
+  assert.equal(auth.currentUser.uid, 'google');
+});
+
 test('H3.4a: shared socket gates presence until AUTH_OK; reconnect fetches token and never replays REC/STOP', async (t) => {
   const h = clientFixture(t), statuses = [];
   h.client.subscribeStatus((s) => statuses.push(s));
@@ -146,7 +211,7 @@ test('H3.4a: shared socket gates presence until AUTH_OK; reconnect fetches token
   assert.equal(h.refreshes.length, 2); assert.equal(h.sockets[1].sent[0].idToken, 'token-2');
   assert.equal(h.sockets[1].sent.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
   h.sockets[0].onerror(); assert.equal(statuses.at(-1), 'Connected');
-  h.identityChanged('foreign-uid'); assert.equal(statuses.at(-1), 'Error'); assert.match(h.client.getError(), /cuenta/);
+  h.identityChanged('foreign-uid'); assert.equal(statuses.at(-1), 'Connecting'); await turn(); assert.equal(h.sockets.length, 3);
 });
 
 test('H3.4a: renew credentials in the same socket without reconnect status or command replay', async (t) => {

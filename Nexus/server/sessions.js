@@ -68,11 +68,15 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       senderId: RELAY_ID, targetId: identities.get(client), sentAt: Date.now(), payload,
     }));
   };
+  const pendingFor = (s) => [...s.pending.values()].map((p) => ({ ...p,
+    online: clients.get(p.deviceId)?.readyState === 1 && clients.get(p.deviceId).studioIdentity?.uid === p.uid && clients.get(p.deviceId).studioIdentity.expiresAt > Date.now(),
+    controllerOnline: wireSession(s, s.controllerId).members[s.controllerId].online,
+  }));
   const snapshot = (s, requestId) => {
     for (const id of s.members.keys()) {
       const client = clients.get(id);
       if (client) send(client, 'SESSION_SNAPSHOT', s.sessionId, {
-        requestId, session: wireSession(s, id), ...(id === s.controllerId ? { pending: [...s.pending.values()] } : {}),
+        requestId, session: wireSession(s, id), ...(id === s.controllerId ? { pending: pendingFor(s) } : {}),
       });
     }
   };
@@ -133,6 +137,12 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       if (!isSessionRequest(m)) return error('INVALID_MESSAGE');
       if (client.readyState !== 1) return true;
       if (m.senderId === RELAY_ID || !bind(client, m.senderId)) return error('IDENTITY_CONFLICT');
+      if (m.type === 'SESSION_LIST') {
+        const owned = [...sessions.values()].filter((s) => !s.closedAt && s.controllerId === m.senderId && s.members.get(m.senderId)?.uid === client.studioIdentity.uid);
+        send(client, 'SESSION_LIST_RESULT', m.sessionId, { requestId: m.messageId, sessionIds: owned.map((s) => s.sessionId) });
+        for (const s of owned) send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), pending: pendingFor(s) });
+        return true;
+      }
       if (m.type === 'SESSION_CREATE') {
         if (sessions.has(m.sessionId)) return error('SESSION_EXISTS');
         let code;
@@ -150,11 +160,11 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         if (m.sessionId !== JOIN_BY_CODE && (!s || s.sessionId !== m.sessionId)) return error('SESSION_NOT_FOUND');
         if (!s || s.closedAt) return error('INVALID_CODE');
         if (s.members.get(m.senderId)?.online) return error('ALREADY_MEMBER');
-        if (s.pending.has(m.senderId)) return error('JOIN_PENDING');
         const request = { requestId: m.messageId, deviceId: m.senderId, uid: client.studioIdentity.uid };
         s.pending.set(m.senderId, request);
-        send(clients.get(s.controllerId), 'SESSION_JOIN_PENDING', s.sessionId, request);
-        send(client, 'SESSION_JOIN_PENDING', s.sessionId, request);
+        const pending = pendingFor(s).find((p) => p.deviceId === m.senderId);
+        send(clients.get(s.controllerId), 'SESSION_JOIN_PENDING', s.sessionId, pending);
+        send(client, 'SESSION_JOIN_PENDING', s.sessionId, pending);
         return true;
       }
       const s = sessions.get(m.sessionId);
@@ -208,7 +218,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       }
       if (m.type === 'SESSION_GET') {
         // Snapshot query is delivered only to the requesting member.
-        send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), ...(m.senderId === s.controllerId ? { pending: [...s.pending.values()] } : {}) });
+        send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), ...(m.senderId === s.controllerId ? { pending: pendingFor(s) } : {}) });
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
@@ -233,7 +243,8 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       const pending = s.pending.get(m.targetId);
-      if (!pending || pending.requestId !== m.payload.requestId || clients.get(m.targetId)?.readyState !== 1 || clients.get(m.targetId).studioIdentity.uid !== pending.uid) return error('INVALID_TARGET');
+      if (!pending || pending.requestId !== m.payload.requestId) return error('INVALID_TARGET');
+      if (m.type === 'SESSION_JOIN_ACCEPT' && !pendingFor(s).find((p) => p.deviceId === m.targetId)?.online) return error('INVALID_TARGET');
       s.pending.delete(m.targetId);
       if (m.type === 'SESSION_JOIN_REJECT') {
         send(clients.get(m.targetId), 'SESSION_JOIN_REJECTED', s.sessionId, { requestId: pending.requestId });
@@ -249,8 +260,8 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
           const member = s.members.get(id);
           if (member) { member.online = false; if (member.kind === 'node') { member.readiness = { ...INITIAL_READINESS }; recording.disconnect(s, id); } }
           for (const [messageId, command] of s.roles) if (command.targetId === id) s.roles.delete(messageId);
-          s.pending.delete(id);
           snapshot(s, randomUUID());
+          for (const p of pendingFor(s)) send(clients.get(p.deviceId), 'SESSION_JOIN_PENDING', s.sessionId, p);
         }
       }
     },
@@ -265,13 +276,25 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     ready, isReady: () => recovered && !degraded && !fatal,
     idle: () => queue.catch(() => {}),
     claimDevice(id, uid) { return enqueue(() => {
-      if (owners.has(id) && owners.get(id) !== uid) throw Object.assign(new Error('AUTH_DEVICE_CONFLICT'), { code: 'AUTH_DEVICE_CONFLICT' });
+      if (owners.has(id) && owners.get(id) !== uid) throw Object.assign(new Error('AUTH_DEVICE_OWNER_MISMATCH'), { code: 'AUTH_DEVICE_OWNER_MISMATCH' });
       owners.set(id, uid);
+    }); },
+    transferDevice(id, previousUid, nextUid) { return enqueue(() => {
+      // Only the handshake supplies these UIDs, after verifying BOTH Firebase tokens.
+      if (owners.get(id) !== previousUid || previousUid === nextUid || clients.has(id)) {
+        throw Object.assign(new Error('AUTH_TRANSFER_DENIED'), { code: 'AUTH_TRANSFER_DENIED' });
+      }
+      owners.set(id, nextUid);
+      for (const s of sessions.values()) {
+        const member = s.members.get(id), pending = s.pending.get(id);
+        if (member) { member.uid = nextUid; member.online = false; if (member.kind === 'node') member.readiness = { ...INITIAL_READINESS }; }
+        if (pending) pending.uid = nextUid;
+      }
     }); },
     connect(client) { return enqueue(() => {
       if (client.readyState !== 1) throw Object.assign(new Error('AUTH_CLOSED'), { code: 'AUTH_CLOSED' });
       const sameConnection = clients.get(client.studioIdentity.deviceId) === client;
-      if (!bind(client, client.studioIdentity.deviceId)) throw Object.assign(new Error('AUTH_DEVICE_CONFLICT'), { code: 'AUTH_DEVICE_CONFLICT' });
+      if (!bind(client, client.studioIdentity.deviceId)) throw Object.assign(new Error('AUTH_DEVICE_IN_USE'), { code: 'AUTH_DEVICE_IN_USE' });
       for (const s of sessions.values()) if (!s.closedAt) {
         const member = s.members.get(client.studioIdentity.deviceId);
         if (member?.uid !== client.studioIdentity.uid) continue;
@@ -282,6 +305,13 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         }
       }
     }); },
+    announce(client) { return enqueue(() => {
+      const id = identities.get(client);
+      for (const s of sessions.values()) if (!s.closedAt && s.pending.size && (s.controllerId === id || s.pending.has(id))) {
+        snapshot(s, randomUUID());
+        for (const p of pendingFor(s)) send(clients.get(p.deviceId), 'SESSION_JOIN_PENDING', s.sessionId, p);
+      }
+    }).catch(() => {}); },
     handle(client, text) { return enqueue(() => core.handle(client, text)).catch(() => unavailable(client, text)); },
     disconnect(client) {
       const id = identities.get(client); identities.delete(client);

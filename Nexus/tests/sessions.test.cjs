@@ -70,6 +70,26 @@ const request = (type, senderId, sessionId, payload = {}, targetId) => ({
 });
 const replyTo = (id) => (m) => m.payload.requestId === id;
 
+test('discovery: fresh Controller client opens durable Sessions and resolves a request sent while offline', async (t) => {
+  const connect = await harness(t), c = await connect('discover-controller');
+  const created = c.service.createSession();
+  const s = (await c.wait(replyTo(created.messageId))).payload.session;
+  c.ws.close(); await once(c.ws, 'close');
+  const n = await connect('discover-node');
+  const join = n.service.requestJoin(s.code);
+  const waiting = await n.wait(replyTo(join));
+  assert.equal(waiting.payload.controllerOnline, false);
+  const reopened = await connect(c.deviceId);
+  await reopened.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.sessionId === s.sessionId);
+  assert.equal(reopened.service.getSnapshot().sessions[s.sessionId].code, s.code);
+  assert.equal(reopened.service.getSnapshot().pending[s.sessionId][0].deviceId, n.deviceId);
+  assert.equal(reopened.sent.every((m) => m.type === 'SESSION_LIST'), true);
+  const accepted = reopened.service.acceptJoin(s.sessionId, n.deviceId, join);
+  await reopened.wait(replyTo(accepted)); await n.wait(replyTo(accepted));
+  assert.equal(n.service.getSnapshot().sessions[s.sessionId].members[n.deviceId].kind, 'node');
+  assert.equal(reopened.sent.some((m) => ['START_RECORDING', 'STOP_RECORDING', 'SESSION_CLOSE'].includes(m.type)), false);
+});
+
 test('H1.1: service + relay create, admit 3 Nodes, reject, isolate sessions and disconnect', { timeout: 10000 }, async (t) => {
   const connect = await harness(t);
   const controller = await connect('controller');
@@ -432,7 +452,7 @@ test('rejoin: remembered session survives disconnect/reload but needs new approv
   const n = await connect(first.deviceId, await memory.options());
   assert.equal(n.service.getSnapshot().connection, 'Connected');
   assert.equal(n.service.getSnapshot().sessions[s.sessionId], undefined);
-  assert.equal(n.sent.length, 0); // recovery never auto-sends or restores authorization
+  assert.equal(n.sent.every((m) => m.type === 'SESSION_LIST'), true); // discovery never restores Node authorization or replays capture
   const join = n.service.requestRejoin();
   assert.equal(n.service.requestRejoin(), join); // two presses, one request on the wire
   await c.wait(replyTo(join)); await n.wait(replyTo(join));

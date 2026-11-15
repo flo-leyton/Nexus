@@ -19,4 +19,11 @@ Para esta entrega, estos tres documentos sustituyen la asignación DEV-A/DEV-B, 
 
 ## Verificación y relevo
 
+Al cambiar de cuenta, conservar UID mediante vinculación del anónimo cuando sea
+posible. Una colisión requiere consentimiento y prueba Firebase de ambas identidades
+antes de transferir la instalación; deviceId/código nunca prueban propiedad. No
+prometer recuperar un anónimo abandonado. Studio descubre Sessions activas sólo
+para el Controller UID/deviceId autorizado. Desmontar pantallas no cierra Session;
+solicitudes pendientes sobreviven a Controller offline/reinicio del relay.
+
 Desde el directorio de la aplicación ejecuta `npx tsc --noEmit`, `npm run lint` y `node --test tests/*.test.cjs` (Git Bash). Añade pruebas para routing, aislamiento y comandos duplicados cuando implementes esos comportamientos. En ENTREGA registra qué pasó, qué falló y qué falta probar físicamente. Entrega al operador el SHA y los pasos exactos para repetir la prueba. Marca el hito como verificado cuando exista la evidencia indicada.

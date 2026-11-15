@@ -1098,3 +1098,101 @@ en la suite completa; el SKIP sigue siendo el emulador no disponible. Diff-check
 del commit PASS. Pendiente repetir npm run relay con la configuración privada real
 y comprobar /health ready tras recuperar RTDB. No se tocaron credenciales, IP/PORT,
 datos remotos ni los dos cambios ajenos preparados; no se hace push.
+
+### 2026-11-15 · Corrección prioritaria de identidad y reapertura tras H3.4b
+
+Base desarrollo@4e82ff9d29f35e6733e254454d239e6bd649da07. origin/desarrollo local
+apunta a 6a3d3ce; e3fedbb, 0382000 y 4e82ff9 son posteriores. Sin fetch/push ni main.
+Se conservan exactamente los dos cambios ajenos preparados: LAN config/server.ts
+y un espacio en una línea de este documento. Este commit no los incluye.
+
+Diagnóstico del código y del caso comunicado: la pantalla Cuenta usa email/password
+(dirección Gmail, confirmado por operador), no OAuth Google. Antes sustituía el
+UID anónimo al iniciar otra cuenta; el dueño durable devices[deviceId] seguía siendo
+el UID original. El socket se cerraba al cambiar Auth, sin renovación controlada,
+y no había descubrimiento desde app fría. H3.4b no borra Session al desconectar.
+No se ha certificado la existencia del registro concreto de ese teléfono en RTDB:
+esta terminal no tiene configuración privada Admin para consultar la base real.
+Las pruebas usan almacén simulado; no se leyó/modificó RTDB productiva ni secretos.
+Para comprobar el caso, el operador puede comparar en Firebase Console, sólo lectura,
+nexusStudio/relayV1/devices/<deviceId> y sessions/<sessionId>/members/<controllerId>/uid
+con el UID que muestra Cuenta. /health ready confirma recuperación, no titularidad.
+
+Implementado:
+- Cierre/espera del socket anterior y token fresco al cambiar Auth; una sola
+  conexión compartida, sin outbox ni repetición de REC/STOP/ACK. Logout suspende
+  transporte. Errores distintos para conexión todavía activa y UID propietario ajeno.
+- Cuenta anónima puede crear/vincular email/password conservando UID. Servicio
+  linkStudioCredential también admite AuthCredential Google; no añade OAuth nativo.
+  Colisión nunca cambia cuenta silenciosamente: se confirma el cambio y después
+  la transferencia por separado. Google habilitado no sustituye Email/Password
+  para el formulario actual. Referencia: https://firebase.google.com/docs/auth/web/account-linking
+- Referencia Firebase User anterior sólo en memoria permite restaurar o demostrar
+  control del anónimo con token renovado. Transferencia explícita por el socket
+  verifica ambos tokens con Admin/revocación, fija UID destino al consentimiento,
+  exige instalación sin otra conexión y persiste cambio atómico antes de AUTH_OK.
+  Conserva Session/código, deviceId, roles, nodeIds históricos, Takes, resultados
+  desconocidos y URLs. Error durable revierte propiedad; respuesta perdida se
+  reconcilia con conexión normal, sin presumir éxito.
+- discoverSessions/SESSION_LIST consulta al conectar y desde ACTUALIZAR MIS SESSIONS.
+  Lista sólo Controllers con UID Y deviceId verificados. Desde Studio se abre la
+  Session persistida y SESSION_GET actualiza miembros offline, pending, roles,
+  historial y ángulos. Salir de la pantalla no cierra; sólo CERRAR SESSION explícito.
+- Pending verificado conserva UID/requestId durante desconexión/reinicio, muestra
+  Controller offline al Node y solicitante offline al Controller. Puede aceptarse
+  tras reconexión autenticada del Node o rechazarse estando offline. No concede
+  membresía ni READY automáticamente. Reconectar notifica cambios de disponibilidad.
+
+Límite explícito para el bloqueo ya ocurrido: si el User anónimo original fue
+abandonado antes de esta versión y ya no existe credencial/instalación que lo
+conserve, no hay prueba de control disponible y la app NO puede recuperarlo ni
+transferir su propiedad. UID/deviceId/código en RTDB no bastan. Un nuevo anónimo no
+recupera esas Sessions. No se implementa atajo ni se editan datos para ocultarlo.
+Requiere un procedimiento externo de recuperación con evidencia verificable, si
+fuera posible; habilitar Google o volver a entrar con Gmail no constituye esa prueba.
+La referencia anterior en memoria no sobrevive al cierre de app: resolver el cambio
+o restaurar identidad antes de cerrarla. No se guardan tokens adicionales en disco.
+
+Validación automática: TypeScript PASS, npm run lint PASS, ESLint ampliado PASS,
+git diff --check de cambios propios PASS; **92 PASS / 1 SKIP / 0 fallos** en la suite
+completa (node --test tests/*.test.cjs). Casos: cambio Auth
+con/sin socket y espera de cierre, vinculación Google simulada conservando UID,
+colisión email/Google, recuperación verificable y rechazo de anónimo abandonado,
+doble prueba/transferencia durable/fallo de escritura, descubrimiento desde cliente
+nuevo, reinicio con pending, autorización ajena, dos Nodes, Takes/ángulos y no replay.
+Emulador RTDB opcional sigue omitido; no se infiere prueba física desde simulación.
+
+Procedimiento físico pendiente (dos teléfonos: Controller + Node):
+1. Actualizar Metro y relay a este commit, mismas variables privadas/LAN; no borrar
+   datos. npm run relay; comprobar /health ready. En Cuenta anotar UID/deviceId.
+   Para la Session antigua usar ACTUALIZAR MIS SESSIONS con su identidad original
+   si todavía está disponible. Sin prueba original, detener la recuperación ahí;
+   no cambiar RTDB. Este parche no promete desbloquear una identidad ya perdida.
+2. Con identidad autorizada crear/abrir Session, aceptar Node y anotar Session/código,
+   nodeId y rol. REC/STOP breve, reproducir original, subir y abrir vídeo remoto.
+3. Sin salir de Auth, cerrar completamente la app Controller y reiniciar relay.
+   Node reconecta y solicita reingreso con mismo código mientras Controller offline:
+   debe indicar solicitud guardada/Controller offline. Reiniciar otra vez el relay.
+4. Abrir Studio Controller, conectar: debe descubrir la misma Session/código sin
+   escribir ruta. Abrirla: historial/roles/ángulo y Node offline/pending conservados.
+   Node conecta; Controller recibe solicitud y acepta/rechaza. No debe repetirse
+   REC/STOP ni recuperarse READY hasta reingreso/preparación real. Reproducir remoto.
+5. Con anónimo original aún activo, en Cuenta vincular email nuevo: UID no cambia,
+   Session sigue accesible. Para colisión, usar cuenta existente: primer intento
+   no cambia UID; CONFIRMAR CAMBIO cambia cuenta pero no propiedad. No cerrar app.
+   RECUPERAR IDENTIDAD ANTERIOR debe restaurar acceso; repetir cambio y TRANSFERIR
+   A LA CUENTA ACTUAL → Autorizar transferencia debe persistir antes de reconectar.
+   Mismo deviceId, Session/código, Node histórico, roles/Takes/URLs; cerrar/reabrir
+   app y reiniciar relay para comprobar acceso de la cuenta destino persistida.
+6. En una instalación/cuenta ajena comprobar lista vacía y rechazo de consulta,
+   cierre y transferencia sin prueba anterior. Salir/volver de pantalla conserva
+   Session; sólo CERRAR SESSION con confirmación invalida código. Original intacto.
+7. Repetir pasos 2–5 con Controller + DOS Nodes (tres teléfonos): roles y ángulos
+   distintos de la misma Take, y ninguna captura espontánea tras reapertura.
+
+Pendiente físico: todo el procedimiento anterior con Firebase real, colisión,
+restauración/transferencia, disponibilidad tras reinicio y reproducción en teléfonos.
+H3.4b y H3 no se marcan verificados. Se adelanta descubrimiento/reapertura de H3.4c;
+siguen pendientes reconciliación completa de participación local/reanudación guiada,
+reconexión de red transparente, despliegue H3.4d y prueba sin laptop. Sin cambios
+nativos, variables nuevas, LAN, Cloudinary, originales ni ACK de H2.

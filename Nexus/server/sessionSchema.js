@@ -69,7 +69,7 @@ function decodeRegistry(doc) {
       responded: new Set(cmd.responded || []), executed: new Set(cmd.executed || []), notified: new Set(cmd.notified || []), recovered: true }]));
     for (const m of s.members.values()) { m.online = false; if (m.kind === 'node') m.readiness = { ...INITIAL_READINESS }; }
     // Pending approvals and unacknowledged roles cannot be replayed after restart.
-    s.pending.clear(); for (const role of s.roles.values()) if (!role.acked) role.expired = true;
+    for (const role of s.roles.values()) if (!role.acked) role.expired = true;
     for (const take of [s.take, ...s.takeHistory].filter(Boolean)) {
       if (!take.closed && Object.values(take.nodes).some((n) => n.busy || !['saved', 'error'].includes(n.phase))) {
         take.interrupted ||= { at: Date.now(), reason: 'relay-restarted' };

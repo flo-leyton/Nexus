@@ -109,6 +109,8 @@ export interface RecordingReport {
   busy: boolean;
 }
 export interface JoinRequest {
+  online?: boolean;
+  controllerOnline?: boolean;
   deviceId: string;
   requestId: string;
 }
@@ -123,7 +125,7 @@ export interface NexusMessage<T = unknown> {
   payload: T;
 }
 export type SessionRequest =
-  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' })
+  | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' | 'SESSION_LIST' })
   | (NexusMessage<{ code: string }> & { type: 'SESSION_JOIN_REQUEST' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
@@ -135,7 +137,8 @@ export type SessionRequest =
   | (NexusMessage<TakeMediaAngle> & { type: 'MEDIA_STATE'; targetId: string });
 export type SessionEvent =
   | (NexusMessage<{ requestId: string; session: Session; pending?: JoinRequest[] }> & { type: 'SESSION_SNAPSHOT' })
-  | (NexusMessage<{ requestId: string; deviceId: string }> & { type: 'SESSION_JOIN_PENDING' })
+  | (NexusMessage<JoinRequest> & { type: 'SESSION_JOIN_PENDING' })
+  | (NexusMessage<{ requestId: string; sessionIds: string[] }> & { type: 'SESSION_LIST_RESULT' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_REJECTED' | 'SESSION_CLOSED' })
   | (NexusMessage<{ requestId: string; angle: TakeMediaAngle }> & { type: 'MEDIA_ACCEPTED' })
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
@@ -200,6 +203,7 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_GET':
     case 'SESSION_CLOSE':
+    case 'SESSION_LIST':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
     case 'SESSION_JOIN_REQUEST':
       // JOIN_BY_CODE for a new session; a concrete ID pins a remembered rejoin to that exact session.
@@ -237,8 +241,10 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
   const p = value.payload;
   switch (value.type) {
     case 'SESSION_ERROR': return typeof p.code === 'string';
+    case 'SESSION_LIST_RESULT': return Array.isArray(p.sessionIds) && p.sessionIds.every(isProtocolId);
     case 'MEDIA_ACCEPTED': return isTakeMediaAngle(p.angle);
-    case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId);
+    case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId) &&
+      (p.online === undefined || typeof p.online === 'boolean') && (p.controllerOnline === undefined || typeof p.controllerOnline === 'boolean');
     case 'SESSION_JOIN_REJECTED':
     case 'SESSION_CLOSED': return true;
     case 'SESSION_SNAPSHOT': {
@@ -257,7 +263,8 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
           isNodeRole(m.role) && (m.readiness === undefined || isNodeReadiness(m.readiness)) && (m.kind === 'controller'
             ? id === s.controllerId && m.nodeId === null : m.kind === 'node' && isProtocolId(m.nodeId))) &&
         (p.pending === undefined || (Array.isArray(p.pending) && p.pending.every((r) =>
-          isRecord(r) && isProtocolId(r.deviceId) && isProtocolId(r.requestId))));
+          isRecord(r) && isProtocolId(r.deviceId) && isProtocolId(r.requestId) &&
+          (r.online === undefined || typeof r.online === 'boolean') && (r.controllerOnline === undefined || typeof r.controllerOnline === 'boolean'))));
     }
     default: return false;
   }

@@ -13,6 +13,7 @@ import {
 import { auth, database } from '@/app/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';
 import {
   loginUser,
   logoutUser,
@@ -42,6 +43,7 @@ export default function AccountScreen() {
 
   const [loading, setLoading] = useState(Boolean(auth));
   const [actionLoading, setActionLoading] = useState(false);
+  const [collision, setCollision] = useState(false);
   const [message, setMessage] = useState(auth ? 'Firebase listo.' : 'Firebase no configurado. Studio puede funcionar sin cuenta.');
 
   useEffect(() => {
@@ -88,13 +90,14 @@ export default function AccountScreen() {
       await registerUser(email, password);
       setMessage('Cuenta creada y guardada en Realtime Database.');
     } catch (error) {
+      setCollision(!!error && typeof error === 'object' && 'code' in error && error.code === 'STUDIO_ACCOUNT_COLLISION');
       setMessage(getErrorMessage(error));
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (allowAccountChange = false) => {
     if (!email.trim() || !password) {
       setMessage('Ingresa email y contraseña.');
       return;
@@ -104,9 +107,11 @@ export default function AccountScreen() {
     setMessage('Iniciando sesión...');
 
     try {
-      await loginUser(email, password);
+      await loginUser(email, password, allowAccountChange);
+      setCollision(false);
       setMessage('Sesión iniciada correctamente.');
     } catch (error) {
+      setCollision(!!error && typeof error === 'object' && 'code' in error && error.code === 'STUDIO_ACCOUNT_COLLISION');
       setMessage(getErrorMessage(error));
     } finally {
       setActionLoading(false);
@@ -154,9 +159,11 @@ export default function AccountScreen() {
           </ThemedText>
         </Pressable>
 
-        {!user ? (
+        <StudioIdentityPanel />
+        {(!user || user.isAnonymous) ? (
           <ThemedView style={styles.panel}>
             <ThemedText type="subtitle">Autenticación</ThemedText>
+            {user?.isAnonymous && <ThemedText>Tu identidad Studio es anónima. Crear/vincular una cuenta nueva conserva el UID. Una cuenta existente requiere cambio y transferencia explícitos; no cierres esta app antes de resolverlo.</ThemedText>}
 
             <TextInput
               autoCapitalize="none"
@@ -195,7 +202,7 @@ export default function AccountScreen() {
 
             <Pressable
               disabled={actionLoading}
-              onPress={handleLogin}
+              onPress={() => void handleLogin()}
               style={({ pressed }) => [
                 styles.secondaryButton,
                 actionLoading && styles.disabled,
@@ -208,6 +215,9 @@ export default function AccountScreen() {
                 INICIAR SESIÓN
               </ThemedText>
             </Pressable>
+            {collision && <Pressable disabled={actionLoading} onPress={() => void handleLogin(true)} style={styles.secondaryButton}>
+              <ThemedText>CONFIRMAR CAMBIO A CUENTA EXISTENTE · después autorizar transferencia</ThemedText>
+            </Pressable>}
           </ThemedView>
         ) : (
           <ThemedView style={styles.panel}>

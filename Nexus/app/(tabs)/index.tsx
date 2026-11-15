@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
+import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { connectSocket } from '@/services/socket';
 
@@ -37,7 +38,7 @@ export default function StudioScreen() {
     } else if (event?.type === 'SESSION_JOIN_PENDING' && event.payload.requestId === current.messageId) {
       current.sessionId = event.sessionId;
       setSending(false);
-      setNotice('Solicitud pendiente. Espera a que el Controller la acepte o rechace.');
+      setNotice(event.payload.controllerOnline === false ? 'Solicitud guardada. El Controller está offline; podrá resolverla cuando reconecte.' : 'Solicitud pendiente. Espera a que el Controller la acepte o rechace.');
     } else if (event?.type === 'SESSION_SNAPSHOT' && (event.payload.requestId === current.messageId ||
         (current.kind === 'join' && current.sessionId === event.sessionId))) {
       operation.current = null;
@@ -53,7 +54,7 @@ export default function StudioScreen() {
       operation.current = null;
       setSending(false);
       setFailed(true);
-      setNotice('El Controller se desconectó y la sesión se cerró. Solicita un código nuevo.');
+      setNotice('El Controller cerró la Session explícitamente. Solicita un código nuevo.');
     }
   });
   const connected = snapshot?.connection === 'Connected';
@@ -86,6 +87,11 @@ export default function StudioScreen() {
           <ThemedText type="title" style={styles.title}>NEXUS STUDIO</ThemedText>
           <ThemedText style={styles.tagline}>Un estudio de grabación para el bolsillo.</ThemedText>
         </ThemedView>
+        <StudioIdentityPanel />
+        {connected && <Pressable accessibilityRole="button" onPress={() => {
+          try { service?.discoverSessions(); setNotice('Consultando tus Sessions activas persistidas…'); }
+          catch (cause) { setNotice(sessionErrorMessage(cause)); }
+        }} style={styles.button}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACTUALIZAR MIS SESSIONS</ThemedText></Pressable>}
         <ThemedView style={styles.model}>
           <ThemedText type="subtitle">Controller + Nodes + Session</ThemedText>
           <ThemedText>Relay: {connectionLabel(snapshot?.connection)}</ThemedText>
@@ -96,7 +102,8 @@ export default function StudioScreen() {
           </Pressable>}
         </ThemedView>
         <ThemedText accessibilityLiveRegion="polite" style={failed || error ? styles.error : styles.description}>{error || notice}</ThemedText>
-        {pending.length > 0 && <ThemedText accessibilityLiveRegion="polite">Solicitud pendiente de aceptación por el Controller.</ThemedText>}
+        {pending.length > 0 && <ThemedText accessibilityLiveRegion="polite">{pending.some(([, requests]) => requests.some((r) => r.deviceId === deviceId && r.controllerOnline === false))
+          ? 'Solicitud guardada. Controller offline; podrá resolverla al reconectar.' : 'Solicitud pendiente de aceptación por el Controller.'}</ThemedText>}
         {service && snapshot && <ThemedView style={styles.model}>
           <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} />
         </ThemedView>}

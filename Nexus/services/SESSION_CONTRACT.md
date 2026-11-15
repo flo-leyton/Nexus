@@ -594,8 +594,9 @@ confirmadas siguen intactos; no existe fallback silencioso a memoria en producci
   está offline recibe `REJOIN_REQUIRED` para esos comandos; aceptar de nuevo asigna
   nodeId nuevo y rol unassigned, conservando las participaciones de Takes anteriores.
   La renovación de token en el mismo socket no marca offline ni cambia la participación.
-- Las solicitudes pendientes se descartan al recuperar y los roles sin ACK expiran:
-  deben solicitarse otra vez, nunca reenviarse desde un diario restaurado. Las
+- Las solicitudes pendientes verificadas se conservan al recuperar (corrección de
+  identidad/reapertura posterior a H3.4b). Los roles sin ACK expiran y nunca se
+  reenvían desde un diario restaurado. Las
   referencias de medios de una participación antigua conservan su nodeId histórico.
 - Una Take no finalizada se conserva con `interrupted {at, reason:'relay-restarted'}`.
   Saved ya confirmado mantiene id/bytes; los demás resultados activos quedan
@@ -619,10 +620,10 @@ explícito confirmado de Session. REC selecciona sólo Nodes online; el cierre d
 Take no queda bloqueado por miembros offline retenidos. Con la ruta /session/<id>
 todavía abierta, reconectar y refreshSession puede consultar el registro restaurado.
 
-**H3.4c sigue pendiente:** recordar/descubrir Sessions del Controller después de
-abrir la app fría, listar y seleccionar una Session durable sin conocer su ruta,
-reconciliar participación/estado local y reanudar de forma guiada sin duplicar
-comandos. Esta entrega no crea reconexión/reanudación automática. Se mantienen los
+La corrección de identidad posterior a H3.4b incorpora descubrimiento y selección
+desde app fría (ver abajo). Siguen pendientes de H3.4c la reconciliación completa de
+participación local y reanudación guiada. No hay reconexión automática por caída de
+red ni replay de comandos. Se mantienen los
 originales, catálogos e importaciones locales. No se intentan migrar Sessions de
 relays anteriores que sólo existían en memoria y nunca escribieron este esquema.
 
@@ -632,3 +633,66 @@ confirmar y no replay. La prueba opcional `tests/rtdb-emulator.test.cjs` requier
 emulador RTDB local y FIREBASE_DATABASE_EMULATOR_HOST=127.0.0.1:9000. Usa proyecto
 demo-nexus-h34b y un prefijo temporal propio, sin credenciales ni datos de producción.
 Sin emulador se marca SKIP, no PASS.
+
+### Continuidad de identidad y reapertura · corrección posterior a H3.4b
+
+La cuenta Gmail escrita en Cuenta usa Email/Password, no el proveedor OAuth Google.
+`registerUser` y el ingreso con un anónimo activo intentan vincular credenciales
+con `linkWithCredential`, manteniendo su UID. `linkStudioCredential` también admite
+una AuthCredential de Google obtenida por un flujo OAuth válido; no se añade un
+botón OAuth nativo en este cambio. Email/Password debe estar habilitado para la
+pantalla actual; habilitar Google no lo sustituye. Vincular Google no cambia UID.
+Colisión de cuenta existente nunca hace sign-in ni migra datos automáticamente:
+Cuenta ofrece confirmar el cambio y después una transferencia separada.
+
+El socket compartido cierra la conexión anterior, espera su cierre real, obtiene
+token nuevo y autentica otra conexión al cambiar UID con conexión solicitada.
+Logout suspende la conexión; sin socket, el siguiente conectar usa Auth actual.
+No hay outbox ni repetición de REC/STOP/ACK. Errores independientes:
+`AUTH_DEVICE_IN_USE` (conexión de la misma identidad todavía activa),
+`AUTH_DEVICE_OWNER_MISMATCH` (otro UID es propietario durable),
+`AUTH_TRANSFER_DENIED` (falta prueba de titularidad doble).
+
+Para una colisión, antes de cambiar/cerrar cuenta se conserva únicamente en memoria
+la referencia Firebase User anónima. No se guardan copias de tokens/credenciales en
+AsyncStorage. Cuenta/Studio ofrecen restaurarla, renovando su token primero, o
+autorizar explícitamente transferencia a la cuenta actual. La prueba no sobrevive
+al cierre del proceso: resolver o volver a la identidad original antes de cerrar.
+Un anónimo abandonado antes de esta versión, sin User/credencial recuperable, no
+se reconstruye desde UID, deviceId, código ni RTDB. Crear otro anónimo no lo recupera.
+No existe un bypass administrativo desde la app ni edición manual de propiedad.
+
+Transferencia: primer mensaje del mismo socket compartido, exclusivamente antes de
+autenticar, `{type:'SOCKET_IDENTITY_TRANSFER', protocolVersion:1, deviceId,
+previousIdToken, idToken}`. Tokens sólo en transporte autenticado/TLS cuando online,
+nunca en logs o RTDB. Firebase Admin verifica ambos con revocación y caducidad;
+UID anterior debe coincidir con el propietario durable y no debe quedar socket
+activo para esa instalación. La nueva cuenta se fija al UID mostrado al confirmar.
+Una transacción cambia devices[deviceId] y UID de membresías/solicitudes de esa
+instalación, incluidas Sessions cerradas; no combina otras instalaciones. Sólo
+después confirma SOCKET_AUTH_OK. Session/código, deviceId, nodeIds históricos,
+roles, Takes, ACK, resultados desconocidos y referencias se conservan. Si se pierde
+la respuesta o hay timeout incierto, reconectar normalmente consulta la propiedad
+persistida; no presumir éxito ni repetir transferencia a ciegas.
+
+`discoverSessions()` envía SESSION_LIST (payload vacío, sin target, sessionId de
+correlación `studio-index`). SESSION_LIST_RESULT devuelve requestId + sessionIds
+activos, seguido de SESSION_SNAPSHOT por Session con miembros, pending, roles,
+Takes y ángulos autorizados. Sólo devuelve Sessions cuyo Controller tiene el UID
+verificado Y deviceId vinculado del socket. Otro dispositivo con misma cuenta no
+recibe control automáticamente. El cliente consulta al conectar y Studio permite
+actualizar; abrir la ruta vuelve a SESSION_GET. Salir/desmontar no cierra nada:
+sólo SESSION_CLOSE autorizado y confirmado lo hace.
+
+Pending mantiene UID/requestId en RTDB. SESSION_JOIN_PENDING y la lista pending
+incluyen online del solicitante y controllerOnline, calculados desde conexiones
+autenticadas. Un Controller offline no impide guardar la solicitud. Reconectar
+notifica su estado y permite al Controller verla/aceptarla (Node conectado con UID
+verificado) o rechazarla, incluso si Node offline. Una nueva solicitud explícita
+del mismo Node actualiza su requestId; nunca otorga membresía por estar pendiente.
+Recuperar el relay conserva pending pero todos los miembros quedan offline y los
+Nodes requieren aprobación de reingreso; no restituye READY ni ejecuta diarios.
+
+Esquema relayV1/schemaVersion=1 compatible: sin migración de identidad inferida.
+No hay nuevas variables ni secretos. Persistencia, transferencias y descubrimiento
+se prueban con almacén simulado; la validación física Firebase sigue pendiente.

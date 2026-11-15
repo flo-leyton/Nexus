@@ -264,7 +264,8 @@ export default function SessionScreen() {
               <View key={request.deviceId} style={styles.member}>
                 <ThemedText>Dispositivo solicitante</ThemedText>
                 <ThemedText selectable style={styles.sessionId}>{request.deviceId}</ThemedText>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Aceptar ${request.deviceId}`} disabled={!!deciding[request.deviceId]} onPress={() => decide(request, true)} style={[styles.primaryButton, deciding[request.deviceId] && styles.disabled]}>
+                {request.online === false && <ThemedText>Solicitud conservada; Node offline. Debe reconectar antes de aceptarlo.</ThemedText>}
+                <Pressable accessibilityRole="button" accessibilityLabel={`Aceptar ${request.deviceId}`} disabled={request.online === false || !!deciding[request.deviceId]} onPress={() => decide(request, true)} style={[styles.primaryButton, (request.online === false || deciding[request.deviceId]) && styles.disabled]}>
                   <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACEPTAR</ThemedText>
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Rechazar ${request.deviceId}`} disabled={!!deciding[request.deviceId]} onPress={() => decide(request, false)} style={[styles.secondaryButton, deciding[request.deviceId] && styles.disabled]}>
