@@ -59,3 +59,46 @@ export async function getLocalCaptures(sessionId: string, deviceId: string): Pro
   }
   return { captures: captures.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), problems };
 }
+
+export interface PersistedCaptureEntry {
+  capture: LocalCapture;
+  available: boolean;
+  error: string | null;
+}
+
+// Scan only this app's persistent files. A sidecar is metadata, not proof that
+// copying finished or that the relay received a RECORDING_STATE report.
+export async function scanLocalCaptures(): Promise<{ entries: PersistedCaptureEntry[]; problems: string[] }> {
+  const entries: PersistedCaptureEntry[] = [];
+  const problems: string[] = [];
+  if (!FileSystem.documentDirectory) return { entries, problems }; // imported media remain usable on web
+  const root = `${FileSystem.documentDirectory}nexus-captures/`;
+  try {
+    if (!(await FileSystem.getInfoAsync(root)).exists) return { entries, problems };
+    for (const sessionId of await FileSystem.readDirectoryAsync(root)) {
+      if (!isProtocolId(sessionId)) continue;
+      try {
+        for (const deviceId of await FileSystem.readDirectoryAsync(`${root}${sessionId}/`)) {
+          if (!isProtocolId(deviceId)) continue;
+          try {
+            const directory = folder(sessionId, deviceId);
+            for (const id of await FileSystem.readDirectoryAsync(directory)) {
+              if (!isProtocolId(id)) continue;
+              try {
+                const raw: unknown = JSON.parse(await FileSystem.readAsStringAsync(`${directory}${id}/capture.json`));
+                if (!isRecord(raw) || raw.id !== id || raw.sessionId !== sessionId || raw.deviceId !== deviceId ||
+                    !isProtocolId(raw.nodeId) || !(raw.takeId === null || isProtocolId(raw.takeId)) || raw.audio !== false ||
+                    typeof raw.createdAt !== 'string' || typeof raw.bytes !== 'number' || !Number.isFinite(raw.bytes) || raw.bytes <= 0 ||
+                    !['video.mp4', 'video.mov'].includes(String(raw.fileName))) throw new Error('Metadatos incompletos');
+                const capture = { ...raw, localUri: `${directory}${id}/${raw.fileName}` } as unknown as LocalCapture;
+                try { entries.push({ capture: await verifyLocalCapture(capture), available: true, error: null }); }
+                catch (error) { entries.push({ capture, available: false, error: error instanceof Error ? error.message : 'Archivo no disponible' }); }
+              } catch (error) { problems.push(`Clip ${id}: ${error instanceof Error ? error.message : 'no se pudo leer'}`); }
+            }
+          } catch { problems.push(`No se pudieron leer las capturas de ${sessionId}/${deviceId}.`); }
+        }
+      } catch { problems.push(`No se pudieron leer las capturas de la sesión ${sessionId}.`); }
+    }
+  } catch { problems.push('No se pudo explorar el almacenamiento local de capturas.'); }
+  return { entries, problems };
+}

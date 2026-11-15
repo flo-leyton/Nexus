@@ -21,7 +21,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 |---|---|---|---|---|
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
-| H3 | Pendiente | — | Toma en catálogo, recurso remoto verificado y resultado sin Internet | — |
+| H3 | En curso: H3.1 listo para prueba física local | Commit H3.1 (ver registro) | 49 tests automáticos; falta comprobar catálogo/reproducción en teléfonos | H3.2 subida real y H3.3 agregación remota pendientes; H3 no verificado |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -504,3 +504,92 @@ Procedimiento para reproducir y ampliar la evidencia con relay y tres clientes a
 7. Repetir dejando SIDE desconectado: cerrar permite otra toma solo con MAIN READY,
    manteniendo visible el resultado desconocido de SIDE. No borrar datos ni reiniciar
    el relay para liberar la toma. Registrar SHA base + diff, modelos, IDs y evidencia.
+
+### 2026-11-14 · H3.1 · Catálogo persistente de capturas locales
+
+Base comprobada antes de editar: `desarrollo@541bc389aac56e927f3102165eac6e688af4e9d1`.
+`git ls-remote --heads origin desarrollo` confirmó el mismo SHA publicado.
+El único cambio previo era `config/server.ts`: se conserva sin editar ni incluir
+en el commit. No se modifican stash ni documentos personales.
+
+Se leyó **NEXUS_H2_Entrega_DevA_2026-11-14.md**, proporcionado por el usuario en
+esta conversación. Sus pruebas físicas de H2 se aceptan como evidencia del operador.
+La nota del informe sobre cierre aún sin commit/push quedó resuelta comprobando
+`541bc38` en local y remoto. No se vuelve a implementar ni alterar ese cierre.
+
+Estado: **listo para prueba física de H3.1**; H3 sigue **en curso**, no verificado.
+La evidencia automática corresponde a `feat(media): add H3.1 persistent local capture catalog`;
+obtener el SHA con `git log -1 --format=%H --grep='feat(media): add H3.1 persistent local capture catalog'`.
+
+- Incompatibilidad resuelta: NexusMediaAsset exigía publicId/URL para todo medio.
+  Ahora distingue remotos con referencias reales y capturas con sessionId, takeId,
+  deviceId, nodeId, localId, URI y bytes. Mantiene manuales H1 con takeId null y tomas H2.
+- Al consultar Medios/detalle reconstruye el catálogo desde los sidecars de todas
+  las sesiones de este teléfono, sin exigir una Session viva. Verifica archivo y
+  tamaño; si falta/está incompleto conserva metadatos y muestra no disponible.
+  Vuelve a verificar justo antes de reproducir.
+- Cada clip tiene identidad estable sessionId + deviceId + id local y una clave
+  AsyncStorage propia. Reincorporar no duplica ni reinicia upload. Las escrituras
+  de esa clave se serializan; Nodes/tomas distintos no sobrescriben una lista común.
+  Las importaciones mantienen su clave, cargan sin migración destructiva y también
+  serializan escrituras concurrentes, conservando los registros existentes.
+- Disponibilidad local es independiente de upload: local/queued/uploading/uploaded/failed.
+  Se presentan Sólo local, Subida pendiente, Subiendo, Subida completada y Error de
+  subida. El descubrimiento no inventa referencias remotas. La API de estados queda
+  preparada para H3.2, sin worker ni nuevos controles de subida. uploaded exige
+  metadatos reales del proveedor; las referencias de los tests son fixtures.
+- Medios y detalle muestran capturas y reproducción dentro de la app. El detalle
+  importado conserva su apertura anterior. Session mantiene panel local e importaciones
+  sin duplicar capturas. Cloudinary sólo añade discriminante/tipado a su resultado
+  existente de importación; no se implementan nuevas subidas de capturas.
+- No se modifican CaptureEngine, coordinación H2, relay, servicio de sesión, ACK ni
+  historial. Un clip offline puede aparecer aquí y continuar no confirmado en Controller.
+  Leer el catálogo no envía mensajes. No se cambiaron dependencias ni configuración
+  nativa: usar el cliente H2 con ExpoVideo; no reinstalar ni borrar datos.
+
+Validación: base **42/42 PASS**, nueva suite **49/49 PASS**, TypeScript PASS,
+lint PASS, ESLint ampliado PASS y `git diff --check` PASS. Los siete tests nuevos
+usan sidecars/archivos reales en un directorio temporal y adaptadores de plataforma:
+importaciones antiguas, takeId null, dos Nodes de la misma toma con igual id local,
+otra toma/participación, reapertura/reconstrucción sin índice, archivo ausente/vacío,
+desaparición después de leer, incorporación repetida, estados de subida persistentes
+y escrituras simultáneas sin pérdida. La suite H2 de ACK != saved, cierre,
+desconexión y resultados desconocidos sigue pasando. TypeScript detectó incidencias
+de tipado durante la implementación; se corrigieron y no quedan fallos pendientes.
+Esto no acredita decodificación ni ejecución de la interfaz en un teléfono físico.
+
+Repetir desde la carpeta con package.json, Node 24 y Git Bash:
+
+```bash
+git rev-parse HEAD
+npx tsc --noEmit
+npm run lint
+node --test tests/*.test.cjs
+npx eslint services/mediaCatalog.ts services/localCaptures.ts services/cloudinary.ts types/media.ts components/MediaAssetCard.tsx components/LocalVideoPlayer.tsx components/LocalCapturesPanel.tsx tests/media-catalog.test.cjs
+git diff --check
+```
+
+Prueba física con los originales H2 existentes:
+
+1. Recargar el código en el cliente H2 de cada teléfono, sin desinstalar ni borrar
+   datos. Anotar SHA y abrir **Medios** en cada Node. Consultar archivos no requiere
+   reingresar a una Session ni conexión al relay.
+2. Abrir la tarjeta de un vídeo H2 y comparar sessionId, takeId, deviceId, nodeId,
+   id local, bytes y URI. Debe indicar **Sólo local**, archivo verificado y ninguna
+   URL/publicId remota inventada. Pulsar **REPRODUCIR VÍDEO LOCAL**, luego ▶.
+3. Comprobar imagen/duración. Cerrar y reabrir la app sin borrar datos; entrar a
+   Medios, comprobar el mismo id y reproducir de nuevo. Repetir en el otro Node.
+4. Comprobar una importación antigua: tarjeta, detalle y apertura remota deben
+   seguir funcionando. Si hay un manual H1, comprobar takeId null y reproducción.
+5. Para nuevos clips, iniciar relay/Metro como H2, aceptar ambos Nodes y preparar
+   READY. REC/STOP en Controller; en Medios comprobar los clips con mismo takeId
+   (cada teléfono ve sus archivos). Reabrir varias veces: no duplicar ni perder previos.
+6. Revisar en SIDE el clip offline de la toma interrumpida reportada
+   `35c26956-77f6-4c41-985f-1c16776aaa97`: debe aparecer y reproducirse. Si la Session
+   sigue viva, el historial de Controller debe mantener SIDE no confirmado/STOP sin
+   ACK. No reiniciar relay para buscar un historial que sólo vive en memoria.
+
+Pendiente: ejecutar estos pasos físicos y registrar SHA/modelos/IDs y reproducción
+tras reabrir. No eliminar originales para probar archivo ausente: lo cubren los tests.
+H3.2 hará subidas/reintentos reales; H3.3 agregará referencias en Controller.
+**H3 no está verificado.**

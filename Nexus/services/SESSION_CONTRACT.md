@@ -1,4 +1,4 @@
-# Contrato de sesiones · H1.1–H2
+# Contrato de sesiones y medios · H1–H3.1
 
 La sección H2 al final amplía las restricciones históricas de H1: ahora existen
 REC/STOP remotos y takeId compartido. No modifica el catálogo de H3.
@@ -288,3 +288,54 @@ un ID nuevo permite reintentar un fallo real pero no reinicia los ACK acumulados
 el primer stopMessageId; su resultado exige el ACK de ese comando concreto.
 Los controles del Node comparan deviceId **y nodeId** y respetan cierre operativo,
 sin ignorar las guardas locales de motor ocupado o guardado pendiente.
+
+## H3.1 · Catálogo persistente local
+
+No modifica el protocolo, la captura ni el historial del relay. `scanLocalCaptures()`
+explora únicamente documentDirectory/nexus-captures de este teléfono, leyendo los
+sidecars H1/H2. Acepta takeId null o string y conserva las identidades originales
+aunque el dispositivo reingrese con otro nodeId. No usa referencias del snapshot
+para fabricar assets de otros teléfonos.
+
+`NexusMediaAsset` distingue `storage: 'remote'` y `storage: 'local'`:
+
+- Remotos/importaciones: mantienen id, publicId, url y demás metadatos existentes.
+  Los registros anteriores sin discriminante se reconocen como remotos al leer;
+  la lectura no reescribe el array original `@nexus-studio/media-assets`.
+- Capturas: id estable de catálogo, localId original, sessionId, takeId, deviceId,
+  nodeId, localUri, fileName y bytes. No tienen publicId/url ficticios.
+  `localAvailable` y `localError` se recalculan al leer, comprobando existencia y
+  tamaño positivo igual al sidecar. Un archivo ausente/incompleto conserva sus
+  metadatos y se muestra no disponible, sin ofrecer reproducción.
+- `upload` usa `local`, `queued`, `uploading`, `uploaded`, `failed`. Sólo uploaded
+  admite/exige publicId y URL HTTPS dentro de ese objeto; failed conserva su error.
+  El descubrimiento inicia en local. Disponibilidad y subida son independientes.
+
+API de `services/mediaCatalog.ts`:
+
+- `getMediaCatalog()` devuelve `{ assets, problems }`, reconstruyendo las capturas
+  de todas las sesiones locales, sin membresía, conexión ni Firebase.
+  `getMediaAssets`, `getMediaAssetsBySession` y `getMediaAssetById` usan esa lectura.
+- `captureCatalogId(capture)` compone sessionId + deviceId + id local, sin usar
+  takeId como identidad de asset. `incorporateLocalCapture(capture)` verifica el
+  archivo e incorpora idempotentemente; repetir no crea otro registro.
+- Cada captura usa una clave `@nexus-studio/local-capture-media-v1/<id>`.
+  Las escrituras se serializan por clave y preservan upload al redescubrir clips.
+  No se reemplaza una lista común de capturas que pueda perder un ángulo.
+  Las escrituras de importaciones también se serializan y conservan datos anteriores.
+- `setCaptureUpload(id, upload)` persiste estado para el futuro adaptador H3.2.
+  No inicia, reintenta ni simula una subida. H3.2 establecerá uploaded sólo después
+  de una respuesta real del proveedor; H3.1 no expone controles para inventarlo.
+  Las pruebas usan referencias remotas exclusivamente como fixtures.
+- `getMediaPlaybackUri(asset)` verifica el archivo inmediatamente antes de devolver
+  su URI local; no confía en la comprobación de una lectura anterior.
+
+Medios lista capturas e importaciones. El detalle local muestra identidades y
+reproduce dentro del teléfono usando el reproductor H2; el detalle importado
+conserva su apertura remota. Session mantiene el panel local y las importaciones,
+sin duplicar capturas. No hay dependencias ni cambios nativos nuevos respecto a H2.
+
+**Archivo local verificado no equivale a confirmación del relay.** El catálogo no
+envía RECORDING_STATE, no crea ACK y no cambia tomas cerradas/históricas. Un clip
+offline de SIDE puede verse aquí y seguir no confirmado en el Controller.
+Subidas reales y agregación remota quedan para H3.2/H3.3.

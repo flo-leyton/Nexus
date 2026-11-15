@@ -3,7 +3,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-import type { NexusMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
+import type { RemoteMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
 
 export type UploadMediaAssetInput = {
   uri: string;
@@ -112,7 +112,7 @@ async function uploadFromNative(
   return { status: response.status, statusText: '', body: response.body };
 }
 
-export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<NexusMediaAsset> {
+export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<RemoteMediaAsset> {
   if (!input.uri.trim()) throw new Error('LOCAL FILE ERROR: la URI del archivo está vacía.');
   if (!input.fileName.trim()) throw new Error('LOCAL FILE ERROR: el nombre del archivo está vacío.');
 
@@ -168,6 +168,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Ne
   }
 
   return {
+    storage: 'remote',
     id: Crypto.randomUUID(),
     sessionId: input.sessionId,
     source: input.source,

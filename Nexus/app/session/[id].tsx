@@ -18,7 +18,7 @@ import { uploadMediaAsset } from '@/services/cloudinary';
 import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
 import { readinessReasons, type JoinRequest } from '@/services/sessionProtocol';
-import type { NexusMediaAsset } from '@/types/media';
+import type { RemoteMediaAsset } from '@/types/media';
 import type { CaptureIdentity } from '@/types/capture';
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
@@ -35,8 +35,8 @@ export default function SessionScreen() {
   const [selected, setSelected] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [status, setStatus] = useState<UploadState>('idle');
   const [message, setMessage] = useState('Selecciona una imagen o video para comenzar.');
-  const [media, setMedia] = useState<NexusMediaAsset[]>([]);
-  const [lastSaved, setLastSaved] = useState<NexusMediaAsset | null>(null);
+  const [media, setMedia] = useState<RemoteMediaAsset[]>([]);
+  const [lastSaved, setLastSaved] = useState<RemoteMediaAsset | null>(null);
   const [sessionNotice, setSessionNotice] = useState('Consultando la sesión en el relay…');
   const [verified, setVerified] = useState(false);
   const [sessionFailed, setSessionFailed] = useState(false);
@@ -137,7 +137,7 @@ export default function SessionScreen() {
   };
 
   useEffect(() => {
-    if (sessionId) void getMediaAssetsBySession(sessionId).then(setMedia);
+    if (sessionId) void getMediaAssetsBySession(sessionId).then((items) => setMedia(items.filter((asset) => asset.storage === 'remote')));
   }, [sessionId]);
 
   const selectMedia = async () => {
@@ -199,7 +199,7 @@ export default function SessionScreen() {
         file: selected.file ?? undefined,
       });
       await saveMediaAsset(saved);
-      setMedia(await getMediaAssetsBySession(sessionId));
+      setMedia((await getMediaAssetsBySession(sessionId)).filter((asset) => asset.storage === 'remote'));
       setLastSaved(saved);
       setSelected(null);
       setStatus('success');
