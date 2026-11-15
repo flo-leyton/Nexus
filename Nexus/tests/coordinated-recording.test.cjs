@@ -23,6 +23,79 @@ const { createSessionClient } = load('../services/sessionClient.ts', { './sessio
 const { CaptureEngine } = load('../services/captureEngine.ts', { './sessionProtocol': protocol });
 const { coordinateCapture } = load('../services/coordinatedCapture.ts', {});
 const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
+const uploadedFixture = (id) => ({ state: 'uploaded', publicId: `fixture/${id}`, url: `https://res.cloudinary.com/test/video/upload/v1/${id}.mp4` });
+
+test('H3: two remote angles aggregate in reverse arrival order; duplicate/stale reports and foreign identities are isolated', { timeout: 10000 }, async (t) => {
+  const persisted = new Map();
+  const connect = await harness(t), c = await connect('controller', { async save(sid, angles) {
+    for (const angle of Object.values(angles)) persisted.set(`${sid}:${angle.deviceId}:${angle.clipId}`, angle);
+  } }), a = await connect('node-a'), b = await connect('node-b'), outsider = await connect('outsider');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const role = c.service.assignRole(s.sessionId, a.deviceId, 'main-camera'); await c.wait(reply(role));
+  await attachCamera(t, a, s); await attachCamera(t, b, s); await waitReady(c, s, [a.deviceId, b.deviceId]);
+  const start = c.service.startTake(s.sessionId);
+  await c.wait(hasNode(start.takeId, a.deviceId, 'recording')); await c.wait(hasNode(start.takeId, b.deviceId, 'recording'));
+  c.service.stopTake(s.sessionId);
+  await c.wait(hasNode(start.takeId, a.deviceId, 'saved')); await c.wait(hasNode(start.takeId, b.deviceId, 'saved'));
+  const take = c.service.getSnapshot().sessions[s.sessionId].take;
+  const frozen = JSON.stringify(take);
+  const angle = (peer) => ({ clipId: take.nodes[peer.deviceId].capture.id, takeId: start.takeId, deviceId: peer.deviceId,
+    nodeId: take.nodes[peer.deviceId].nodeId, bytes: take.nodes[peer.deviceId].capture.bytes, revision: 2, upload: uploadedFixture(peer.deviceId) });
+  for (const peer of [b, a]) {
+    const id = peer.service.reportMedia(s.sessionId, c.deviceId, angle(peer));
+    await peer.wait((m) => m.type === 'MEDIA_ACCEPTED' && m.payload.requestId === id);
+  }
+  const refresh = c.service.refreshSession(s.sessionId); await c.wait(reply(refresh));
+  let media = c.service.getSnapshot().sessions[s.sessionId].mediaAngles;
+  assert.equal(Object.keys(media).length, 2);
+  assert.equal(persisted.size, 2);
+  assert.notEqual(media[`${a.deviceId}:${angle(a).clipId}`].upload.url, media[`${b.deviceId}:${angle(b).clipId}`].upload.url);
+  assert.equal(media[`${a.deviceId}:${angle(a).clipId}`].role, 'main-camera');
+  for (const payload of [angle(a), { ...angle(a), revision: 1, upload: { state: 'uploading' } }]) {
+    const id = a.service.reportMedia(s.sessionId, c.deviceId, payload); await a.wait((m) => m.type === 'MEDIA_ACCEPTED' && m.payload.requestId === id);
+  }
+  const barrier = c.service.refreshSession(s.sessionId); await c.wait(reply(barrier));
+  media = c.service.getSnapshot().sessions[s.sessionId].mediaAngles;
+  assert.equal(Object.keys(media).length, 2); assert.equal(media[`${a.deviceId}:${angle(a).clipId}`].upload.state, 'uploaded');
+  assert.equal(JSON.stringify(c.service.getSnapshot().sessions[s.sessionId].take), frozen);
+  const other = await create(outsider);
+  const attacks = [
+    [outsider, s.sessionId, c.deviceId, angle(a)],
+    [a, s.sessionId, b.deviceId, angle(a)],
+    [a, s.sessionId, c.deviceId, angle(b)],
+    [a, s.sessionId, c.deviceId, { ...angle(a), takeId: 'not-a-take' }],
+    [a, s.sessionId, c.deviceId, { ...angle(a), nodeId: 'not-a-node' }],
+    [a, s.sessionId, c.deviceId, { ...angle(a), clipId: 'other-clip' }],
+    [a, other.sessionId, outsider.deviceId, angle(a)],
+  ];
+  for (const [peer, sid, target, payload] of attacks) {
+    const id = peer.service.reportMedia(sid, target, payload);
+    assert.equal((await peer.wait(reply(id))).type, 'SESSION_ERROR');
+  }
+});
+
+test('H3: approved rejoin may publish an old original without inheriting nodeId or confirming an unknown H2 result', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), n = await connect('node');
+  const s = await create(c); await admit(c, n, s); const camera = await attachCamera(t, n, s); await waitReady(c, s, [n.deviceId]);
+  const start = c.service.startTake(s.sessionId); await c.wait(hasNode(start.takeId, n.deviceId, 'recording'));
+  const oldNodeId = c.service.getSnapshot().sessions[s.sessionId].take.nodes[n.deviceId].nodeId;
+  const beforeClose = c.inbox.length;
+  n.ws.close(); await once(n.ws, 'close');
+  await c.wait((m) => c.inbox.indexOf(m) >= beforeClose && m.type === 'SESSION_SNAPSHOT' && m.payload.session.take?.nodes.node?.phase === 'disconnected');
+  camera.engine.stop();
+  c.service.stopTake(s.sessionId);
+  const close = c.service.closeInterruptedTake(s.sessionId, start.takeId); await c.wait(reply(close));
+  const frozen = JSON.stringify(c.service.getSnapshot().sessions[s.sessionId].take);
+  const rejoined = await connect(n.deviceId); await admit(c, rejoined, s);
+  assert.notEqual(rejoined.service.getSnapshot().sessions[s.sessionId].members.node.nodeId, oldNodeId);
+  const id = rejoined.service.reportMedia(s.sessionId, c.deviceId, { clipId: 'offline-original', deviceId: n.deviceId,
+    nodeId: oldNodeId, takeId: start.takeId, bytes: 128, revision: 3, upload: uploadedFixture('offline-original') });
+  await rejoined.wait((m) => m.type === 'MEDIA_ACCEPTED' && m.payload.requestId === id);
+  const refresh = c.service.refreshSession(s.sessionId); await c.wait(reply(refresh));
+  assert.equal(JSON.stringify(c.service.getSnapshot().sessions[s.sessionId].take), frozen);
+  assert.equal(c.service.getSnapshot().sessions[s.sessionId].take.nodes.node.stopReceived, false);
+  assert.equal(Object.values(c.service.getSnapshot().sessions[s.sessionId].mediaAngles)[0].nodeId, oldNodeId);
+});
 const request = (type, senderId, sessionId, payload, targetId) => ({ protocolVersion: 1, messageId: randomUUID(), type,
   senderId, sessionId, sentAt: Date.now(), payload, ...(targetId ? { targetId } : {}) });
 const reply = (id) => (m) => m.payload.requestId === id;
@@ -44,7 +117,7 @@ async function harness(t) {
     for (const ws of relay.clients) ws.terminate();
     await new Promise((resolve) => relay.close(resolve));
   });
-  return async (deviceId) => {
+  return async (deviceId, mediaHistory) => {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.address().port}`);
     await once(ws, 'open');
     const inbox = [], sent = [];
@@ -53,7 +126,7 @@ async function harness(t) {
       connect() {}, send(m) { sent.push(m); ws.send(JSON.stringify(m)); return true; },
       subscribeMessages(fn) { const cb = (raw) => fn(String(raw)); ws.on('message', cb); return () => ws.off('message', cb); },
       subscribeStatus(fn) { fn('Connected'); const cb = () => fn('Disconnected'); ws.on('close', cb); return () => ws.off('close', cb); },
-    });
+    }, undefined, mediaHistory);
     const peer = { ws, service, inbox, sent, deviceId,
       async wait(predicate) { while (!inbox.some(predicate)) await once(ws, 'message'); return inbox.find(predicate); },
       send(m) { ws.send(JSON.stringify(m)); },

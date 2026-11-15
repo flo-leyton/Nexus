@@ -24,7 +24,7 @@ function serializeWrite(key: string, operation: () => Promise<void>): Promise<vo
 function validUpload(value: unknown): value is CaptureUpload {
   if (!isRecord(value)) return false;
   if (value.state === 'local' || value.state === 'queued' || value.state === 'uploading') return Object.keys(value).length === 1;
-  if (value.state === 'failed') return Object.keys(value).length === 2 && typeof value.error === 'string';
+  if (value.state === 'failed' || value.state === 'uncertain') return Object.keys(value).length === 2 && typeof value.error === 'string';
   return value.state === 'uploaded' && Object.keys(value).length === 3 && typeof value.publicId === 'string' && !!value.publicId.trim() &&
     typeof value.url === 'string' && /^https:\/\//.test(value.url);
 }
@@ -44,6 +44,7 @@ function readCapture(text: string | null): LocalCaptureMediaAsset | null {
         !(r.takeId === null || isProtocolId(r.takeId)) || !['video.mp4', 'video.mov'].includes(String(r.fileName)) ||
         typeof r.localUri !== 'string' || typeof r.bytes !== 'number' || !Number.isFinite(r.bytes) || r.bytes <= 0 ||
         r.audio !== false || typeof r.createdAt !== 'string' || !validUpload(r.upload) || 'publicId' in r || 'url' in r ||
+        (r.uploadRevision !== undefined && (!Number.isSafeInteger(r.uploadRevision) || (r.uploadRevision as number) < 0)) ||
         r.id !== captureCatalogId({ sessionId: r.sessionId, deviceId: r.deviceId, id: r.localId })) return null;
     return { ...r, localAvailable: false, localError: 'Archivo sin comprobar' } as LocalCaptureMediaAsset;
   } catch { return null; }
@@ -62,7 +63,7 @@ async function upsertCapture(capture: LocalCapture) {
       deviceId: capture.deviceId, nodeId: capture.nodeId, localUri: capture.localUri, bytes: capture.bytes,
       fileName: capture.fileName, audio: false, createdAt: capture.createdAt, storage: 'local', source: 'capture', resourceType: 'video',
       upload: current?.upload ?? { state: 'local' } };
-    const encoded = JSON.stringify(record);
+    const encoded = JSON.stringify({ ...record, uploadRevision: current?.uploadRevision ?? 0 });
     if (text !== encoded) await AsyncStorage.setItem(key, encoded);
   });
   return id;
@@ -79,7 +80,8 @@ export async function setCaptureUpload(id: string, upload: CaptureUpload) {
     const current = readCapture(await AsyncStorage.getItem(key));
     if (!current || current.id !== id) throw new Error('La captura no existe en el catálogo.');
     const { localAvailable: _available, localError: _error, ...stored } = current;
-    await AsyncStorage.setItem(key, JSON.stringify({ ...stored, upload }));
+    const uploadRevision = (current.uploadRevision ?? 0) + (JSON.stringify(current.upload) === JSON.stringify(upload) ? 0 : 1);
+    await AsyncStorage.setItem(key, JSON.stringify({ ...stored, upload, uploadRevision }));
   });
 }
 export async function getMediaCatalog(): Promise<{ assets: NexusMediaAsset[]; problems: string[] }> {

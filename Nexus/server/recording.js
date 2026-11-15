@@ -93,7 +93,7 @@ function attachRecording({ clients, stateTimes, snapshot }) {
             Date.now() - (stateTimes.get(n) ?? 0) >= NODE_STATE_TTL_MS)) return error('NODE_NOT_READY');
         if (s.take) (s.takeHistory ??= []).push(s.take);
         s.take = { takeId: m.payload.takeId, startMessageId: m.messageId, stopMessageId: null,
-          nodes: Object.fromEntries(targets.map((n) => [n.deviceId, { nodeId: n.nodeId, phase: 'pending', startReceived: false,
+          nodes: Object.fromEntries(targets.map((n) => [n.deviceId, { nodeId: n.nodeId, role: n.role, phase: 'pending', startReceived: false,
             stopReceived: false, busy: true, error: null, capture: null }])) };
         s.usedTakes.add(m.payload.takeId);
         for (const node of Object.values(s.take.nodes)) progressTimes.set(node, Date.now());

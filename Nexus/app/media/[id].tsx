@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatBytes } from '@/components/MediaAssetCard';
 import { LocalVideoPlayer } from '@/components/LocalVideoPlayer';
+import { CaptureUploadControls } from '@/components/CaptureUploadControls';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getMediaAssetById, getMediaPlaybackUri } from '@/services/mediaCatalog';
@@ -56,7 +57,7 @@ export default function MediaDetailScreen() {
             <ThemedText selectable>nodeId: {asset.nodeId}</ThemedText>
             <ThemedText>Archivo: {asset.localAvailable ? 'Local verificado' : 'No disponible'}</ThemedText>
             {asset.localError && <ThemedText>{asset.localError}</ThemedText>}
-            {asset.upload.state === 'failed' && <ThemedText>{asset.upload.error}</ThemedText>}
+            {(asset.upload.state === 'failed' || asset.upload.state === 'uncertain') && <ThemedText>{asset.upload.error}</ThemedText>}
             {asset.upload.state === 'uploaded' && <ThemedText selectable>Recurso remoto: {asset.upload.url}</ThemedText>}
             <ThemedText>Este catálogo no indica ACK ni confirmación del relay. Consulta la toma en el Controller.</ThemedText>
           </>}
@@ -66,6 +67,7 @@ export default function MediaDetailScreen() {
           <ThemedText selectable style={styles.url}>{asset.storage === 'remote' ? asset.url : asset.localUri}</ThemedText>
         </ThemedView>
         {!!error && <ThemedText>{error}</ThemedText>}
+        {asset.storage === 'local' && <CaptureUploadControls id={asset.id} />}
         {asset.storage === 'local' && !asset.localAvailable ? <ThemedText>Reproducción no disponible: el archivo local no se pudo verificar.</ThemedText> : <Pressable accessibilityRole="button" onPress={() => {
           setError(''); setPlaybackUri(null);
           void getMediaPlaybackUri(asset).then((uri) => {

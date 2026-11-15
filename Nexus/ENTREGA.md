@@ -21,7 +21,7 @@ Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba 
 |---|---|---|---|---|
 | H1 | En curso: H1.1–H1.4 implementados, listos para prueba física | H1.3: 6908c17; commit H1.4 (ver registro) | 24 tests automáticos; falta confirmación del usuario de grabación y reproducción reales | Reconstruir clientes y probar clip local; H1 NO verificado |
 | H2 | Recuperación de toma interrumpida verificada físicamente por el operador; cierre global pendiente | Base 50bb211 + corrección registrada en historial Git | 42 tests automáticos; operador confirma conservación de vídeos, cierre, reingreso autorizado y nueva grabación en ambos Nodes | Completar evidencias restantes del cierre global de H2; ver registro de recuperación |
-| H3 | En curso: H3.1 listo para prueba física local | Commit H3.1 (ver registro) | 49 tests automáticos; falta comprobar catálogo/reproducción en teléfonos | H3.2 subida real y H3.3 agregación remota pendientes; H3 no verificado |
+| H3 | H3.1–H3.3 implementados, listos para prueba física | H3.1: 4416702; commit H3.2/H3.3 (ver registro) | 58 tests automáticos; pendiente subida y reproducción reales en teléfonos | Ejecutar pruebas A–D con Cloudinary y dos Nodes; H3 no verificado |
 | H4 | Pendiente | — | Clip tras desconexión, segunda toma, resultado de cada comando y SHA final | — |
 
 El equipo revisa estos resultados en el PR de `desarrollo` a `main`. Si una prueba queda pendiente, indicar su efecto sobre el uso del producto y conservar el estado real de la entrega.
@@ -593,3 +593,121 @@ Pendiente: ejecutar estos pasos físicos y registrar SHA/modelos/IDs y reproducc
 tras reabrir. No eliminar originales para probar archivo ausente: lo cubren los tests.
 H3.2 hará subidas/reintentos reales; H3.3 agregará referencias en Controller.
 **H3 no está verificado.**
+
+### 2026-11-14 · H3.2/H3.3 · Subida y agregación de ángulos
+
+Base comprobada: `desarrollo@441670260770dbafe728372d5e66ed5d62b77422` (H3.1).
+`origin/desarrollo` y consulta directa al remoto: `541bc389aac56e927f3102165eac6e688af4e9d1`.
+H3.1 ya era un commit local no publicado. Se leyó el informe H2 proporcionado por
+el operador y se conservan sus distinciones ACK/guardado/resultado desconocido.
+Se preservan IP/PORT y el cambio local LAN de config/server.ts; no se aplican
+stashes ni se incluyen documentos personales. Durante el trabajo apareció además
+un espacio local ajeno en una línea vacía del registro H2; se conserva fuera del commit.
+
+Estado: **listo para prueba física H3.2/H3.3; H3 no verificado**.
+Commit identificable con `git log -1 --format=%H --grep='feat(media): upload captures and aggregate take angles'`.
+No se efectuaron subidas reales ni reproducción física durante esta implementación.
+
+- CaptureUploadControls ofrece subida/reintento por clip en Session y detalle de
+  Medios. Verifica propietario, original persistente y tamaño antes de subir;
+  Cloudinary mantiene límite de 80 MB y muestra su causa si falla. No elimina el
+  original ni cambia sessionId/takeId/deviceId/nodeId. Estados local, pendiente,
+  subiendo, subido, error y sin confirmar son persistentes y distintos.
+- Una operación por clip y public_id determinista evitan identidades nuevas en
+  reintentos. Respuesta perdida/incompleta o cierre durante transferencia quedan
+  sin confirmar. Sólo una respuesta validada permite uploaded/URL. Si falla el
+  relay después del éxito HTTP, se permite COMUNICAR RESULTADO sin subir de nuevo.
+- MEDIA_STATE/ACCEPTED sólo transportan referencias. El relay exige Node miembro,
+  dispositivo propio, Controller destino y participación histórica exacta en la
+  Take. Comprueba clipId/bytes cuando H2 los conoce, y revisiones para evitar
+  duplicados/sobrescrituras. Captura el rol al REC. Conserva el historial H2 intacto.
+- Controller agrupa N ángulos por takeId y muestra Node/dispositivo/rol/estado;
+  permite reproducir cada URL confirmada. Guarda cada referencia por separado en
+  AsyncStorage. Session vuelve a consultar el relay; Medios recupera referencias
+  persistidas aunque la Session ya no viva. No afirma restaurar membresía ni el
+  diario H2 después de reiniciar relay/Controller.
+- Tras reingreso autorizado, un clip antiguo mantiene nodeId original. Publicar
+  su subida no cambia STOP sin ACK ni el resultado desconocido de una toma cerrada.
+  Si esa Session/Take ya no existe, conserva original/subida pero no inventa otra.
+- Importaciones anteriores y manuales takeId null siguen legibles. Los manuales
+  pueden subirse sin agregarlos ficticiamente a una Take. No hay cambios nativos,
+  dependencias, Firebase ni grabación/audio nuevos; usar cliente H2 sin reinstalar
+  ni borrar datos. No enviar binarios por WebSocket.
+
+Configuración pública necesaria en .env.local (sin secretos):
+
+```dotenv
+EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=<cloud del equipo>
+EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=<preset unsigned de vídeo>
+```
+
+El preset debe aceptar vídeos y permitir/conservar el public_id solicitado
+(`disallow_public_id` desactivado). Unsigned upload no sobrescribe un recurso
+existente. Un preset que renombra el public_id produce subida sin confirmar;
+corregirlo antes de probar reintentos. Reiniciar Metro para cargar variables.
+Referencia consultada: Expo SDK 54 (FileSystem legacy, Expo Video) y documentación
+oficial Cloudinary de unsigned upload/public_id. No se imprime el contenido de .env.
+
+Validaciones automáticas: TypeScript PASS; npm run lint PASS; ESLint ampliado
+(servicios, relay y tests modificados) PASS; **58/58 tests PASS**. Se conservan las
+49 pruebas anteriores, incluidas presencia, H1/H2 y catálogo/importaciones H3.1.
+Nuevos casos: dos ángulos en orden inverso y persistencia desde el cliente,
+duplicados/revisiones viejas, identidad/destino/Session/Take ajenos, reingreso con
+nodeId nuevo sin cambiar resultados H2, pulsaciones simultáneas, fallo/reintento
+con original/identidad intactos, interrupción incierta, original ausente/alterado,
+límite 80 MB, respuesta malformada/ajena, error de preset, publicación sin repetir
+HTTP, manual sin Take y recuperación concurrente de referencias tras reabrir.
+`git diff --cached --check` comprueba los cambios de este commit; el espacio ajeno
+en ENTREGA.md queda fuera del índice y se documenta como diferencia local previa.
+
+Repetir en Git Bash desde la carpeta con package.json y Node 24:
+
+```bash
+npx tsc --noEmit
+npm run lint
+node --test tests/*.test.cjs
+npx eslint services/captureUpload.ts services/cloudinary.ts services/mediaCatalog.ts services/takeMedia.ts services/session.ts services/sessionClient.ts services/sessionProtocol.ts server/sessions.js server/recording.js types/media.ts tests/media-upload.test.cjs tests/coordinated-recording.test.cjs
+git diff --cached --check
+```
+
+Prueba física pendiente (anotar SHA, modelos, sessionId/takeId, clips y resultado):
+
+Preparar variables/preset, iniciar `npm run relay` y `npx expo start --dev-client --lan`.
+Reiniciar relay para cargar este protocolo antes de crear la Session; recargar los
+tres clientes H2. Conectar al relay, crear Session en Controller, solicitar ingreso
+en Nodes y aceptarlos. Asignar roles distintos y comprobar READY. No borrar datos.
+
+**A · Un Node.** Con sólo un Node aceptado/READY, REC 2–3 s y STOP desde Controller.
+Esperar STOP ACK y archivo guardado. En Node abrir Medios → tarjeta del nuevo clip,
+comprobar takeId y reproducir el original; pulsar SUBIR A CLOUDINARY. Esperar Subida
+completada; en Controller → Session → Ángulos remotos por Take, comprobar un ángulo
+del mismo takeId/deviceId/nodeId, pulsar REPRODUCIR ÁNGULO REMOTO y ▶. Verificar
+imagen/duración. No confundir la reproducción original del Node con esta prueba.
+
+**B · Fallo y reintento.** Grabar otra Take breve y guardar. Cortar salida a Internet
+manteniendo LAN/relay si es posible (deshabilitar datos móviles para evitar fallback).
+SUBIR en Node: esperar error o subida sin confirmar, sin URL exitosa. Reproducir el
+original local. Restaurar Internet y REINTENTAR SUBIDA en la misma tarjeta. Comprobar
+mismo id de catálogo/takeId/nodeId, una sola entrada/ángulo y reproducción remota.
+Si se cortó Wi-Fi, reconectar manualmente al relay y solicitar reingreso autorizado;
+el clip conserva nodeId antiguo. COMUNICAR RESULTADO si la subida ya se confirmó.
+
+**C · Dos Nodes.** Aceptar el segundo Node, roles distintos y ambos READY. REC/STOP
+desde Controller hacia escenas distintas. Ambos guardan clips del mismo takeId.
+Subir primero el segundo Node y luego el primero (o casi a la vez). Controller debe
+mostrar dos ángulos distintos bajo esa Take, con deviceId/nodeId propios y URLs
+diferentes. Reproducir ambos. Volver a COMUNICAR RESULTADO: no duplicar ángulos.
+Verificar que REC ACK/STOP ACK y guardado se mantienen separados de subida.
+
+**D · Reapertura.** Salir/volver a Session mientras vive: consulta real al relay y
+dos ángulos. Cerrar/reabrir apps sin borrar datos: en Nodes Medios conserva clips,
+originales reproducibles y estados; en Controller Medios conserva ambas referencias
+y permite reproducirlas por Internet. Si cerrar Controller terminó la Session,
+ver referencias guardadas en Medios; no se afirma recuperar la Session ni historial
+H2 del relay. Comprobar además una importación antigua y un manual H1 si existe.
+
+Pendiente adicional: ejecutar el caso H2 de desconexión/cierre con original offline,
+reingresar y publicar su clip original sin convertir su resultado desconocido en
+STOP ACK/guardado confirmado. Los tests lo cubren sin hardware; falta evidencia
+física del proveedor, preset, transferencia, decodificación y persistencia nativa.
+**H3 no se marca verificado por estas pruebas simuladas.**

@@ -10,6 +10,7 @@ import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ControllerTakePanel } from '@/components/ControllerTakePanel';
+import { TakeMediaPanel } from '@/components/TakeMediaPanel';
 import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -279,6 +280,10 @@ export default function SessionScreen() {
 
         {!session && service && snapshot && <ThemedView style={styles.section}>
           <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />
+        </ThemedView>}
+        {isController && session && <ThemedView style={styles.section}>
+          {snapshot?.mediaPersistenceError && <ThemedText>{snapshot.mediaPersistenceError}</ThemedText>}
+          <TakeMediaPanel session={session} />
         </ThemedView>}
         {localNode && localNode.sessionId === sessionId && service && <ThemedView style={styles.section}>
           <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}

@@ -5,6 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { LocalVideoPlayer } from '@/components/LocalVideoPlayer';
+import { CaptureUploadControls } from '@/components/CaptureUploadControls';
+import { captureCatalogId } from '@/services/mediaCatalog';
 import { getLocalCaptures, verifyLocalCapture } from '@/services/localCaptures';
 import type { LocalCapture } from '@/types/capture';
 
@@ -23,7 +25,7 @@ export function LocalCapturesPanel({ sessionId, deviceId, busy }: { sessionId: s
   }, [sessionId, deviceId]));
   return <View style={styles.panel}>
     <ThemedText type="subtitle">Vídeos locales de este dispositivo</ThemedText>
-    <ThemedText>Originales silenciados conservados en la aplicación. No se suben al Controller ni a Cloudinary.</ThemedText>
+    <ThemedText>Originales silenciados conservados en la aplicación. La subida es manual; el Controller recibe sólo referencias.</ThemedText>
     {captures.length === 0 && <ThemedText>No hay vídeos locales verificados en esta Session.</ThemedText>}
     {problems.map((problem, index) => <ThemedText key={index}>{problem}</ThemedText>)}
     {captures.map((capture) => <View key={capture.id} style={styles.panel}>
@@ -34,6 +36,7 @@ export function LocalCapturesPanel({ sessionId, deviceId, busy }: { sessionId: s
       <Pressable accessibilityRole="button" disabled={busy} style={styles.button} onPress={() => {
         void verifyLocalCapture(capture).then(setSelected).catch((error: unknown) => setProblems([error instanceof Error ? error.message : 'Archivo no disponible.']));
       }}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REPRODUCIR VÍDEO LOCAL</ThemedText></Pressable>
+      <CaptureUploadControls id={captureCatalogId(capture)} disabled={busy} />
     </View>)}
     {selected && focused && !busy && <>
       <LocalVideoPlayer key={selected.id} uri={selected.localUri} />

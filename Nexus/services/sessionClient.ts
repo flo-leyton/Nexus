@@ -1,7 +1,7 @@
 import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
-  type RecordingCommand, type RecordingReport,
+  type RecordingCommand, type RecordingReport, type TakeMediaAngle,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -19,6 +19,7 @@ export interface SessionSnapshot {
   lastNodeSession: LastNodeSession | null;
   joinInFlight: boolean;
   historyError: string | null;
+  mediaPersistenceError?: string | null;
 }
 interface SessionHistory {
   initial: LastNodeSession | null;
@@ -27,7 +28,8 @@ interface SessionHistory {
 }
 
 // One client per device, independent of Firebase, UI and transport implementation.
-export function createSessionClient(deviceId: string, uuid: () => string, transport: SessionTransport, history?: SessionHistory) {
+export function createSessionClient(deviceId: string, uuid: () => string, transport: SessionTransport, history?: SessionHistory,
+  mediaHistory?: { save(sessionId: string, angles: Record<string, TakeMediaAngle>): Promise<void> }) {
   let state: SessionSnapshot = { connection: 'Disconnected', sessions: {}, pending: {}, lastEvent: null,
     lastNodeSession: history?.initial ?? null, joinInFlight: false, historyError: history?.initialError ?? null };
   let joining: { messageId: string; sessionId: string; code: string } | null = null;
@@ -92,6 +94,11 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     const pending = { ...state.pending };
     if (event.type === 'SESSION_SNAPSHOT') {
       sessions[event.sessionId] = event.payload.session;
+      if (mediaHistory && event.payload.session.controllerId === deviceId && event.payload.session.mediaAngles) {
+        void mediaHistory.save(event.sessionId, event.payload.session.mediaAngles).catch(() => {
+          if (!disposed) { state = { ...state, mediaPersistenceError: 'No se pudieron persistir los ángulos remotos. Mantén la Session y vuelve a actualizar.' }; emit(); }
+        });
+      }
       if (event.payload.pending) pending[event.sessionId] = event.payload.pending;
       if (event.payload.session.members[deviceId]?.kind === 'node') {
         if (state.sessions[event.sessionId]?.members[deviceId]?.kind !== 'node' || joining?.sessionId === event.sessionId) {
@@ -221,6 +228,9 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       return () => { if (captureHandlers.get(sessionId) === handler) captureHandlers.delete(sessionId); };
     },
     reportCapture,
+    reportMedia(sessionId: string, controllerId: string, payload: TakeMediaAngle) {
+      return send({ ...envelope(sessionId), type: 'MEDIA_STATE', targetId: controllerId, payload });
+    },
     dispose() { disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); captureCommands.clear(); captureReports.clear(); },
   };
 }

@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createLastNodeSessionStore } from './lastNodeSession';
 import { getOrCreateDeviceId } from './deviceIdentity';
+import { saveTakeMedia } from './takeMedia';
 import { createSessionClient } from './sessionClient';
 import { connectSocket, sendSocketMessage, subscribeToSocketMessages, subscribeToSocketStatus } from './socket';
 
@@ -19,7 +20,7 @@ export function getSessionService() {
       send: sendSocketMessage,
       subscribeMessages: subscribeToSocketMessages,
       subscribeStatus: subscribeToSocketStatus,
-      }, { initial, initialError, save: history.save });
+      }, { initial, initialError, save: history.save }, { save: saveTakeMedia });
     }).catch((error) => { clientTask = null; throw error; });
   }
   return clientTask;

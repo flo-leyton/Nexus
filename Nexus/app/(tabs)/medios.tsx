@@ -5,6 +5,8 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MediaAssetCard } from '@/components/MediaAssetCard';
+import { TakeMediaPanel } from '@/components/TakeMediaPanel';
+import { captureUploader } from '@/services/captureUpload';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getMediaCatalog } from '@/services/mediaCatalog';
@@ -19,7 +21,7 @@ export default function MediaLibraryScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     setLoading(true);
-    void getMediaCatalog().then((result) => {
+    void captureUploader.recover().then(() => getMediaCatalog()).then((result) => {
       if (active) {
         setAssets(result.assets);
         setProblems(result.problems);
@@ -47,6 +49,7 @@ export default function MediaLibraryScreen() {
             onPress={() => router.push(`/media/${encodeURIComponent(asset.id)}` as Href)}
           />
         ))}
+        <TakeMediaPanel />
       </ScrollView>
     </ThemedView>
   );

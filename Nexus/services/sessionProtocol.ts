@@ -1,4 +1,5 @@
 // Pure shared contract: imported by the app and Node 24 relay (type stripping).
+import type { CaptureUpload } from '../types/media';
 export const SESSION_PROTOCOL_VERSION = 1;
 export const JOIN_BY_CODE = 'join-by-code';
 export const RELAY_ID = 'nexus-relay';
@@ -40,12 +41,40 @@ export interface Session {
   members: Record<string, SessionMember>;
   take?: CoordinatedTake;
   takeHistory?: CoordinatedTake[];
+  mediaAngles?: Record<string, TakeMediaAngle>;
+}
+export interface TakeMediaAngle {
+  clipId: string;
+  takeId: string;
+  deviceId: string;
+  nodeId: string;
+  bytes: number;
+  revision: number;
+  upload: CaptureUpload;
+  role?: string;
+}
+export function isCloudinaryVideoUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 4096 && /^https:\/\/res\.cloudinary\.com\/[A-Za-z0-9_-]+\/video\/upload\/[^\s]+$/.test(value);
+}
+export function isCaptureUpload(value: unknown): value is CaptureUpload {
+  if (!isRecord(value)) return false;
+  if (['local', 'queued', 'uploading'].includes(String(value.state))) return Object.keys(value).length === 1;
+  if (value.state === 'failed' || value.state === 'uncertain') return Object.keys(value).length === 2 && typeof value.error === 'string' && value.error.length <= 512;
+  return value.state === 'uploaded' && Object.keys(value).length === 3 && typeof value.publicId === 'string' &&
+    value.publicId.trim().length > 0 && value.publicId.length <= 512 && isCloudinaryVideoUrl(value.url);
+}
+export function isTakeMediaAngle(value: unknown): value is TakeMediaAngle {
+  return isRecord(value) && Object.keys(value).every((key) => ['clipId', 'takeId', 'deviceId', 'nodeId', 'bytes', 'revision', 'upload', 'role'].includes(key)) &&
+    isProtocolId(value.clipId) && isProtocolId(value.takeId) && isProtocolId(value.deviceId) && isProtocolId(value.nodeId) &&
+    Number.isSafeInteger(value.bytes) && Number(value.bytes) > 0 && Number.isSafeInteger(value.revision) && Number(value.revision) >= 0 &&
+    isCaptureUpload(value.upload) && (value.role === undefined || isNodeRole(value.role));
 }
 export type RecordingCommand = Extract<SessionRequest, { type: 'START_RECORDING' | 'STOP_RECORDING' }>;
 export type RecordingPhase = 'starting' | 'recording' | 'saving' | 'saved' | 'error';
 export interface CaptureReference { id: string; localUri: string; bytes: number }
 export interface TakeNode {
   nodeId: string;
+  role?: string;
   phase: 'pending' | RecordingPhase | 'disconnected';
   startReceived: boolean;
   stopReceived: boolean;
@@ -98,11 +127,13 @@ export type SessionRequest =
   | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'START_RECORDING' | 'STOP_RECORDING' })
   | (NexusMessage<{ takeId: string; acknowledgeUnknown: true }> & { type: 'CLOSE_INTERRUPTED_TAKE' })
   | (NexusMessage<{ requestId: string; takeId: string; command: 'START_RECORDING' | 'STOP_RECORDING' }> & { type: 'RECORDING_ACK'; targetId: string })
-  | (NexusMessage<RecordingReport> & { type: 'RECORDING_STATE'; targetId: string });
+  | (NexusMessage<RecordingReport> & { type: 'RECORDING_STATE'; targetId: string })
+  | (NexusMessage<TakeMediaAngle> & { type: 'MEDIA_STATE'; targetId: string });
 export type SessionEvent =
   | (NexusMessage<{ requestId: string; session: Session; pending?: JoinRequest[] }> & { type: 'SESSION_SNAPSHOT' })
   | (NexusMessage<{ requestId: string; deviceId: string }> & { type: 'SESSION_JOIN_PENDING' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_REJECTED' | 'SESSION_CLOSED' })
+  | (NexusMessage<{ requestId: string; angle: TakeMediaAngle }> & { type: 'MEDIA_ACCEPTED' })
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
 
 export function isNodeRole(value: unknown): value is string {
@@ -188,6 +219,8 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
         ['START_RECORDING', 'STOP_RECORDING'].includes(String(value.payload.command));
     case 'RECORDING_STATE':
       return !!value.targetId && isRecordingReport(value.payload);
+    case 'MEDIA_STATE':
+      return !!value.targetId && value.sessionId !== JOIN_BY_CODE && value.payload.role === undefined && isTakeMediaAngle(value.payload);
     default: return false;
   }
 }
@@ -198,6 +231,7 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
   const p = value.payload;
   switch (value.type) {
     case 'SESSION_ERROR': return typeof p.code === 'string';
+    case 'MEDIA_ACCEPTED': return isTakeMediaAngle(p.angle);
     case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId);
     case 'SESSION_JOIN_REJECTED':
     case 'SESSION_CLOSED': return true;
@@ -206,7 +240,9 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
       if (!isRecord(s) || s.sessionId !== value.sessionId || !isProtocolId(s.controllerId) ||
           !isJoinCode(s.code) || !['draft', 'joining', 'preparing', 'ready', 'recording', 'finishing', 'completed', 'failed'].includes(String(s.state)) ||
           !isRecord(s.members) || (s.take !== undefined && !isCoordinatedTake(s.take)) ||
-          (s.takeHistory !== undefined && (!Array.isArray(s.takeHistory) || !s.takeHistory.every(isCoordinatedTake)))) return false;
+          (s.takeHistory !== undefined && (!Array.isArray(s.takeHistory) || !s.takeHistory.every(isCoordinatedTake))) ||
+          (s.mediaAngles !== undefined && (!isRecord(s.mediaAngles) || !Object.entries(s.mediaAngles).every(([key, angle]) =>
+            isTakeMediaAngle(angle) && key === `${angle.deviceId}:${angle.clipId}`)))) return false;
       const members = Object.entries(s.members);
       return members.filter(([, m]) => isRecord(m) && m.kind === 'controller').length === 1 &&
         members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&

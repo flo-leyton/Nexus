@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
 import type { RemoteMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
+import { isCloudinaryVideoUrl } from './sessionProtocol';
 
 export type UploadMediaAssetInput = {
   uri: string;
@@ -12,6 +13,9 @@ export type UploadMediaAssetInput = {
   sessionId: string;
   source: NexusMediaSource;
   file?: Blob;
+  assetId?: string;
+  publicId?: string;
+  expectedBytes?: number;
 };
 
 type CloudinaryUploadResponse = {
@@ -75,6 +79,7 @@ async function uploadFromWeb(
   const form = new FormData();
   form.append('file', input.file, input.fileName);
   form.append('upload_preset', uploadPreset);
+  if (input.publicId) form.append('public_id', input.publicId);
   form.append('context', `nexus_session_id=${input.sessionId}|nexus_source=${input.source}`);
   const response = await expoFetch(endpoint, { method: 'POST', body: form });
   return { status: response.status, statusText: response.statusText, body: await response.text() };
@@ -93,7 +98,8 @@ async function uploadFromNative(
     const detail = error instanceof Error ? error.message : 'URI no compatible';
     throw new Error(`LOCAL FILE ERROR: no se pudo leer el archivo seleccionado (${detail}).`);
   }
-  if (!info.exists) throw new Error('LOCAL FILE ERROR: el archivo seleccionado no existe o no puede leerse.');
+  if (!info.exists || info.isDirectory || !Number.isFinite(info.size) || info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado no existe, está vacío o no puede leerse.');
+  if (input.expectedBytes !== undefined && info.size !== input.expectedBytes) throw new Error('LOCAL FILE ERROR: el tamaño del original cambió desde su verificación.');
   if (typeof info.size === 'number' && info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado está vacío.');
   if (typeof info.size === 'number' && info.size > MAX_UPLOAD_BYTES) {
     throw new Error('LOCAL FILE ERROR: el archivo supera el máximo de 80 MB.');
@@ -106,6 +112,7 @@ async function uploadFromNative(
     mimeType,
     parameters: {
       upload_preset: uploadPreset,
+      ...(input.publicId ? { public_id: input.publicId } : {}),
       context: `nexus_session_id=${input.sessionId}|nexus_source=${input.source}`,
     },
   });
@@ -139,7 +146,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('LOCAL FILE ERROR:')) throw error;
     const detail = error instanceof Error ? error.message : 'sin detalle';
-    throw new Error(`NETWORK ERROR: no se pudo conectar con Cloudinary (${detail}).`);
+    throw Object.assign(new Error(`NETWORK ERROR: no se confirmó la transferencia con Cloudinary (${detail}). Puede haber recibido el archivo.`), { code: 'UPLOAD_UNCERTAIN' });
   }
 
   const responseBody = response.body;
@@ -150,7 +157,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
     payload = JSON.parse(responseBody) as CloudinaryUploadResponse;
   } catch {
     if (responseOk) {
-      throw new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): la respuesta no es JSON válido.`);
+      throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): la respuesta no es JSON válido; subida sin confirmar.`), { code: 'UPLOAD_UNCERTAIN' });
     }
   }
 
@@ -164,12 +171,16 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
     typeof payload.secure_url !== 'string' ||
     (payload.resource_type !== 'image' && payload.resource_type !== 'video')
   ) {
-    throw new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`);
+    throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`), { code: 'UPLOAD_UNCERTAIN' });
+  }
+  if (input.publicId && (payload.public_id !== input.publicId || payload.resource_type !== 'video' ||
+      !isCloudinaryVideoUrl(payload.secure_url) || typeof payload.bytes !== 'number' || payload.bytes <= 0)) {
+    throw Object.assign(new Error('CLOUDINARY RESPONSE ERROR: no se confirmó el vídeo con la identidad esperada. El preset debe permitir y conservar public_id.'), { code: 'UPLOAD_UNCERTAIN' });
   }
 
   return {
     storage: 'remote',
-    id: Crypto.randomUUID(),
+    id: input.assetId ?? Crypto.randomUUID(),
     sessionId: input.sessionId,
     source: input.source,
     resourceType: payload.resource_type as NexusMediaResourceType,
@@ -180,7 +191,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
     width: optionalNumber(payload.width),
     height: optionalNumber(payload.height),
     duration: optionalNumber(payload.duration),
-    role: 'controller-import',
+    ...(input.source === 'import' ? { role: 'controller-import' } : {}),
     createdAt: new Date().toISOString(),
   };
 }

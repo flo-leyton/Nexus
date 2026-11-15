@@ -4,12 +4,12 @@ import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 
-export function LocalVideoPlayer({ uri }: { uri: string }) {
+export function LocalVideoPlayer({ uri, remote = false }: { uri: string; remote?: boolean }) {
   const player = useVideoPlayer(uri);
   const { status, error } = useEvent(player, 'statusChange', { status: player.status });
   return <View style={styles.panel}>
     <VideoView player={player} nativeControls contentFit="contain" surfaceType="textureView" style={styles.video} />
-    <ThemedText>Reproductor: {status === 'readyToPlay' ? 'Listo para reproducir; pulsa ▶' : status === 'loading' ? 'Cargando archivo local…' : status}</ThemedText>
+    <ThemedText>Reproductor {remote ? 'remoto (Internet)' : 'local'}: {status === 'readyToPlay' ? 'Listo para reproducir; pulsa ▶' : status === 'loading' ? 'Cargando vídeo…' : status}</ThemedText>
     {error && <ThemedText>No se pudo reproducir: {error.message}</ThemedText>}
   </View>;
 }

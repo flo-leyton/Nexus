@@ -339,3 +339,72 @@ sin duplicar capturas. No hay dependencias ni cambios nativos nuevos respecto a 
 envía RECORDING_STATE, no crea ACK y no cambia tomas cerradas/históricas. Un clip
 offline de SIDE puede verse aquí y seguir no confirmado en el Controller.
 Subidas reales y agregación remota quedan para H3.2/H3.3.
+
+## H3.2/H3.3 · Subida de originales y ángulos remotos
+
+`captureUploader.upload(catalogId)` verifica propietario por deviceId, original
+existente y bytes positivos iguales al sidecar antes de llamar a
+`uploadMediaAsset`. El adaptador vuelve a comprobar archivo/tamaño y conserva
+el máximo de 80 MB. Sólo sube el Node dueño, por HTTPS directo a Cloudinary.
+No circulan archivos binarios, URI locales ni credenciales privadas en MEDIA_STATE.
+`captureUploader.publish(catalogId)` comunica el estado ya persistido sin subir
+otra vez. No crea otro socket; usa `getSessionService().reportMedia(...)`.
+
+Cada captura conserva su identidad H3.1, original y participación histórica.
+`upload` añade `uncertain`: conexión perdida, respuesta incompleta/incompatible
+o app cerrada durante uploading significan **subida sin confirmar**, nunca éxito.
+Los estados y `uploadRevision` se guardan por clip. Reabrir recupera interrupted
+uploading como uncertain, sin reenvío automático. Un fallo explícito queda failed.
+La revisión aumenta al cambiar de estado, no al redescubrir el sidecar.
+Dos pulsaciones simultáneas comparten la misma operación. Los reintentos conservan
+catalogId y solicitan `public_id = nexus/<SHA256(catalogId)>`; unsigned upload no
+sobrescribe un recurso existente. La app exige respuesta validada con ese public_id,
+resource_type video, bytes positivos y secure_url de vídeo HTTPS de Cloudinary.
+El preset debe permitir/conservar public_id; si lo cambia no se anuncia éxito.
+No se inventa ni reconstruye una URL para resolver una respuesta perdida.
+
+Configuración pública: `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` y
+`EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` (preset unsigned para vídeo que admita el
+public_id enviado). No se usa API secret, Firebase ni otra base remota. Las
+importaciones siguen usando el adaptador y sus IDs previos. Los manuales H1
+(takeId null) se pueden subir/reproducir, pero no se atribuyen a una Take.
+
+Protocolo v1 ampliado:
+
+- `MEDIA_STATE`, Node → relay, targetId obligatorio = Controller de la Session.
+  Payload: `{ clipId, takeId, deviceId, nodeId, bytes, revision, upload }`.
+  clipId es el id local original, no catalogId. revision es entero seguro >= 0.
+  uploaded exige `{ state: 'uploaded', publicId, url }`; failed/uncertain incluyen
+  error (máximo 512 caracteres). No admite role enviado por el Node.
+- El relay valida envelope, conexión/emisor, Session, membresía actual Node,
+  deviceId propio, destino y participación congelada deviceId + nodeId en la Take
+  actual o histórica. Si H2 recibió captura, exige su clipId y bytes exactos.
+  Un Node que reingresa autorizado puede comunicar una captura de su participación
+  antigua; el payload mantiene el nodeId original, nunca el nuevo. No autoriza
+  RECORDING_STATE antiguo ni reescribe resultados desconocidos de H2.
+- Cada entrada de `session.mediaAngles` usa `${deviceId}:${clipId}`. Otra toma,
+  nodeId o tamaño para esa misma identidad se rechaza. Repetir la misma revisión
+  y estado es idempotente; revisiones menores no pisan el estado nuevo; revisión
+  igual con contenido distinto se rechaza. Roles se congelan al REC y el relay
+  los añade cuando están disponibles, sin aceptar roles declarados por el clip.
+- `MEDIA_ACCEPTED { requestId, angle }` confirma almacenamiento del metadato por
+  el relay. SESSION_SNAPSHOT/SESSION_GET incluyen mediaAngles: todos al Controller,
+  sólo los propios al Node. La subida confirmada se conserva aunque no llegue
+  MEDIA_ACCEPTED; la UI ofrece comunicar otra vez sin repetir el HTTP.
+
+El cliente Controller persiste cada ángulo en una clave propia mediante
+`saveTakeMedia`; las escrituras por identidad se serializan y descartan versiones
+viejas. `getTakeMedia(sessionId?)` recupera el conjunto al reabrir Medios/Session.
+La pantalla agrupa por sessionId + takeId, muestra deviceId, nodeId original y
+rol de la toma; sólo uploaded habilita reproducción remota. El estado de medios
+es un registro separado de take/takeHistory: **REC ACK, STOP ACK, saved y resultado
+desconocido no cambian al subir ni al recibir una referencia**.
+
+Reabrir Session conserva la consulta refreshSession ya existente. Las referencias
+persistidas se pueden abrir desde Medios sin membresía ni Session viva. No restauran
+membresía ni historial H2. Si el Controller sale/cierra la app, la Session puede
+terminar; el relay sigue en memoria y un reinicio pierde las tomas. Publicar un
+clip histórico exige que esa Session y Take aún existan y reingreso autorizado;
+su original y subida remota permanecen accesibles localmente aunque ya no existan.
+La validación del relay es del protocolo y propietario dentro de la LAN; no es
+una consulta independiente a Cloudinary para certificar la respuesta del Node.

@@ -22,6 +22,7 @@ export type CaptureUpload =
   | { state: 'queued' }
   | { state: 'uploading' }
   | { state: 'uploaded'; publicId: string; url: string }
+  | { state: 'uncertain'; error: string }
   | { state: 'failed'; error: string };
 
 export type RemoteMediaAsset = MediaAssetBase & {
@@ -43,6 +44,7 @@ export type LocalCaptureMediaAsset = MediaAssetBase & {
   bytes: number;
   audio: false;
   upload: CaptureUpload;
+  uploadRevision?: number;
   // Recomputed on read, never accepted as proof of a file or relay confirmation.
   localAvailable: boolean;
   localError: string | null;
@@ -52,5 +54,5 @@ export type NexusMediaAsset = RemoteMediaAsset | LocalCaptureMediaAsset;
 
 export function mediaUploadLabel(asset: NexusMediaAsset): string {
   if (asset.storage === 'remote') return 'Subida completada';
-  return { local: 'Sólo local', queued: 'Subida pendiente', uploading: 'Subiendo', uploaded: 'Subida completada', failed: 'Error de subida' }[asset.upload.state];
+  return { local: 'Sólo local', queued: 'Subida pendiente', uploading: 'Subiendo', uploaded: 'Subida completada', failed: 'Error de subida', uncertain: 'Subida sin confirmar' }[asset.upload.state];
 }
