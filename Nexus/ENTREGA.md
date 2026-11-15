@@ -1079,3 +1079,22 @@ Aquí funciona la consulta con sessionId conocido (ruta conservada) y reingreso
 manual; no se promete que cerrar/reabrir toda la app encuentre automáticamente la
 Session. H3.4d desplegará Render/probará APK sin laptop. **H3.4b y H3 global no se
 marcan verificados físicamente por estas pruebas automatizadas.**
+
+### 2026-11-15 · H3.4b · Corrección del arranque Auth → RTDB
+
+Base desarrollo@0382000dc95890a9ef0fe2c67eb07ba7b0080aa4. La llamada getDatabase(app,
+url) no acepta esa URL como segundo argumento: con la app creada primero para Auth,
+sin databaseURL en options, fallaba «Can't determine Firebase Database URL».
+sessionStorage.js ahora importa y usa getDatabaseWithUrl(env.FIREBASE_DATABASE_URL,
+getRelayAdminApp(env)), conservando la instancia Admin ya inicializada.
+
+Regresión con Firebase Admin SDK real: inicializa Auth primero, comprueba ausencia
+de databaseURL por defecto y crea el almacén con la URL explícita en la misma app.
+Usa credenciales sintéticas y Database offline, sin verificar tokens ni acceder a
+RTDB/red. Se ejecutó antes del cambio (FAIL con el error citado) y después (PASS).
+
+Validaciones: TypeScript PASS, lint/ESLint ampliado PASS, **81 PASS / 1 SKIP / 0 fallos**
+en la suite completa; el SKIP sigue siendo el emulador no disponible. Diff-check
+del commit PASS. Pendiente repetir npm run relay con la configuración privada real
+y comprobar /health ready tras recuperar RTDB. No se tocaron credenciales, IP/PORT,
+datos remotos ni los dos cambios ajenos preparados; no se hace push.

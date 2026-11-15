@@ -39,7 +39,7 @@ function createFirebaseStore(env = process.env) {
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
       (url.protocol !== 'https:' && !env.FIREBASE_DATABASE_EMULATOR_HOST)) throw new Error('FIREBASE_DATABASE_URL debe ser HTTPS (HTTP sólo con emulador explícito).');
   const { getRelayAdminApp } = require('./firebaseAdmin');
-  const { getDatabase } = require('firebase-admin/database');
-  return createRealtimeStore(getDatabase(getRelayAdminApp(env), env.FIREBASE_DATABASE_URL).ref(ROOT));
+  const { getDatabaseWithUrl } = require('firebase-admin/database');
+  return createRealtimeStore(getDatabaseWithUrl(env.FIREBASE_DATABASE_URL, getRelayAdminApp(env)).ref(ROOT));
 }
 module.exports = { createFirebaseStore, createRealtimeStore, emptyDocument, ROOT };

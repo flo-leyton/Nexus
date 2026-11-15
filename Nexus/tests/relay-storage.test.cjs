@@ -258,3 +258,27 @@ test('H3.4b: RTDB adapter awaits atomic CAS, rejects permission errors, unknown 
   assert.equal((await warm.load()).revision, 5); await warm.commit(5, { schemaVersion: 1, revision: 6 });
   warm.close(); assert.equal(detached, true);
 });
+
+test('H3.4b regression: Auth-first Admin initialization uses the explicit RTDB URL on the same app', async (t) => {
+  const { initializeApp, deleteApp } = require('firebase-admin/app');
+  const { getAuth } = require('firebase-admin/auth');
+  const { getDatabaseWithUrl } = require('firebase-admin/database');
+  const { createTokenVerifier, getRelayAdminApp } = require('../server/firebaseAdmin');
+  const env = { FIREBASE_PROJECT_ID: 'demo-nexus-startup',
+    FIREBASE_DATABASE_URL: 'https://demo-nexus-startup-default-rtdb.firebaseio.com' };
+  // Real Admin SDK, synthetic credentials, no token verification or database IO.
+  const app = initializeApp({ projectId: env.FIREBASE_PROJECT_ID, credential: {
+    getAccessToken: async () => { throw new Error('This startup regression must not request credentials or access the network.'); },
+  } }, 'nexus-relay');
+  t.after(() => deleteApp(app));
+  assert.equal(typeof createTokenVerifier(env), 'function');
+  assert.equal(getAuth(app).app, app);
+  assert.equal(app.options.databaseURL, undefined); // Auth startup did not configure a default Database URL.
+  const database = getDatabaseWithUrl(env.FIREBASE_DATABASE_URL, app);
+  database.goOffline();
+  const store = createFirebaseStore(env); // Old getDatabase(app, url) fails here.
+  assert.equal(getRelayAdminApp(env), app);
+  assert.equal(database.ref('nexusStudio/relayV1').toString(), `${env.FIREBASE_DATABASE_URL}/nexusStudio/relayV1`);
+  assert.equal(typeof store.load, 'function'); assert.equal(typeof store.commit, 'function');
+  store.close();
+});
