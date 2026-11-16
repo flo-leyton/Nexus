@@ -1,3 +1,5 @@
+import { Button, TextInput, useTheme, type MD3Theme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { onValue, ref } from 'firebase/database';
@@ -7,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
 } from 'react-native';
 
 import { auth, database } from '@/app/firebase';
@@ -35,6 +36,9 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function AccountScreen() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const styles = createStyles(colors);
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
@@ -44,7 +48,7 @@ export default function AccountScreen() {
   const [loading, setLoading] = useState(Boolean(auth));
   const [actionLoading, setActionLoading] = useState(false);
   const [collision, setCollision] = useState(false);
-  const [message, setMessage] = useState(auth ? 'Firebase listo.' : 'Firebase no configurado. Studio puede funcionar sin cuenta.');
+  const [message, setMessage] = useState(auth ? 'Firebase listo.' : 'Firebase no configurado. Studio requiere una identidad autenticada.');
 
   useEffect(() => {
     if (!auth) return;
@@ -142,11 +146,11 @@ export default function AccountScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]}>
         <ThemedView style={styles.header}>
           <ThemedText type="title">NEXUS</ThemedText>
           <ThemedText style={styles.subtitle}>
-            Firebase Account
+            Cuenta e identidad
           </ThemedText>
         </ThemedView>
 
@@ -154,33 +158,34 @@ export default function AccountScreen() {
           accessibilityRole="button"
           onPress={() => router.push('/notifications-test')}
           style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-          <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>
+          <ThemedText style={[styles.buttonText, { color: colors.onSecondaryContainer }]}>
             Prueba de notificaciones
           </ThemedText>
         </Pressable>
 
+        <Button mode="text" icon="information-outline" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/modal')}>Diagnostico: modal heredado</Button>
         <StudioIdentityPanel />
         {(!user || user.isAnonymous) ? (
           <ThemedView style={styles.panel}>
             <ThemedText type="subtitle">Autenticación</ThemedText>
             {user?.isAnonymous && <ThemedText>Tu identidad Studio es anónima. Crear/vincular una cuenta nueva conserva el UID. Una cuenta existente requiere cambio y transferencia explícitos; no cierres esta app antes de resolverlo.</ThemedText>}
 
-            <TextInput
+            <TextInput mode="outlined"
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
               onChangeText={setEmail}
-              placeholder="Email"
-              style={styles.input}
+              label="Email" accessibilityLabel="Email"
+              style={{ backgroundColor: colors.surface }}
               value={email}
             />
 
-            <TextInput
+            <TextInput mode="outlined"
               autoCapitalize="none"
               onChangeText={setPassword}
-              placeholder="Contraseña"
+              label="Contraseña" accessibilityLabel="Contraseña"
               secureTextEntry
-              style={styles.input}
+              style={{ backgroundColor: colors.surface }}
               value={password}
             />
 
@@ -193,9 +198,7 @@ export default function AccountScreen() {
                 pressed && styles.pressed,
               ]}>
               <ThemedText
-                lightColor="#FFFFFF"
-                darkColor="#FFFFFF"
-                style={styles.buttonText}>
+                style={[styles.buttonText, { color: colors.onPrimary }]}>
                 CREAR CUENTA
               </ThemedText>
             </Pressable>
@@ -209,9 +212,7 @@ export default function AccountScreen() {
                 pressed && styles.pressed,
               ]}>
               <ThemedText
-                lightColor="#FFFFFF"
-                darkColor="#FFFFFF"
-                style={styles.buttonText}>
+                style={[styles.buttonText, { color: colors.onSecondaryContainer }]}>
                 INICIAR SESIÓN
               </ThemedText>
             </Pressable>
@@ -270,9 +271,7 @@ export default function AccountScreen() {
                 pressed && styles.pressed,
               ]}>
               <ThemedText
-                lightColor="#FFFFFF"
-                darkColor="#FFFFFF"
-                style={styles.buttonText}>
+                style={[styles.buttonText, { color: colors.onError }]}>
                 CERRAR SESIÓN
               </ThemedText>
             </Pressable>
@@ -291,7 +290,7 @@ export default function AccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: MD3Theme['colors']) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -340,21 +339,21 @@ const styles = StyleSheet.create({
 
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#474fe7',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 15,
   },
 
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#48525a',
+    backgroundColor: colors.secondaryContainer,
     borderRadius: 12,
     paddingVertical: 15,
   },
 
   logoutButton: {
     alignItems: 'center',
-    backgroundColor: '#b42318',
+    backgroundColor: colors.error,
     borderRadius: 12,
     paddingVertical: 15,
   },
@@ -372,7 +371,7 @@ const styles = StyleSheet.create({
   },
 
   infoBox: {
-    borderColor: '#687076',
+    borderColor: colors.outlineVariant,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 8,

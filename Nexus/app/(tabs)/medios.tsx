@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StudioUI } from '@/constants/studio-ui';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-import { MediaAssetCard } from '@/components/MediaAssetCard';
+import { LibraryContents } from '@/components/navigation/LibraryContents';
 import { TakeMediaPanel } from '@/components/TakeMediaPanel';
 import { captureUploader } from '@/services/captureUpload';
 import { ThemedText } from '@/components/themed-text';
@@ -37,7 +37,7 @@ export default function MediaLibraryScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]}>
-        <ThemedText type="title">Medios</ThemedText>
+        <ThemedText type="title">Biblioteca</ThemedText>
         <ThemedText style={styles.subtitle}>Capturas de este teléfono e importaciones anteriores. Esta lista no confirma resultados de tomas en el Controller.</ThemedText>
         {problems.map((problem, index) => <ThemedText key={index}>{problem}</ThemedText>)}
         {loading ? <ThemedText>Cargando catálogo...</ThemedText> : assets.length === 0 ? (
@@ -45,13 +45,7 @@ export default function MediaLibraryScreen() {
             <ThemedText type="subtitle">La biblioteca está vacía</ThemedText>
             <ThemedText>Graba un clip en un Node o importa una imagen o vídeo desde Studio.</ThemedText>
           </ThemedView>
-        ) : assets.map((asset) => (
-          <MediaAssetCard
-            asset={asset}
-            key={asset.id}
-            onPress={() => router.push(`/media/${encodeURIComponent(asset.id)}` as Href)}
-          />
-        ))}
+        ) : <LibraryContents assets={assets} onSession={id => router.push(`/session/${encodeURIComponent(id)}` as Href)} onOpen={asset => router.push(`/media/${encodeURIComponent(asset.id)}` as Href)} />}
         <TakeMediaPanel />
       </ScrollView>
     </ThemedView>
