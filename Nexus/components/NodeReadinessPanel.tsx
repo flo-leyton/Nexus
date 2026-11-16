@@ -2,9 +2,10 @@ import { useIsFocused } from '@react-navigation/native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
+import { NodeCaptureView } from './session/NodeCaptureView';
+import { sessionStyles } from './session/SessionUI';
 import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture } from '@/services/localCaptures';
 import { coordinateCapture } from '@/services/coordinatedCapture';
@@ -111,44 +112,17 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     try { void Promise.resolve(action()).catch((error: unknown) => setControlError(error instanceof Error ? error.message : String(error))); }
     catch (error) { setControlError(error instanceof Error ? error.message : String(error)); }
   };
-  return (
-    <View style={styles.panel}>
-      <ThemedText type="subtitle">Captura local de este Node</ThemedText>
-      {takeNode && <ThemedText selectable>Toma del Controller: {coordinatedTake?.takeId}</ThemedText>}
-      <ThemedText accessibilityLiveRegion="polite">Estado: {phaseLabels[preparation.phase]}</ThemedText>
-      <ThemedText accessibilityLiveRegion="polite">{reasons.length === 0 ? 'READY' : `NO LISTO: ${reasons.join(' · ')}`}</ThemedText>
-      <ThemedText>Permiso: {readiness.cameraPermission} · Cámara: {readiness.cameraAvailable === null ? 'sin comprobar' : readiness.cameraAvailable ? 'disponible' : 'no disponible'} · Motor: {busy ? 'ocupado' : readiness.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
-      {self?.requiresReadyConfirmation && <Pressable accessibilityRole="button" disabled={!accepted || busy || readinessReasons(engine.getReadiness()).length > 0} onPress={() => run(() => {
-        service.confirmNodeReady(sessionId, controllerId, engine.getReadiness());
-      })} style={styles.button}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONFIRMAR READY PARA NUEVA TOMA</ThemedText></Pressable>}
-      {canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={styles.preview}
-        onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
-        onMountError={(event) => engine.cameraFailed(generation, event.message)} />}
-      <Pressable accessibilityRole="button" disabled={!canRecord} onPress={() => run(() => engine.start({ sessionId, deviceId, nodeId }))} style={[styles.button, !canRecord && styles.disabled]}>
-        <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">GRABAR VÍDEO SIN AUDIO</ThemedText>
-      </Pressable>
-      <Pressable accessibilityRole="button" disabled={preparation.phase !== 'recording'} onPress={() => run(() => engine.stop())} style={[styles.stop, preparation.phase !== 'recording' && styles.disabled]}>
-        <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">DETENER Y GUARDAR</ThemedText>
-      </Pressable>
-      {preparation.pendingSave && !busy && <Pressable accessibilityRole="button" onPress={() => run(() => engine.retrySave())} style={styles.button}>
-        <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REINTENTAR GUARDADO</ThemedText>
-      </Pressable>}
-      {!!(preparation.captureError || controlError) && <ThemedText accessibilityLiveRegion="polite">{preparation.captureError || controlError}</ThemedText>}
-      {preparation.pendingSave && <ThemedText>El clip aún no está guardado. Conserva esta pantalla y reintenta el guardado.</ThemedText>}
-      {Platform.OS === 'web' && <ThemedText>La captura persistente se prueba en Android o iOS.</ThemedText>}
-      {!accepted && <ThemedText>La membresía no está confirmada. Puedes detener y guardar una grabación activa; vuelve a ingresar para iniciar otra.</ThemedText>}
-      <Pressable accessibilityRole="button" disabled={busy || !focused || appState !== 'active' || preparation.pendingSave} onPress={() => run(() => engine.prepare(readiness.cameraPermission !== 'granted' && preparation.canAskAgain))} style={styles.button}>
-        <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">{readiness.cameraPermission === 'granted' ? 'VOLVER A PREPARAR CÁMARA' : 'COMPROBAR / CONCEDER PERMISO'}</ThemedText>
-      </Pressable>
-      {!preparation.canAskAgain && readiness.cameraPermission !== 'granted' && <ThemedText>Concede permiso de cámara en los ajustes del teléfono y vuelve a la Session.</ThemedText>}
-      {!!reportError && <ThemedText>{reportError}</ThemedText>}
-      <ThemedText>Vídeo silenciado. Al salir a segundo plano se intenta detener y guardar; no se graba en segundo plano.</ThemedText>
-    </View>
-  );
+  return <NodeCaptureView preparation={preparation} phaseLabel={phaseLabels[preparation.phase]} reasons={reasons} busy={busy}
+    accepted={accepted} requiresConfirmation={!!self?.requiresReadyConfirmation}
+    confirmDisabled={!accepted || busy || readinessReasons(engine.getReadiness()).length > 0}
+    canRecord={canRecord} prepareDisabled={busy || !focused || appState !== 'active' || preparation.pendingSave}
+    focused={focused} isWeb={Platform.OS === 'web'} reportError={reportError} controlError={controlError}
+    takeId={takeNode ? coordinatedTake?.takeId : undefined}
+    camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={sessionStyles.preview}
+      onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
+      onMountError={(event) => engine.cameraFailed(generation, event.message)} />}
+    onConfirmReady={() => run(() => { service.confirmNodeReady(sessionId, controllerId, engine.getReadiness()); })}
+    onRecord={() => run(() => engine.start({ sessionId, deviceId, nodeId }))}
+    onStop={() => run(() => engine.stop())} onRetrySave={() => run(() => engine.retrySave())}
+    onPrepare={() => run(() => engine.prepare(readiness.cameraPermission !== 'granted' && preparation.canAskAgain))} />;
 }
-const styles = StyleSheet.create({
-  panel: { gap: 10 }, preview: { height: 180, borderRadius: 12 },
-  button: { backgroundColor: '#474FE7', borderRadius: 12, padding: 14, alignItems: 'center' },
-  stop: { backgroundColor: '#B42318', borderRadius: 12, padding: 14, alignItems: 'center' },
-  disabled: { opacity: 0.45 },
-});

@@ -1391,3 +1391,39 @@ vacío. Commit identificable con `git log -1 --format=%H --grep='feat(ui): imple
 Incluye documentación, capturas y propuesta aprobada; sin configuración de red ni
 cambios funcionales. Session recibe sólo un plan hasta nueva autorización. La
 prueba física sigue pendiente; no se cambian los estados H1–H4.
+
+### 2026-11-16 · UX Session · Etapa 2A autorizada
+
+Base 43d0d0b con diff local sin commit para revisión: encabezado común, filas de
+miembros en Controller y presentación MD3 del editor de rol. Misma lógica de
+Session/rol y mismo JSX de montaje Node; ControllerTakePanel y NodeReadinessPanel
+intactos. Sin cambios de navegación, servicios, configuración de red ni integración H4.
+TypeScript, lint/ESLint y diff-check PASS; suite **103 PASS / 1 SKIP / 0 fallos**.
+Capturas de componentes reales con datos sintéticos READY/NO LISTO/offline y tema
+claro, más encabezado en ruta real con red externa bloqueada. El editor se comprueba
+con servicio inerte: maxLength 64, espera de ACK y disabled, sin envío real.
+Documentación/capturas: docs/ux/implementation/ETAPA_2A.md y session-2a-gallery.html.
+Prueba con cuentas/sesiones reales, dos Nodes, cámara y accesibilidad nativa PENDIENTE.
+No se marcan hitos funcionales verificados. Detenerse antes de 2B hasta autorización.
+
+### 2026-11-16 · UX Session · Etapa 2 consolidada autorizada
+
+La autorización posterior del operador sustituye las pausas 2B/2C: se completa la
+presentación de Controller, Node y todos los paneles auxiliares de Session con
+A / Consola y Paper MD3. Incluye 2A preservada, cámara prioritaria, controles fijos,
+ACK/fases/resultados separados, historial, admisión, roles, importación, originales,
+subidas/reintentos, reingreso y ambos cierres con diálogo y advertencia completa.
+
+Base 43d0d0b; commit consolidado identificable con
+`git log -1 --format=%H --grep='feat(ui): complete Consola Session redesign'`.
+TypeScript, lint/ESLint, diff-check PASS; suite **103 PASS / 1 SKIP / 0 fallos**.
+Inspección estática: **17 PASS**, mismos bloques auditados de estado/efectos,
+cálculos y llamadas a servicio/motor; servicios/configuración/rutas globales intactos.
+QA Expo con datos sintéticos: **12 PASS** de controles/layout; capturas de estados
+Controller/Node/medios y ruta real desconectada con red externa bloqueada. La sonda
+de montaje valida el layout React, no CameraView nativa ni guardado físico.
+
+Informe único: docs/ux/implementation/ETAPA_2.md; galería session-stage2-gallery.html.
+Pruebas Android, TalkBack, cámara, archivos y relay/Auth/RTDB reales PENDIENTES;
+instrucciones exactas y SHA candidato en la entrega al operador. No cambia la
+verificación de H1–H4. Sin integración H4, merge, push, build ni despliegue.

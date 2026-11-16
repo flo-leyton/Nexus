@@ -2,23 +2,29 @@ import * as ImagePicker from 'expo-image-picker';
 import { usePreventRemove } from '@react-navigation/native';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button, Text } from 'react-native-paper';
 
-import { MediaAssetCard, formatBytes } from '@/components/MediaAssetCard';
+import { formatBytes } from '@/components/MediaAssetCard';
+import { SessionPage } from '@/components/session/SessionPage';
+import { SessionSection, SessionDetails, sessionStyles, sessionStateLabel } from '@/components/session/SessionUI';
+import { SessionAdmissionView, SessionCloseView } from '@/components/session/SessionAdmissionView';
+import { SessionImportView } from '@/components/session/SessionImportView';
+import { SessionImportedMediaRow } from '@/components/session/SessionImportedMediaRow';
 import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
+import { SessionHeader } from '@/components/session/SessionHeader';
+import { SessionMemberRow } from '@/components/session/SessionMemberRow';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ControllerTakePanel } from '@/components/ControllerTakePanel';
 import { TakeMediaPanel } from '@/components/TakeMediaPanel';
 import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { uploadMediaAsset } from '@/services/cloudinary';
 import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
-import { readinessReasons, takeFinished, type JoinRequest } from '@/services/sessionProtocol';
+import { takeFinished, type JoinRequest } from '@/services/sessionProtocol';
 import type { RemoteMediaAsset } from '@/types/media';
 import type { CaptureIdentity } from '@/types/capture';
 
@@ -215,179 +221,62 @@ export default function SessionScreen() {
     }
   };
 
-  if (!sessionId) return <ThemedView style={styles.center}><ThemedText>Sesión no válida.</ThemedText></ThemedView>;
+  if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
-  return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
-        <Pressable onPress={() => router.back()}><ThemedText type="link">← Volver a Studio</ThemedText></Pressable>
-        <ThemedView style={styles.header}>
-          <ThemedText style={styles.eyebrow}>SESIÓN</ThemedText>
-          <ThemedText type="title">NEXUS Studio</ThemedText>
-          <ThemedText selectable style={styles.sessionId}>{sessionId}</ThemedText>
-          <ThemedText selectable style={styles.sessionId}>Este dispositivo: {deviceId || 'Preparando identidad…'}</ThemedText>
-          <ThemedText>Relay: {connectionLabel(snapshot?.connection)}</ThemedText>
-          <ThemedText accessibilityLiveRegion="polite" style={sessionFailed || serviceError ? styles.error : styles.status}>{serviceError || sessionNotice}</ThemedText>
-          {connected ? (
-            <Pressable accessibilityRole="button" onPress={refresh} style={styles.secondaryButton}>
-              <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACTUALIZAR SESIÓN</ThemedText>
-            </Pressable>
-          ) : (
-            <Pressable accessibilityRole="button" onPress={connectSocket} style={styles.secondaryButton}>
-              <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CONECTAR AL RELAY</ThemedText>
-            </Pressable>
-          )}
-        </ThemedView>
-
-        {session && <>
-          {!isController && session.members[deviceId]?.online === false && <Pressable accessibilityRole="button" disabled={captureBusy} onPress={() => {
-            try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
-            catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
-          }} style={styles.primaryButton}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REANUDAR PARTICIPACIÓN · CONSERVAR ROL</ThemedText></Pressable>}
-          <ThemedView style={styles.section}>
-            <ThemedText type="subtitle">{isController ? 'Eres el Controller' : 'Ingreso aceptado · Eres un Node'}</ThemedText>
-            <ThemedText selectable style={styles.code}>Código: {session.code}</ThemedText>
-            <ThemedText>Estado de la sesión: {session.state === 'joining' ? 'Ingreso de Nodes' : session.state}</ThemedText>
-          </ThemedView>
-          {isController && <ThemedView style={styles.section}>
-            {service && session && session.state !== 'closed' && <>
-              <Pressable accessibilityRole="button" disabled={!takeFinished(session.take) || !!closeRequest.current} style={styles.primaryButton}
-                onPress={() => setConfirmSessionClose(true)}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">CERRAR SESSION</ThemedText></Pressable>
-              {confirmSessionClose && <View style={{ gap: 10 }}>
-                <ThemedText>Cerrar impide nuevos ingresos y comandos. Conserva el historial y los originales. Finaliza o cierra primero cualquier Take interrumpida.</ThemedText>
-                <Pressable accessibilityRole="button" disabled={!!closeRequest.current} onPress={() => {
-                  try { closeRequest.current = service.closeSession(sessionId); setConfirmSessionClose(false); setSessionNotice('Guardando cierre de Session en el servidor…'); }
-                  catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
-                }}><ThemedText>CONFIRMAR CIERRE DE SESSION</ThemedText></Pressable>
-                <Pressable accessibilityRole="button" onPress={() => setConfirmSessionClose(false)}><ThemedText>Cancelar</ThemedText></Pressable>
-              </View>}
-            </>}
-            <ThemedText type="subtitle">Solicitudes de ingreso</ThemedText>
-            {(snapshot?.pending[sessionId] ?? []).length === 0 && <ThemedText>No hay solicitudes pendientes.</ThemedText>}
-            {(snapshot?.pending[sessionId] ?? []).map((request) => (
-              <View key={request.deviceId} style={styles.member}>
-                <ThemedText>Dispositivo solicitante</ThemedText>
-                <ThemedText selectable style={styles.sessionId}>{request.deviceId}</ThemedText>
-                {request.online === false && <ThemedText>Solicitud conservada; Node offline. Debe reconectar antes de aceptarlo.</ThemedText>}
-                <Pressable accessibilityRole="button" accessibilityLabel={`Aceptar ${request.deviceId}`} disabled={request.online === false || !!deciding[request.deviceId]} onPress={() => decide(request, true)} style={[styles.primaryButton, (request.online === false || deciding[request.deviceId]) && styles.disabled]}>
-                  <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACEPTAR</ThemedText>
-                </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Rechazar ${request.deviceId}`} disabled={!!deciding[request.deviceId]} onPress={() => decide(request, false)} style={[styles.secondaryButton, deciding[request.deviceId] && styles.disabled]}>
-                  <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">RECHAZAR</ThemedText>
-                </Pressable>
-              </View>
-            ))}
-          </ThemedView>}
-          {isController && service && <ThemedView style={styles.section}>
-            <ControllerTakePanel service={service} session={session} />
-          </ThemedView>}
-          <ThemedView style={styles.section}>
-            <ThemedText type="subtitle">Miembros aceptados ({Object.keys(session.members).length})</ThemedText>
-            {Object.values(session.members).map((member) => (
-              <View key={member.deviceId} style={styles.member}>
-                <ThemedText type="defaultSemiBold">{member.kind === 'controller' ? 'Controller' : 'Node'}{member.deviceId === deviceId ? ' · Este dispositivo' : ''}</ThemedText>
-                <ThemedText selectable style={styles.sessionId}>deviceId: {member.deviceId}</ThemedText>
-                <ThemedText>Conexión en Session: {member.online === false ? 'offline; estado conservado' : 'online'}</ThemedText>
-                {member.nodeId && <ThemedText selectable style={styles.sessionId}>nodeId: {member.nodeId}</ThemedText>}
-                {member.kind === 'node' && <>
-                  <ThemedText>Rol: {member.role}</ThemedText>
-                  {member.requiresReadyConfirmation && <ThemedText>Preparación anterior caducada. Este Node debe confirmar READY para una nueva toma.</ThemedText>}
-                  <ThemedText accessibilityLiveRegion="polite">{readinessReasons(member.readiness, connected && member.online !== false).length === 0 ? 'READY' : `NO LISTO: ${readinessReasons(member.readiness, connected && member.online !== false).join(' · ')}`}</ThemedText>
-                  <ThemedText>Permiso: {member.readiness?.cameraPermission ?? 'unknown'} · Cámara: {member.readiness?.cameraAvailable === true ? 'disponible' : member.readiness?.cameraAvailable === false ? 'no disponible' : 'sin comprobar'} · Motor: {member.readiness?.enginePrepared ? 'preparado' : 'sin preparar'}</ThemedText>
-                  {isController && service && member.online !== false && session.state !== 'closed' && <NodeRoleEditor service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
-                </>}
-              </View>
-            ))}
-          </ThemedView>
-        </>}
-
-        {(!session || session.members[deviceId]?.online === false) && service && snapshot && <ThemedView style={styles.section}>
-          <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />
-        </ThemedView>}
-        {isController && session && <ThemedView style={styles.section}>
-          {snapshot?.mediaPersistenceError && <ThemedText>{snapshot.mediaPersistenceError}</ThemedText>}
-          <TakeMediaPanel session={session} />
-        </ThemedView>}
-        {localNode && localNode.sessionId === sessionId && service && <ThemedView style={styles.section}>
-          <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
-            accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
-            onBusyChange={setCaptureBusy} onSaved={captureSaved} />
-        </ThemedView>}
-        {!!deviceId && <ThemedView style={styles.section}><LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} /></ThemedView>}
-        <ThemedView style={styles.section}>
-          <ThemedText type="subtitle">Importar medio</ThemedText>
-          <ThemedText style={styles.note}>Imágenes o videos de hasta 80 MB.</ThemedText>
-          {selected && (
-            <View style={styles.selection}>
-              {selected.type === 'image' ? (
-                <Image source={{ uri: selected.uri }} style={styles.selectedPreview} />
-              ) : (
-                <View style={styles.video}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">VIDEO SELECCIONADO</ThemedText></View>
-              )}
-              <ThemedText type="defaultSemiBold">{selected.fileName ?? 'Medio sin nombre'}</ThemedText>
-              <ThemedText>{formatBytes(selected.fileSize)}</ThemedText>
-            </View>
-          )}
-          <ThemedText style={status === 'error' ? styles.error : styles.status}>Estado: {status} · {message}</ThemedText>
-          {status !== 'uploading' && status !== 'selected' && (
-            <Pressable onPress={selectMedia} style={styles.secondaryButton}>
-              <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>IMPORTAR MEDIO</ThemedText>
-            </Pressable>
-          )}
-          {status === 'selected' && (
-            <View style={styles.actions}>
-              <Pressable onPress={uploadSelected} style={styles.primaryButton}>
-                <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>SUBIR A CLOUDINARY</ThemedText>
-              </Pressable>
-              <Pressable onPress={selectMedia} style={styles.secondaryButton}>
-                <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>CAMBIAR MEDIO</ThemedText>
-              </Pressable>
-            </View>
-          )}
-          {status === 'uploading' && <ThemedText type="defaultSemiBold">Subiendo…</ThemedText>}
-          {status === 'success' && lastSaved && (
-            <View style={styles.actions}>
-              <Pressable onPress={() => router.push(`/media/${lastSaved.id}` as Href)} style={styles.primaryButton}>
-                <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>ABRIR DETALLE</ThemedText>
-              </Pressable>
-              <Pressable onPress={selectMedia} style={styles.secondaryButton}>
-                <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>IMPORTAR OTRO</ThemedText>
-              </Pressable>
-            </View>
-          )}
-        </ThemedView>
-
-        <ThemedView style={styles.mediaSection}>
-          <ThemedText type="subtitle">Medios</ThemedText>
-          {media.length === 0 ? <ThemedText style={styles.note}>Aún no hay medios en esta sesión.</ThemedText> : media.map((asset) => (
-            <MediaAssetCard asset={asset} key={asset.id} onPress={() => router.push(`/media/${asset.id}` as Href)} />
-          ))}
-        </ThemedView>
-      </ScrollView>
-    </ThemedView>
-  );
+  return <SessionPage topInset={insets.top} onBack={() => router.back()}
+    header={<SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
+      role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
+      connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
+      notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
+    capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
+      accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
+      onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
+    members={session && <SessionSection title={isController ? 'Dispositivos de la sesión' : 'Participación'}>
+      <Text variant="bodyMedium">Estado de la sesión: {sessionStateLabel[session.state]}</Text>
+      {isController ? <>
+        <Text variant="bodyMedium">Nodes online: {Object.values(session.members).filter((member) => member.kind === 'node' && member.online !== false).length} / {Object.values(session.members).filter((member) => member.kind === 'node').length} aceptados</Text>
+        {!Object.values(session.members).some((member) => member.kind === 'node') && <Text variant="bodyMedium">Comparte el código de sesión y acepta las solicitudes para incorporar Nodes.</Text>}
+        {Object.values(session.members).filter((member) => member.kind === 'node').map((member) => <View key={member.deviceId} style={{ paddingVertical: 12 }}>
+          <SessionMemberRow member={member} connected={connected} isSelf={member.deviceId === deviceId}>
+            {member.kind === 'node' && service && member.online !== false && session.state !== 'closed' && <NodeRoleEditor compact service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
+          </SessionMemberRow>
+        </View>)}
+        <SessionDetails title="Controller de la sesión">
+          {Object.values(session.members).filter((member) => member.kind === 'controller').map((member) =>
+            <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
+        </SessionDetails>
+      </> : <>
+        <Text variant="bodyMedium">Ingreso aceptado · Node · rol: {session.members[deviceId]?.role}</Text>
+        {session.members[deviceId]?.online === false && <Button mode="contained-tonal" disabled={captureBusy} onPress={() => {
+          try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
+          catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
+        }} contentStyle={sessionStyles.touch}>Reanudar participación · conservar rol</Button>}
+        <SessionDetails title="Miembros aceptados">
+          {Object.values(session.members).map((member) => <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
+        </SessionDetails>
+      </>}
+    </SessionSection>}
+    console={isController && service && session && <ControllerTakePanel service={service} session={session} />}
+    rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
+      <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
+    admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}
+    media={<SessionSection title="Tomas y medios" description="Resultados de toma, originales locales y referencias remotas tienen fuentes diferentes.">
+      {isController && session && <>
+        {snapshot?.mediaPersistenceError && <Text variant="bodyMedium">{snapshot.mediaPersistenceError}</Text>}
+        <TakeMediaPanel session={session} />
+      </>}
+      {!!deviceId && <LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} />}
+      <Text variant="titleMedium">Medios importados y disponibles</Text>
+      {!media.length ? <Text variant="bodyMedium">Aún no hay medios en esta sesión.</Text> : media.map((asset) =>
+        <SessionImportedMediaRow key={asset.id} asset={asset} onPress={() => router.push(`/media/${asset.id}` as Href)} />)}
+    </SessionSection>}
+    imports={<SessionImportView selected={selected} status={status} message={message} hasLastSaved={!!lastSaved}
+      onSelect={selectMedia} onUpload={uploadSelected} onOpenLast={() => { if (lastSaved) router.push(`/media/${lastSaved.id}` as Href); }} />}
+    administration={isController && service && session && session.state !== 'closed' && <SessionCloseView
+      disabled={!takeFinished(session.take) || !!closeRequest.current} pending={!!closeRequest.current} confirming={confirmSessionClose}
+      onRequest={() => setConfirmSessionClose(true)} onCancel={() => setConfirmSessionClose(false)} onConfirm={() => {
+        try { closeRequest.current = service.closeSession(sessionId); setConfirmSessionClose(false); setSessionNotice('Guardando cierre de Session en el servidor…'); }
+        catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
+      }} />}
+  />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  content: { alignSelf: 'center', gap: 20, maxWidth: 680, padding: 24, paddingBottom: 64, width: '100%' },
-  header: { gap: 8 },
-  eyebrow: { fontSize: 12, fontWeight: '800', letterSpacing: 2, opacity: 0.55 },
-  sessionId: { fontFamily: 'monospace', fontSize: 13, opacity: 0.68 },
-  section: { borderColor: '#687076', borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, gap: 12, padding: 18 },
-  mediaSection: { gap: 14 },
-  note: { fontSize: 13, opacity: 0.65 },
-  status: { opacity: 0.78 },
-  error: { color: '#D92D20' },
-  code: { fontSize: 24, lineHeight: 32, fontWeight: '800' },
-  member: { gap: 8, paddingVertical: 10, borderTopColor: '#687076', borderTopWidth: StyleSheet.hairlineWidth },
-  disabled: { opacity: 0.5 },
-  selection: { gap: 8 },
-  selectedPreview: { backgroundColor: '#E4E7EC', borderRadius: 12, height: 220, width: '100%' },
-  video: { alignItems: 'center', backgroundColor: '#20242A', borderRadius: 12, height: 140, justifyContent: 'center' },
-  actions: { gap: 10 },
-  primaryButton: { alignItems: 'center', backgroundColor: '#474FE7', borderRadius: 12, padding: 15 },
-  secondaryButton: { alignItems: 'center', backgroundColor: '#48525A', borderRadius: 12, padding: 15 },
-  buttonText: { fontWeight: '800' },
-});
