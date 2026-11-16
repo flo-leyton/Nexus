@@ -781,3 +781,38 @@ No hay URL real ni APK producido hasta aprobar despliegue/build. Mantener applic
 y firma compatibles al actualizar, sin borrar datos ni perder identidad anónima.
 APK_PREVIEW.md contiene variables públicas, comandos y prueba con laptop apagada.
 Esta preparación no constituye verificación física de H3.4c/H3.4d ni de H3.
+
+## H4 · Autorización de descubrimiento y capacidades heredadas
+
+SESSION_LIST conserva el descubrimiento por UID/deviceId, pero la lista completa
+pending solo se incluye si el solicitante es el Controller de esa Session.
+Los Nodes aceptados no reciben datos de otros solicitantes por LIST, GET, RESUME
+ni snapshots ordinarios. Un solicitante pendiente solo recibe su propio estado;
+un cliente ajeno, incluso con la misma cuenta en otra instalación, no descubre
+ni consulta la Session.
+
+CAPABILITY_COMMAND sigue usando el payload A/B de las pantallas Vibración y
+Linterna. Esas etiquetas no prueban identidad, rol ni destino. El relay resuelve
+el comando en la cola autorizada de Sessions: solo permite un Controller online,
+propietario de una única Session activa, con exactamente un Node aceptado. Exige
+que ese Node esté online en esa participación, con socket/UID/propiedad vigentes.
+No deduce otro destinatario si hay miembros offline. Rechaza sesiones cerradas,
+ambigüedad, emisores Node/ajenos, destinos no reanudados y campos/acciones inválidos.
+El comando válido llega únicamente al Node de esa Session, conservando el payload.
+No se persiste, encola para reconexión, retransmite ni interpreta como REC/STOP.
+
+Compatibilidad que se conserva: vibración A→B (1–10000 ms) y flash_on/flash_off,
+con A como Controller y B como único Node aceptado en Studio. La linterna manual
+se conserva. El estado físico/cámara/permisos sigue siendo responsabilidad del Node.
+La presencia DEVICE_INFO/REQUEST/LEFT conserva su comportamiento global existente;
+no constituye autorización para capacidades ni acceso a una Session.
+
+Coordinación pendiente con DevA: las demos ya no funcionan sin Session ni permiten
+vibración B→A. El protocolo A/B no identifica una Session o un Node concreto cuando
+hay varios; en esos casos se rechaza, sin elegir arbitrariamente. Las pantallas
+muestran el requisito y el rechazo. Para control de capacidades 1→N se necesita una
+extensión explícita con Session/destino y selección de interfaz aprobada por el equipo;
+esta corrección no la implementa ni limita el modelo general 1→N o REC/STOP.
+Clientes antiguos conservan el payload en el caso seguro anterior, pero no muestran
+las nuevas explicaciones de rechazo. Actualizar relay y clientes conjuntamente
+cuando se autorice la entrega. Sin cambios de Firebase, RTDB schema, LAN o dependencias.

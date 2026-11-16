@@ -1368,3 +1368,41 @@ real de EAS con 91 archivos, sin server/, .env, credenciales privadas ni vídeos
 (incluidas sondas sintéticas). Archivos requeridos copiados sin alteración. Suite
 103 PASS / 1 SKIP; TypeScript, lint y diff-check propios PASS. No npm ci, subida,
 build remoto ni push. LAN y cambios ajenos preparados permanecen intactos.
+
+### 2026-11-15 · H4 · Corrección de autorización P2
+
+Base bfe2cbad41752c3e2959badb6a5ab5892e1f10ba, worktree Nexus-H4-DevB,
+rama devb/h4-preparation. H4 sigue el relevo DevA como cierre backend de extremo a
+extremo; esta etapa corrige solo privacidad de solicitudes y comandos heredados.
+
+SESSION_LIST ahora filtra pending igual que los snapshots ordinarios y SESSION_GET:
+solo el Controller recibe la lista completa. La regresión de privacidad falló antes
+del cambio y pasa después. Nodes, solicitantes pendientes y otro dispositivo del
+mismo UID no reciben datos de otros solicitantes ni acceso por el código.
+
+Se elimina el fallback de broadcast global del relay. CAPABILITY_COMMAND valida
+campos y autoriza Controller→único Node aceptado/online de una única Session activa,
+comprobando socket y propietario. No usa A/B como autoridad ni adivina un destino
+entre varios Nodes/sesiones; no entrega a offline ni a otra Session. Preserva
+vibración A→B y linterna remota en esa pareja autorizada; linterna manual intacta.
+
+Compatibilidad a coordinar con DevA: control sin Session, vibración B→A y A/B con
+varios Nodes/sesiones ya no se permiten. El envelope antiguo no permite resolverlos
+con seguridad. UI muestra requisitos/rechazos; soporte de capacidades 1→N explícitas
+queda pendiente de contrato y selección de destino. REC/STOP Studio no cambia.
+
+Pruebas nuevas: Controller conserva pending; Node no lo obtiene por LIST/GET/RESUME;
+ajenos/misma cuenta en otra instalación y pendientes no acceden a la Session;
+dos Sessions operan capacidades por separado; emisor Node/ajeno, campos inválidos,
+ambigüedad, offline, reanudación y Session cerrada se verifican con WebSockets locales
+reales, tokens sintéticos y almacén en memoria. No se conecta a RTDB productiva.
+Prueba física de estas correcciones: NOT RUN. H3 y H4 no se declaran terminados.
+No se modifican configuración, .env, dependencias, Firebase/Render/Cloudinary ni
+repositorio original, documentos personales o stash. Commit local identificable en el historial Git; sin push o despliegue.
+
+Validación final de esta corrección: TypeScript PASS; npm run lint PASS; ESLint
+ampliado de relay/pantallas/tests PASS; suite completa 107 PASS, 1 SKIP, 0 FAIL
+(108 casos). La suite específica de autorización más presencia: 6/6 PASS.
+El SKIP es el emulador RTDB no configurado. git diff --check PASS. La advertencia
+MODULE_TYPELESS_PACKAGE_JSON de Node ya existente no produce fallos; no se cambian
+formatos de módulos ni dependencias para ocultarla. Validación física pendiente.

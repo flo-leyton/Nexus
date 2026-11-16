@@ -93,7 +93,7 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
       if (await sessions.handle(client, text)) return;
       if (!authenticated(client)) return;
       if (presence.handle(client, text)) return;
-      for (const other of relay.clients) if (other !== client && authenticated(other)) other.send(text);
+      // Session capabilities are handled by sessions; never fall back to global control broadcast.
     });
     client.on('close', () => {
       clearTimeout(deadline);

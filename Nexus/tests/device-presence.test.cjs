@@ -39,6 +39,22 @@ test('relay: fichas, llegada tardía, comandos intactos y desconexión', { timeo
   next = once(a, 'message');
   b.send(JSON.stringify({ type: 'DEVICE_INFO', info: { ...info, role: 'Teléfono B' } }));
   assert.equal(JSON.parse(String((await next)[0])).info.role, 'Teléfono B');
+  const call = async (client, type, sessionId, payload = {}, targetId) => {
+    const { randomUUID } = require('node:crypto');
+    const messageId = randomUUID();
+    const response = new Promise((resolve) => {
+      const listener = (raw) => { const m = JSON.parse(String(raw)); if (m.payload?.requestId === messageId) { client.off('message', listener); resolve(m); } };
+      client.on('message', listener);
+    });
+    client.send(JSON.stringify({ protocolVersion: 1, messageId, type, sessionId, senderId: client === a ? 'device-1' : 'device-2',
+      sentAt: Date.now(), payload, ...(targetId ? { targetId } : {}) }));
+    return response;
+  };
+  const session = (await call(a, 'SESSION_CREATE', 'presence-capability-session')).payload.session;
+  const pending = await call(b, 'SESSION_JOIN_REQUEST', 'join-by-code', { code: session.code });
+  const accepted = once(b, 'message');
+  await call(a, 'SESSION_JOIN_ACCEPT', session.sessionId, { requestId: pending.payload.requestId }, 'device-2');
+  await accepted;
   for (const action of ['vibrate', 'flash_on', 'flash_off']) {
     const command = JSON.stringify({ type: 'CAPABILITY_COMMAND', from: 'A', target: 'B', capability: action === 'vibrate' ? 'vibration' : 'flashlight', action, ...(action === 'vibrate' ? { duration: 5000 } : {}) });
     next = once(b, 'message');
