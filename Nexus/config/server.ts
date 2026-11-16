@@ -9,7 +9,7 @@
 // Estos valores serán modificados manualmente por el usuario.
 // =======================================================
 
-const IP = '192.168.0.2';
+const IP = '192.168.137.1';
 const PORT = 8080;
 
 export const SERVER_CONFIG = {

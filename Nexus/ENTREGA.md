@@ -365,7 +365,7 @@ tamaño, duración, audio ausente y cualquier error. Hasta recibir esa confirmac
 **H1 no está verificado**.
 
 ### 2026-11-14 · H2 · Grabación coordinada
-
+ 
 Base `desarrollo@10c7c15`. Se confirmó exclusividad de esta sesión antes de editar.
 Se preservaron los cinco documentos locales pendientes y la IP del relay; no se
 aplicaron stashes, no se modificó Firebase y no se implementó H3.
