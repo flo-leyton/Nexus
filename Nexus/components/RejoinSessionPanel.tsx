@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { Button } from 'react-native-paper';
 
 import { ThemedText } from '@/components/themed-text';
 import { sessionErrorMessage } from '@/hooks/use-studio-session';
@@ -7,8 +8,8 @@ import type { getSessionService } from '@/services/session';
 import type { SessionSnapshot } from '@/services/sessionClient';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false }: {
-  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean;
+export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false, consoleMode = false }: {
+  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean; consoleMode?: boolean;
 }) {
   const request = useRef<string | null>(null);
   const target = useRef<string | null>(null);
@@ -44,22 +45,29 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
   </View> : null;
   return <View style={styles.panel}>
     <ThemedText type="subtitle">Última sesión como Node</ThemedText>
+    {consoleMode && <ThemedText type="defaultSemiBold">Código: {last.code}</ThemedText>}
     <ThemedText selectable>{last.sessionId}</ThemedText>
     <ThemedText>Reanudar verifica tu cuenta y membresía persistida; conserva nodeId y rol. Si no perteneces a esta Session, solicita aprobación.</ThemedText>
-    <Pressable accessibilityRole="button" disabled={disabled} style={[styles.button, disabled && styles.disabled]} onPress={() => {
+    <RejoinAction consoleMode={consoleMode} disabled={disabled} onPress={() => {
       try { target.current = last.sessionId; request.current = service.resumeSession(last.sessionId); setNotice('Verificando participación persistida…'); }
       catch (error) { setNotice(sessionErrorMessage(error)); }
-    }}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">REANUDAR PARTICIPACIÓN</ThemedText></Pressable>
+    }} label="Reanudar participación" />
     {snapshot.joinInFlight && <ThemedText>Solicitud pendiente de aceptación por el Controller.</ThemedText>}
     {!connected && <ThemedText>Conecta al relay para solicitar reingreso sin escribir el código.</ThemedText>}
     {blocked && <ThemedText>Detén y guarda la captura local antes de solicitar una nueva participación.</ThemedText>}
-    <Pressable accessibilityRole="button" disabled={disabled} style={[styles.button, disabled && styles.disabled]} onPress={() => {
+    <RejoinAction consoleMode={consoleMode} disabled={disabled} onPress={() => {
       if (request.current || service.getSnapshot().joinInFlight) return;
       try { target.current = last.sessionId; request.current = service.requestRejoin(); setNotice('Enviando solicitud de reingreso…'); }
       catch (error) { setNotice(sessionErrorMessage(error)); }
-    }}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">SOLICITAR REINGRESO</ThemedText></Pressable>
+    }} label="Solicitar reingreso" />
     {!!notice && <ThemedText accessibilityLiveRegion="polite">{notice}</ThemedText>}
     {!!snapshot.historyError && <ThemedText>{snapshot.historyError}</ThemedText>}
   </View>;
+}
+function RejoinAction({ consoleMode, disabled, onPress, label }: { consoleMode: boolean; disabled: boolean; onPress(): void; label: string }) {
+  return consoleMode ? <Button mode="outlined" disabled={disabled} onPress={onPress} contentStyle={{ minHeight: 48 }} style={{ borderRadius: 12 }}>{label}</Button> :
+    <Pressable accessibilityRole="button" disabled={disabled} style={[styles.button, disabled && styles.disabled]} onPress={onPress}>
+      <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">{label.toUpperCase()}</ThemedText>
+    </Pressable>;
 }
 const styles = StyleSheet.create({ panel: { gap: 10 }, button: { padding: 14, borderRadius: 12, backgroundColor: '#474FE7' }, disabled: { opacity: 0.45 } });

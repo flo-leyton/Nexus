@@ -1,10 +1,12 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { NexusNavigationTheme, NexusPaperTheme } from '@/constants/paper-theme';
 import { startDevicePresence } from '@/services/devicePresence';
 import { testFirebaseInitialization } from '@/services/firebaseTest';
 import { setupNotificationHandler } from '@/services/notifications';
@@ -14,6 +16,7 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const mode = colorScheme === 'dark' ? 'dark' : 'light';
 
   useEffect(() => {
     // Registration errors are displayed by the diagnostic screen, without logging tokens.
@@ -29,14 +32,16 @@ export default function RootLayout() {
 }, []);
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="session/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="media/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <PaperProvider theme={NexusPaperTheme[mode]}>
+      <ThemeProvider value={NexusNavigationTheme[mode]}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="session/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="media/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        </Stack>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      </ThemeProvider>
+    </PaperProvider>
   );
 }

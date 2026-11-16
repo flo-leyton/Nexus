@@ -4,9 +4,10 @@
  */
 
 import { Platform } from 'react-native';
+import { StudioUI } from './studio-ui';
 
-const tintColorLight = '#6858DB';
-const tintColorDark = '#8173F3';
+const tintColorLight = StudioUI.light.consolePrimary;
+const tintColorDark = StudioUI.dark.consolePrimary;
 
 export const Colors = {
   light: {

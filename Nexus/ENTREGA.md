@@ -1368,3 +1368,26 @@ real de EAS con 91 archivos, sin server/, .env, credenciales privadas ni vídeos
 (incluidas sondas sintéticas). Archivos requeridos copiados sin alteración. Suite
 103 PASS / 1 SKIP; TypeScript, lint y diff-check propios PASS. No npm ci, subida,
 build remoto ni push. LAN y cambios ajenos preparados permanecen intactos.
+
+### 2026-11-16 · UX A / Consola · Etapa visual 1 (sin hito funcional)
+
+Autorizada por el operador exclusivamente en feat/ui-polish. Base e1ac269 con
+cambios locales sin commit: tema compartido Paper MD3 y Studio; mismas rutas,
+handlers y condiciones de servicio. Propuestas originales conservadas. Registro
+y capturas reales en docs/ux/implementation/ETAPA_1.md e index.html.
+
+TypeScript y lint PASS; suite de esta rama **103 PASS / 1 SKIP / 0 fallos**.
+Diff de servicios/servidor/configuración/captura/Session/Vibración/Linterna vacío.
+Expo web compilado; capturas claro/oscuro, móvil/escritorio y formulario de código
+con hidratación comprobada, servicios externos bloqueados en el navegador QA.
+Prueba Android/iOS, cuentas y sesiones reales, dos Nodes y captura física PENDIENTES.
+No cambia la verificación de H1–H4 ni integra H4: fetch confirmó origin/desarrollo
+en 1f66b47, cuyos cambios de autorización/aislamiento se revisaron sin merge/rebase.
+Revisión del operador antes de abordar Session. Sin push, build ni despliegue.
+
+El operador aprueba la Etapa 1 visual y autoriza un commit exclusivo. Se repiten
+TypeScript, lint/ESLint y suite: **103 PASS / 1 SKIP / 0 fallos**; diff protegido
+vacío. Commit identificable con `git log -1 --format=%H --grep='feat(ui): implement Consola stage 1 theme and Studio'`.
+Incluye documentación, capturas y propuesta aprobada; sin configuración de red ni
+cambios funcionales. Session recibe sólo un plan hasta nueva autorización. La
+prueba física sigue pendiente; no se cambian los estados H1–H4.
