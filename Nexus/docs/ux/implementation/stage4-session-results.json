@@ -1,0 +1,53 @@
+{
+  "scope": "Synthetic UI/layout integration. No physical capture, Auth, RTDB or real ACK verified.",
+  "checks": [
+    {
+      "check": "REC dispatches one UI callback",
+      "status": "PASS"
+    },
+    {
+      "check": "REC disabled while command pending",
+      "status": "PASS"
+    },
+    {
+      "check": "Interrupted close requires explicit confirmation",
+      "status": "PASS"
+    },
+    {
+      "check": "Free role keeps 64-character limit",
+      "status": "PASS"
+    },
+    {
+      "check": "Role assignment dispatches once and exposes pending ACK",
+      "status": "PASS"
+    },
+    {
+      "check": "Session close preserves explicit confirmation",
+      "status": "PASS"
+    },
+    {
+      "check": "Offline join request cannot be accepted",
+      "status": "PASS"
+    },
+    {
+      "check": "Layout retains capture owner and camera slot after snapshot loss",
+      "status": "PASS"
+    },
+    {
+      "check": "Responsive columns do not remount capture slot",
+      "status": "PASS"
+    },
+    {
+      "check": "Offline local STOP remains available",
+      "status": "PASS"
+    },
+    {
+      "check": "Pending save exposes retry without starting a new capture",
+      "status": "PASS"
+    },
+    {
+      "check": "Upload, original availability and command ACK use distinct statuses",
+      "status": "PASS"
+    }
+  ]
+}

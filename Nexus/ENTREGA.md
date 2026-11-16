@@ -1772,3 +1772,27 @@ los recibe automáticamente. Validar ambos lados y firma conservando datos. Ensa
 reinicio real coordinado y documentar plan de reversión autorizado, nunca rollback
 ciego si hubiera cambios incompatibles de datos. No se ejecuta integración,
 publicación, build, reinicio ni despliegue en esta etapa.
+
+### 2026-11-16 · A / Consola · Etapas 3 y 4 · Candidato conjunto DevB
+
+Worktree Nexus-DevB-UX, rama devb/ux-etapas-3-4. Bases UI 9f4f20d y desarrollo/H4
+1f66b47 verificadas tras fetch; merge local 6379986816154d5e052c96c57041aab01e60520d.
+Único conflicto documental conservando ambos historiales. H4 ya está integrado en
+desarrollo y ahora también en este candidato UI; informes anteriores son históricos.
+
+Navegación MD3 Studio/Biblioteca/Dispositivos/Cuenta con barra móvil y rail desde
+840 dp; Session/Producción permanece contextual, sin cambiar sus propietarios,
+CameraView, CaptureEngine o guards. Biblioteca filtra/agrupa datos existentes sin
+migración; herramientas A/B y diagnósticos vuelven a ser accesibles con seguridad H4.
+
+Validación: TypeScript/lint/ESLint estricto/diff-check PASS; suite con emulador RTDB
+117 PASS, 0 FAIL, 0 SKIP. Auditoría protegida PASS contra base combinada; navegación
+web 10 checks y Session con fixtures 12 checks. Galería de 31 capturas rotuladas,
+no evidencia de cámara ni servicios reales. Hardware, TalkBack y recorrido físico
+del candidato conjunto siguen PENDIENTES; pruebas H3 previas no los certifican.
+Sin nuevas dependencias nativas ni cambios de red, servicios o contratos.
+
+Detalles y procedimiento Android: docs/ux/implementation/ETAPA_3.md y ETAPA_4.md;
+galería stage4-gallery.html. Commits locales identificables en el historial por
+los mensajes de Etapas 3/4; sin push, PR, merge remoto, despliegue ni build productivo.
+Originales, .env de H4, documentos personales y stash se mantienen intactos.

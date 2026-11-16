@@ -1,0 +1,45 @@
+{
+  "scope": "Actual Expo web routes, blocked external services; not physical/native evidence.",
+  "checks": [
+    {
+      "check": "Biblioteca empty state does not claim remote originals",
+      "status": "PASS"
+    },
+    {
+      "check": "Legacy tools are explicitly reachable",
+      "status": "PASS"
+    },
+    {
+      "check": "Account keeps secondary diagnostics reachable",
+      "status": "PASS"
+    },
+    {
+      "check": "Wide layout uses a vertical rail",
+      "status": "PASS"
+    },
+    {
+      "check": "Resize keeps four destinations",
+      "status": "PASS"
+    },
+    {
+      "check": "Session deep link preserves its contextual route and return header",
+      "status": "PASS"
+    },
+    {
+      "check": "Missing media deep link retains explicit unavailable state",
+      "status": "PASS"
+    },
+    {
+      "check": "Back from media returns to the contextual Session route",
+      "status": "PASS"
+    },
+    {
+      "check": "Library distinguishes original, confirmed upload and uncertain upload",
+      "status": "PASS"
+    },
+    {
+      "check": "Library search filters existing Node data without changing the catalog",
+      "status": "PASS"
+    }
+  ]
+}
