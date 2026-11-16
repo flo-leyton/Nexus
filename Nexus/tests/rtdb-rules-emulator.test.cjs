@@ -8,7 +8,7 @@ const host = process.env.FIREBASE_DATABASE_EMULATOR_HOST;
 const safeRules = fs.readFileSync(path.join(__dirname, 'emulator/database.rules.json'), 'utf8');
 function library() { return require('./emulator/tools/node_modules/@firebase/rules-unit-testing'); }
 
-test('RTDB proposed policy: unauthenticated, Controller, Node and foreign clients cannot directly read/write relay state', { skip: !host, timeout: 30000 }, async () => {
+test('RTDB DevA-supplied policy: unauthenticated, Controller, Node and foreign clients cannot directly read/write relay state', { skip: !host, timeout: 30000 }, async () => {
   assertIsolation();
   const { initializeTestEnvironment, assertFails } = library();
   const env = await initializeTestEnvironment({ projectId: PROJECT, database: { host: '127.0.0.1', port: 19000, rules: safeRules } });
@@ -21,6 +21,45 @@ test('RTDB proposed policy: unauthenticated, Controller, Node and foreign client
     }
   } finally {
     await env.withSecurityRulesDisabled((ctx) => ctx.database().ref('nexusStudio/relayV1').remove());
+    await env.cleanup();
+  }
+});
+
+
+test('RTDB DevA-supplied policy: users and devices are isolated by UID, including parent and atomic multi-path access', { skip: !host, timeout: 30000 }, async () => {
+  assertIsolation();
+  const { initializeTestEnvironment, assertFails, assertSucceeds } = library();
+  const env = await initializeTestEnvironment({ projectId: PROJECT, database: { host: '127.0.0.1', port: 19000, rules: safeRules } });
+  try {
+    const alice = env.authenticatedContext('alice').database();
+    const bob = env.authenticatedContext('bob').database();
+    const anonymous = env.unauthenticatedContext().database();
+    for (const collection of ['users', 'devices']) {
+      await assertSucceeds(alice.ref(collection + '/alice').set({ synthetic: 'alice' }));
+      await assertSucceeds(bob.ref(collection + '/bob').set({ synthetic: 'bob' }));
+      assert.equal((await assertSucceeds(alice.ref(collection + '/alice').get())).val().synthetic, 'alice');
+      assert.equal((await assertSucceeds(bob.ref(collection + '/bob').get())).val().synthetic, 'bob');
+      for (const client of [bob, anonymous]) {
+        await assertFails(client.ref(collection + '/alice').get());
+        await assertFails(client.ref(collection + '/alice').set({ synthetic: 'forbidden' }));
+        await assertFails(client.ref(collection + '/alice').remove());
+        await assertFails(client.ref(collection + '/alice/nested').set(true));
+      }
+      for (const client of [alice, bob, anonymous]) {
+        await assertFails(client.ref(collection).get());
+        await assertFails(client.ref(collection).set({ synthetic: true }));
+      }
+    }
+    await assertFails(alice.ref().update({ 'users/alice/synthetic': 'must-not-commit', 'devices/bob/synthetic': 'forbidden' }));
+    assert.equal((await alice.ref('users/alice/synthetic').get()).val(), 'alice');
+    await assertFails(alice.ref().update({ 'users/alice/synthetic': 'must-not-commit', 'nexusStudio/relayV1/synthetic': true }));
+    assert.equal((await alice.ref('users/alice/synthetic').get()).val(), 'alice');
+    await assertSucceeds(alice.ref('users/alice').remove());
+  } finally {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.database().ref('users').remove();
+      await ctx.database().ref('devices').remove();
+    });
     await env.cleanup();
   }
 });

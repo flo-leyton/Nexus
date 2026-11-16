@@ -1,8 +1,7 @@
 # RTDB local aislada para H4
 
 Esta carpeta es solo para pruebas. No configura ni despliega Firebase real.
-La política database.rules.json es una PROPUESTA mínima de denegación; no es una
-copia ni una verificación de las reglas actualmente desplegadas de NEXUS.
+database.rules.json reproduce las reglas comunicadas por DevA para nexus-fda0e: users/$uid y devices/$uid permiten lectura/escritura solo si auth != null && auth.uid === $uid. No hay permisos en la raíz, nexusStudio ni relayV1; su denegación es implícita. Fuente: información de DevA, NO consulta directa a Console ni exportación autenticada. Se ejecutan exclusivamente en demo-nexus-h34b.
 
 ## Requisitos y ejecución (desde Nexus/ del worktree H4)
 
@@ -57,7 +56,7 @@ lectura y conflicto de revisión. Las nuevas pruebas añaden:
   datos del emulador: Session/código/identidades/roles/Takes/referencias conservados,
   READY nuevo, comandos viejos rechazados, cierre explícito y siguiente Take.
 - Clientes sin Auth, Controller, Node y usuario ajeno reciben PERMISSION_DENIED
-  al leer/escribir el prefijo protegido, descendientes y padres con la política propuesta.
+  al leer/escribir el prefijo protegido, descendientes y padres con la política proporcionada por DevA.
 - Control negativo local: una concesión autenticada en el padre permite el acceso
   pese al deny del hijo. El test lo detecta y restaura la política de denegación.
 
@@ -66,6 +65,10 @@ son sintéticos. El verificador del relay hijo usa tokens sintéticos: NO certif
 Firebase Auth productivo. Las pruebas de reglas usan contextos de usuario emulados,
 no Admin para demostrar denegación. Admin solo prepara/limpia datos de prueba.
 La integración de persistencia sí usa transacciones de RTDB, no el almacén en memoria.
+
+Se prueban además propietarios, otros UID y clientes sin Auth en users/devices,
+acceso a padres y escrituras multipath rechazadas sin efectos parciales.
+El control permisivo es temporal y restaura las reglas de DevA al terminar.
 
 ## Límites
 

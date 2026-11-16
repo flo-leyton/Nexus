@@ -1447,3 +1447,51 @@ El emulador se detiene al terminar y sus datos sintéticos se limpian; no se pro
 persistencia de esos datos tras apagar el emulador. Reproducción y límites en
 tests/emulator/README.md. Commit local en historial; sin push/despliegue. Originales, documentos
 personales, LAN, .env y stash permanecen intactos. H3/H4 no están cerrados globalmente.
+
+### 2026-11-15 · H4 P2 · Reglas comunicadas por DevA y preparación P3
+
+Esta actualización sustituye la política propuesta del ensayo anterior por la
+reproducción de las reglas informadas por DevA para nexus-fda0e, instancia
+nexus-fda0e-default-rtdb.firebaseio.com. No se consultaron directamente Firebase
+Console ni las reglas desplegadas mediante una cuenta autorizada. No se conectó
+el emulador a ese proyecto: sigue usando demo-nexus-h34b y loopback exclusivamente.
+
+users/$uid y devices/$uid autorizan lectura/escritura únicamente cuando
+`auth != null && auth.uid === $uid`. No se añaden permisos ni denegaciones
+explícitas en raíz, nexusStudio o relayV1: sin concesión, el acceso se deniega.
+El fixture reproduce la semántica comunicada; no pretende ser una exportación
+textual certificada de producción. La política del primer ensayo queda histórica.
+
+| Criterio P2 | Resultado | Evidencia / límite |
+|---|---|---|
+| Lectura/escritura de users y devices por propietario | PASS emulador | Dos UID independientes; lectura, escritura y borrado del propietario |
+| Otro UID y cliente sin Auth | PASS emulador | Lectura/escritura/borrado y escritura descendiente rechazados |
+| Acceso directo a relayV1, descendientes, nexusStudio y raíz | PASS emulador | Sin Auth, Controller, Node y ajeno: lectura/escritura denegadas |
+| Ausencia de concesiones heredadas en política comunicada | PASS emulador | Padres denegados; control negativo demuestra que una concesión de raíz sí permitiría acceso y restaura después las reglas de DevA |
+| Actualizaciones multipath cruzadas | PASS emulador | Rechazo atómico, sin escritura parcial en rama propia |
+| Sessions/Takes, conflictos y recuperación | PASS emulador | Integración Admin/RTDB y reinicio de proceso; sin inferir ACK o archivos |
+| Suite completa / TypeScript / lint / ESLint específico / diff-check | PASS | 114 PASS, 0 FAIL, 0 SKIP; advertencias de módulo preexistentes |
+| Reglas efectivamente desplegadas e IAM del relay | PENDIENTE | Reglas proporcionadas por DevA; no verificadas directamente; Admin omite reglas cliente |
+| Auth real y recuperación tras reinicio de Render | PENDIENTE | Requiere ensayo aprobado; no reiniciar servicio compartido por iniciativa propia |
+| Deuda de dependencias | PENDIENTE | Auditorías previas: 51 app y 19 herramientas; sin actualización en esta etapa |
+| Dos ángulos, subida y reproducción remota física | PENDIENTE P3 | Tests sintéticos no prueban vídeos ni Cloudinary real |
+
+Información de despliegue aportada por DevA, no comprobada independientemente:
+Render bfe2cbad41752c3e2959badb6a5ab5892e1f10ba; APK H3 EAS
+f6cfefce-9958-4ddd-acee-8eaa4f32ad9f, preview, versionCode 2, mismo SHA según DevA.
+Ese APK/relay H3 no contienen las correcciones H4 locales posteriores.
+
+Preparación P3: acordar ventana y Session sintética de ensayo con DevA; confirmar
+APK instalado, applicationId y firma compatibles sin borrar datos; verificar Auth
+real y health. Controller + dos Nodes MAIN/SIDE graban una Take, reproducen ambos
+originales y suben cada ángulo. Controller debe mostrar ambos bajo el mismo takeId,
+sin duplicación ni sustitución al llegar juntos, reproducir ambas URLs remotas y
+conservar catálogo/importaciones al reabrir. Probar fallo/reintento de subida sin
+perder originales ni duplicar referencias. Registrar SHA/build/modelos/sessionId/
+takeId/nodeId y evidencias no sensibles. Cualquier reinicio de Render, despliegue
+del candidato H4 o escritura de ensayo en servicios compartidos requiere alcance
+y autorización acordados; nunca segundo relay escritor sobre la misma RTDB.
+
+Sin cambios de runtime, dependencias, .env, LAN, reglas/datos reales, Render ni
+Cloudinary. Sin commit ni push. P2 automatizada supera esta matriz; P2 productiva
+y aceptación global H3/H4 permanecen pendientes de las evidencias indicadas.

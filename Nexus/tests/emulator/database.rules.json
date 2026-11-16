@@ -1,13 +1,15 @@
 {
   "rules": {
-    ".read": false,
-    ".write": false,
-    "nexusStudio": {
-      ".read": false,
-      ".write": false,
-      "relayV1": {
-        ".read": false,
-        ".write": false
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "devices": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
       }
     }
   }
