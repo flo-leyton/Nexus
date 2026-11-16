@@ -497,7 +497,9 @@ test('H3.4b regression: Auth-first Admin initialization uses the explicit RTDB U
   database.goOffline();
   const store = createFirebaseStore(env); // Old getDatabase(app, url) fails here.
   assert.equal(getRelayAdminApp(env), app);
-  assert.equal(database.ref('nexusStudio/relayV1').toString(), `${env.FIREBASE_DATABASE_URL}/nexusStudio/relayV1`);
+  // Admin intentionally rewrites the reference URL when the emulator is explicitly enabled.
+  const expectedBase = process.env.FIREBASE_DATABASE_EMULATOR_HOST ? `http://${process.env.FIREBASE_DATABASE_EMULATOR_HOST}` : env.FIREBASE_DATABASE_URL;
+  assert.equal(database.ref('nexusStudio/relayV1').toString(), `${expectedBase}/nexusStudio/relayV1`);
   assert.equal(typeof store.load, 'function'); assert.equal(typeof store.commit, 'function');
   store.close();
 });

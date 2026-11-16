@@ -1,0 +1,11 @@
+{
+  "name": "nexus-emulator-test-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local-only Firebase emulation tools; never shipped with Nexus.",
+  "devDependencies": {
+    "firebase-tools": "15.36.0",
+    "@firebase/rules-unit-testing": "5.0.0",
+    "firebase": "12.19.0"
+  }
+}

@@ -80,6 +80,11 @@ export default function FlashlightScreen() {
       return;
     }
 
+    if (isRecord(receivedMessage) && receivedMessage.type === 'SESSION_ERROR' && isRecord(receivedMessage.payload) &&
+        typeof receivedMessage.payload.code === 'string' && (receivedMessage.payload.code.startsWith('CAPABILITY_') || receivedMessage.payload.code === 'INVALID_CAPABILITY_COMMAND')) {
+      setMessage('Control rechazado: usa A como Controller y un único B aceptado/online en una única Session activa de Studio.');
+      return;
+    }
     if (!isFlashlightCommand(receivedMessage) || selectedRoleRef.current !== 'B') {
       return;
     }
@@ -168,6 +173,7 @@ export default function FlashlightScreen() {
           <ThemedView style={styles.header}>
             <ThemedText type="title">Control de Linterna</ThemedText>
             <ThemedText style={styles.subtitle}>Control remoto mediante WebSocket</ThemedText>
+            <ThemedText>Remoto seguro: A debe ser Controller de una única Session activa con un único Node B aceptado y online. Configura la Session desde Studio.</ThemedText>
           </ThemedView>
 
           <ThemedView style={styles.section}>

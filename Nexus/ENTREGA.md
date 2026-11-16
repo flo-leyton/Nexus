@@ -1368,3 +1368,348 @@ real de EAS con 91 archivos, sin server/, .env, credenciales privadas ni vídeos
 (incluidas sondas sintéticas). Archivos requeridos copiados sin alteración. Suite
 103 PASS / 1 SKIP; TypeScript, lint y diff-check propios PASS. No npm ci, subida,
 build remoto ni push. LAN y cambios ajenos preparados permanecen intactos.
+
+### 2026-11-15 · H4 · Corrección de autorización P2
+
+Base bfe2cbad41752c3e2959badb6a5ab5892e1f10ba, worktree Nexus-H4-DevB,
+rama devb/h4-preparation. H4 sigue el relevo DevA como cierre backend de extremo a
+extremo; esta etapa corrige solo privacidad de solicitudes y comandos heredados.
+
+SESSION_LIST ahora filtra pending igual que los snapshots ordinarios y SESSION_GET:
+solo el Controller recibe la lista completa. La regresión de privacidad falló antes
+del cambio y pasa después. Nodes, solicitantes pendientes y otro dispositivo del
+mismo UID no reciben datos de otros solicitantes ni acceso por el código.
+
+Se elimina el fallback de broadcast global del relay. CAPABILITY_COMMAND valida
+campos y autoriza Controller→único Node aceptado/online de una única Session activa,
+comprobando socket y propietario. No usa A/B como autoridad ni adivina un destino
+entre varios Nodes/sesiones; no entrega a offline ni a otra Session. Preserva
+vibración A→B y linterna remota en esa pareja autorizada; linterna manual intacta.
+
+Compatibilidad a coordinar con DevA: control sin Session, vibración B→A y A/B con
+varios Nodes/sesiones ya no se permiten. El envelope antiguo no permite resolverlos
+con seguridad. UI muestra requisitos/rechazos; soporte de capacidades 1→N explícitas
+queda pendiente de contrato y selección de destino. REC/STOP Studio no cambia.
+
+Pruebas nuevas: Controller conserva pending; Node no lo obtiene por LIST/GET/RESUME;
+ajenos/misma cuenta en otra instalación y pendientes no acceden a la Session;
+dos Sessions operan capacidades por separado; emisor Node/ajeno, campos inválidos,
+ambigüedad, offline, reanudación y Session cerrada se verifican con WebSockets locales
+reales, tokens sintéticos y almacén en memoria. No se conecta a RTDB productiva.
+Prueba física de estas correcciones: NOT RUN. H3 y H4 no se declaran terminados.
+No se modifican configuración, .env, dependencias, Firebase/Render/Cloudinary ni
+repositorio original, documentos personales o stash. Commit local identificable en el historial Git; sin push o despliegue.
+
+Validación final de esta corrección: TypeScript PASS; npm run lint PASS; ESLint
+ampliado de relay/pantallas/tests PASS; suite completa 107 PASS, 1 SKIP, 0 FAIL
+(108 casos). La suite específica de autorización más presencia: 6/6 PASS.
+El SKIP es el emulador RTDB no configurado. git diff --check PASS. La advertencia
+MODULE_TYPELESS_PACKAGE_JSON de Node ya existente no produce fallos; no se cambian
+formatos de módulos ni dependencias para ocultarla. Validación física pendiente.
+
+### 2026-11-15 · H4 P2 · RTDB emulada aislada
+
+Base 301f650, worktree Nexus-H4-DevB, rama devb/h4-preparation. Firebase CLI no
+estaba instalada y Java 8 era el valor del PATH. Se prepararon herramientas solo
+en tests/emulator/tools (CLI 15.36.0, rules-unit-testing 5.0.0, Firebase 12.19.0)
+con manifest/lockfile propios y sin scripts de instalación. Java 21 existente se
+selecciona únicamente en el proceso de pruebas. Emulador RTDB 4.11.2 en caché CLI.
+No se modifican dependencias/configuración de la app ni el .env de DevA.
+
+Proyecto demo-nexus-h34b, RTDB loopback 19000; hub/logging 14400/14500. El ejecutor
+limpia variables públicas/privadas de producción y proxies, no carga .env, valida
+proyecto/host, aísla configuración CLI y bloquea sockets externos en los tests.
+Un primer intento se detuvo porque CLI inyectaba FIREBASE_CONFIG; ahora se proporciona
+un fixture projectId-only verificado y se elimina antes de las pruebas, sin URLs
+remotas ni credenciales. No se usó Firebase Auth/RTDB/Render de producción.
+
+Resultado final: suite COMPLETA con emulador 113 PASS, 0 FAIL, 0 SKIP; TypeScript,
+lint y ESLint ampliado PASS. El test RTDB anteriormente SKIP se ejecutó con Admin
+SDK y transacciones reales del emulador: persistencia y conflicto de revisión.
+La integración adicional crea Session, dos Nodes, roles, READY, Takes y referencias
+sintéticas; termina abruptamente solo un relay hijo y arranca otro contra los mismos
+datos locales. Conserva identidad/código/roles/historial/medios, retira READY, mantiene
+resultados desconocidos, rechaza ACK antiguo y permite cerrar e iniciar otra Take.
+No se afirman capturas o reproducción física: verificador, resultados y URLs son fixtures.
+Se adaptó una aserción de tests/relay-storage.test.cjs para reconocer la reescritura
+de URL del Admin SDK al activar el emulador; no se cambió código de producción.
+
+Seguridad: pruebas de clientes sin Auth, Controller, Node y ajenos deniegan lectura
+y escritura al prefijo/descendientes/padres con una POLÍTICA LOCAL PROPUESTA.
+Un control negativo comprueba que un padre permisivo sí anula el deny del hijo;
+se restaura después la política segura. No se conocen ni se modificaron las reglas
+realmente desplegadas; esas verificaciones permanecen PENDIENTES.
+
+La instalación de herramientas de test reportó 19 avisos (14 moderados, 5 altos),
+separados de las dependencias de la app. No se ejecutó audit fix ni se ocultó esa
+deuda. Los logs/configuración temporal y node_modules se ignoran en Git.
+El emulador se detiene al terminar y sus datos sintéticos se limpian; no se promete
+persistencia de esos datos tras apagar el emulador. Reproducción y límites en
+tests/emulator/README.md. Commit local en historial; sin push/despliegue. Originales, documentos
+personales, LAN, .env y stash permanecen intactos. H3/H4 no están cerrados globalmente.
+
+### 2026-11-15 · H4 P2 · Reglas comunicadas por DevA y preparación P3
+
+Esta actualización sustituye la política propuesta del ensayo anterior por la
+reproducción de las reglas informadas por DevA para nexus-fda0e, instancia
+nexus-fda0e-default-rtdb.firebaseio.com. No se consultaron directamente Firebase
+Console ni las reglas desplegadas mediante una cuenta autorizada. No se conectó
+el emulador a ese proyecto: sigue usando demo-nexus-h34b y loopback exclusivamente.
+
+users/$uid y devices/$uid autorizan lectura/escritura únicamente cuando
+`auth != null && auth.uid === $uid`. No se añaden permisos ni denegaciones
+explícitas en raíz, nexusStudio o relayV1: sin concesión, el acceso se deniega.
+El fixture reproduce la semántica comunicada; no pretende ser una exportación
+textual certificada de producción. La política del primer ensayo queda histórica.
+
+| Criterio P2 | Resultado | Evidencia / límite |
+|---|---|---|
+| Lectura/escritura de users y devices por propietario | PASS emulador | Dos UID independientes; lectura, escritura y borrado del propietario |
+| Otro UID y cliente sin Auth | PASS emulador | Lectura/escritura/borrado y escritura descendiente rechazados |
+| Acceso directo a relayV1, descendientes, nexusStudio y raíz | PASS emulador | Sin Auth, Controller, Node y ajeno: lectura/escritura denegadas |
+| Ausencia de concesiones heredadas en política comunicada | PASS emulador | Padres denegados; control negativo demuestra que una concesión de raíz sí permitiría acceso y restaura después las reglas de DevA |
+| Actualizaciones multipath cruzadas | PASS emulador | Rechazo atómico, sin escritura parcial en rama propia |
+| Sessions/Takes, conflictos y recuperación | PASS emulador | Integración Admin/RTDB y reinicio de proceso; sin inferir ACK o archivos |
+| Suite completa / TypeScript / lint / ESLint específico / diff-check | PASS | 114 PASS, 0 FAIL, 0 SKIP; advertencias de módulo preexistentes |
+| Reglas efectivamente desplegadas e IAM del relay | PENDIENTE | Reglas proporcionadas por DevA; no verificadas directamente; Admin omite reglas cliente |
+| Auth real y recuperación tras reinicio de Render | PENDIENTE | Requiere ensayo aprobado; no reiniciar servicio compartido por iniciativa propia |
+| Deuda de dependencias | PENDIENTE | Auditorías previas: 51 app y 19 herramientas; sin actualización en esta etapa |
+| Dos ángulos, subida y reproducción remota física | PENDIENTE P3 | Tests sintéticos no prueban vídeos ni Cloudinary real |
+
+Información de despliegue aportada por DevA, no comprobada independientemente:
+Render bfe2cbad41752c3e2959badb6a5ab5892e1f10ba; APK H3 EAS
+f6cfefce-9958-4ddd-acee-8eaa4f32ad9f, preview, versionCode 2, mismo SHA según DevA.
+Ese APK/relay H3 no contienen las correcciones H4 locales posteriores.
+
+Preparación P3: acordar ventana y Session sintética de ensayo con DevA; confirmar
+APK instalado, applicationId y firma compatibles sin borrar datos; verificar Auth
+real y health. Controller + dos Nodes MAIN/SIDE graban una Take, reproducen ambos
+originales y suben cada ángulo. Controller debe mostrar ambos bajo el mismo takeId,
+sin duplicación ni sustitución al llegar juntos, reproducir ambas URLs remotas y
+conservar catálogo/importaciones al reabrir. Probar fallo/reintento de subida sin
+perder originales ni duplicar referencias. Registrar SHA/build/modelos/sessionId/
+takeId/nodeId y evidencias no sensibles. Cualquier reinicio de Render, despliegue
+del candidato H4 o escritura de ensayo en servicios compartidos requiere alcance
+y autorización acordados; nunca segundo relay escritor sobre la misma RTDB.
+
+Sin cambios de runtime, dependencias, .env, LAN, reglas/datos reales, Render ni
+Cloudinary. Sin commit ni push. P2 automatizada supera esta matriz; P2 productiva
+y aceptación global H3/H4 permanecen pendientes de las evidencias indicadas.
+### 2026-11-15 · H4 P3 · Evidencia física H3 comunicada por el operador
+
+PASS físico comunicado por el operador en esta conversación; no observado
+instrumentalmente por Codex. APK H3 de DevA: build EAS
+f6cfefce-9958-4ddd-acee-8eaa4f32ad9f, preview, versionCode 2 según DevA.
+Relay público Render: bfe2cbad41752c3e2959badb6a5ab5892e1f10ba según DevA.
+La asociación del APK con ese mismo SHA fue informada por DevA; la consulta EAS
+sigue sin permisos de lectura. No se inventan modelos, hora, firma, sessionId,
+takeId, hashes de archivos ni capturas de evidencia que no se proporcionaron.
+
+| Criterio P3 | Resultado físico comunicado |
+|---|---|
+| Controller y dos Nodes autorizados, MAIN/SIDE y ambos READY | PASS |
+| REC/STOP coordinado y dos originales reproducibles | PASS |
+| Dos ángulos asociados al mismo takeId | PASS |
+| Subida Cloudinary y reproducción remota de ambos | PASS |
+| Cerrar/reabrir Controller conserva ambos ángulos | PASS |
+| Fallo de subida sin conexión detectado, original local conservado | PASS |
+| Reintento exitoso y reproducción remota del vídeo recuperado | PASS |
+
+Esta evidencia valida el recorrido principal H3 usando los binarios/relay H3.
+No valida las correcciones H4 locales de privacidad SESSION_LIST ni aislamiento
+de CAPABILITY_COMMAND, todavía NO desplegadas. La matriz P2 anterior queda como
+registro histórico: su fila de ángulos físicos pasa ahora para este recorrido H3.
+Las 114 pruebas automatizadas corresponden a la validación anterior, no se han
+repetido para esta actualización exclusivamente documental.
+
+NOT RUN / pendiente: reinicio real de Render y recuperación RTDB productiva;
+P4 desconexión durante REC con SESSION_RESUME; arranque frío de los tres teléfonos
+con laptop apagada; conservación de importaciones previas no reportada en P3;
+comparación instrumental de firma/APK y exportación directa de reglas/IAM;
+aislamiento multisesión con clientes reales y pruebas destructivas/de fallos de
+almacenamiento en entorno aislado autorizado. No reiniciar Render ni inyectar
+mensajes forjados o fallos contra el entorno compartido. H3/H4 no quedan aceptados
+globalmente por esta prueba parcial. P5 candidato H4 sigue pendiente.
+
+#### P4 · Procedimiento preparado, NO ejecutado
+
+Coordinar la ventana con DevA. Mantener APK H3 y relay indicados, identidad y datos
+actuales; usar una Session de ensayo, sin segundo relay ni cambios de configuración.
+Registrar modelo/red/hora, sessionId, deviceId, nodeId y rol de cada Node, takeId T1
+y estados ACK/resultado. No publicar tokens, vídeos personales ni claves.
+
+1. Controller y dos Nodes MAIN/SIDE conectados y autorizados; confirmar READY real
+   en ambos. Orientar cámaras a escenas diferentes; usar clips breves silenciados.
+2. Iniciar T1 desde Controller. Verificar captura activa en ambos: REC ACK por sí
+   solo no demuestra grabación. Anotar takeId e identidades antes del corte.
+3. Cortar solo la conectividad de SIDE (Wi-Fi y datos móviles, sin conmutación a
+   otra red), manteniendo la app/cámara activa. No apagar ni cerrar el teléfono.
+   Si abrir ajustes manda la cámara a segundo plano y detiene la captura, registrar
+   esa interferencia; no declararla continuidad offline superada.
+4. Esperar detección offline en Controller: SIDE pierde READY y queda desconocido,
+   sin inventar STOP ACK ni guardado. Confirmar que SIDE continúa capturando localmente.
+5. Controller pulsa STOP · FINALIZAR TOMA. MAIN recibe STOP, termina/guarda y reproduce
+   su original. SIDE usa DETENER Y GUARDAR estando aún offline; comprobar archivo
+   no vacío y reproducción local. No cerrar la Take mientras haya captura alcanzable activa.
+6. Restaurar red de SIDE y conectar al relay si hace falta. Usar REANUDAR PARTICIPACIÓN
+   (CONSERVAR ROL), NO nueva solicitud de ingreso. El relay verifica UID/deviceId y
+   membresía durable: mismo sessionId, nodeId y rol SIDE, sin participante duplicado.
+   Si falla, registrar error y detener esta prueba; no ocultarlo con ingreso nuevo.
+7. Comprobar READY retirado al reanudar y ausencia de REC/STOP antiguos: no debe iniciar
+   ni detener otra captura, ni añadir ACK antiguos. Con cámara/motor ociosos y permiso
+   real, pulsar CONFIRMAR READY PARA NUEVA TOMA en los Nodes que lo requieran. SIDE
+   no se declara READY automáticamente por reconectar; MAIN no necesita reiniciarse
+   si conservó preparación válida. Capturar evidencia antes y después de confirmar.
+8. Controller pulsa CERRAR TOMA INTERRUMPIDA y lee la advertencia; confirmar cierre
+   solo tras verificar ambos originales y participantes alcanzables ociosos. El
+   cierre no detiene una cámara ni certifica un resultado ausente. Si el relay
+   rechaza por actividad/preparación, registrar y resolver localmente, sin forzar.
+9. Confirmar cierre operativo T1 con ACK/resultados originales intactos y ausencia
+   marcada desconocida/no confirmada, aunque el vídeo offline exista. Una referencia
+   Cloudinary posterior no convierte retrospectivamente el resultado H2 en saved.
+10. Con MAIN y SIDE online y READY nuevos donde corresponda, iniciar T2 desde
+    Controller: takeId distinto, dos capturas reales, STOP y dos originales
+    reproducibles. T1 permanece una sola vez en historial con sus resultados.
+11. Si está dentro de la ventana aprobada, subir/publicar el original offline de T1
+    y reproducir su ángulo. Mantener takeId/nodeId históricos, sin otra captura ni
+    reescritura de ACK. Verificar que T2 y los ángulos previos permanecen intactos.
+
+Aceptación P4: continuidad y guardado offline reales; STOP independiente de MAIN;
+mismo nodeId/rol al reanudar; READY explícito nuevo; ningún comando reproducido;
+cierre autorizado sin falsificar resultados; T2 exitosa con historial intacto.
+La observación física comprueba ausencia de acciones viejas; rechazo exacto de
+COMMAND_EXPIRED/ACK tardío se prueba automáticamente y, si requiere inspección de
+protocolo/inyección, solo en entorno aislado. No forjar mensajes en producción.
+Variante SIDE que nunca regresa: mantener desconocido y advertencia, verificar
+MAIN finalizado antes del cierre; ejecutar solo como ensayo separado coordinado.
+
+Las acciones P4 sobre el relay escriben metadatos reales en RTDB; el paso 11 sube
+medios a Cloudinary y consume cuota. Este registro no inicia esas acciones.
+Solo ENTREGA.md modificado; sin código funcional, commit, push ni despliegue.
+
+### 2026-11-15 · H4 P4 · Resistencia principal superada físicamente
+
+Evidencia comunicada por el operador en esta conversación, no observada ni
+instrumentada directamente por Codex. Tres teléfonos; APK H3
+f6cfefce-9958-4ddd-acee-8eaa4f32ad9f; relay Render
+bfe2cbad41752c3e2959badb6a5ab5892e1f10ba. Este registro actualiza el estado
+NO ejecutado del procedimiento P4 anterior, que se conserva como referencia.
+
+El operador confirma: MAIN y SIDE iniciaron REC; SIDE perdió Internet y continuó
+grabando localmente; usó DETENER Y GUARDAR sin conexión; MAIN recibió STOP remoto.
+Ambos originales se guardaron y reprodujeron. SIDE reanudó participación con el
+mismo nodeId y rol; recuperó READY mediante preparación nueva. El Controller cerró
+la toma interrumpida, habilitó REC para dos Nodes y ambos grabaron una segunda toma
+cuyos vídeos se reprodujeron correctamente. Estos puntos son PASS físico H3.
+
+Historial actualizado el 2026-11-16 con evidencia física comunicada por el operador:
+T1 interrumpida `6cec451b-978e-4587-b0ac-8a8c850b2b3b`; T2 posterior
+`dc052d63-4d96-4909-b5b1-fd0d1cebdf21`. Los takeId son diferentes. En la
+interfaz del Controller, T1 aparece una sola vez con MAIN guardado y SIDE sin
+confirmación remota. T2 muestra REC ACK y STOP ACK de ambos Nodes; sus dos
+originales se guardaron y reprodujeron. Comprobación física del historial: PASS.
+La ausencia de duplicados se observó en la interfaz; no es una auditoría directa
+de registros RTDB ni de recursos Cloudinary. No se ha informado una nueva revisión
+del historial tras otro cierre/reapertura para esta comprobación concreta. Esto
+no certifica por sí solo la ausencia de todo comando antiguo ni el rechazo de ACK
+tardíos. APK/relay H3 identificados arriba; no valida correcciones H4 sin desplegar.
+
+#### Matriz de aceptación H4 actualizada
+
+PASS indica únicamente el alcance de evidencia especificado. PENDIENTE no significa
+FAIL; no hay un fallo nuevo confirmado en esta ejecución. H4 global no está cerrado.
+
+| Criterio | Estado | Evidencia / límite |
+|---|---|---|
+| Controller + dos Nodes autorizados, roles y READY | PASS | P3/P4 físicos comunicados, binarios H3 |
+| REC/STOP, originales y reproducción de ambos | PASS | P3 y segunda toma P4, físicos H3 |
+| Dos ángulos, subida y reproducción remota, persistencia al reabrir Controller | PASS | P3 físico H3 |
+| Fallo/reintento de subida conserva original y recupera reproducción remota | PASS | P3 físico H3 |
+| SIDE continúa REC offline, STOP local; MAIN STOP remoto independiente | PASS | P4 físico H3 |
+| Reanudar mismo nodeId/rol y preparar READY nuevo | PASS | P4 físico H3 |
+| Cierre operativo de toma interrumpida y segunda toma con dos Nodes | PASS | P4 físico H3 |
+| T1/T2 con distintos takeId e historial visible sin duplicados | PASS físico H3 | Operador, 2026-11-16: IDs registrados; T1 una sola vez, MAIN guardado/SIDE sin confirmación; T2 ACK REC/STOP de ambos y originales reproducidos. Alcance: interfaz, no auditoría RTDB |
+| Sin replay de comandos ni ACK/resultados antiguos alterados | PENDIENTE físico | Cubierto automáticamente; no informado explícitamente en P4 |
+| Privacidad SESSION_LIST y aislamiento CAPABILITY_COMMAND | PASS automatizado / PENDIENTE candidato | Correcciones locales H4, no desplegadas ni certificadas por APK/relay H3 |
+| Persistencia, transacciones, conflictos y reinicio del relay | PASS emulador / PENDIENTE real | Integración RTDB local; no reinicio real de Render |
+| Política RTDB comunicada por DevA y aislamiento por UID | PASS emulador | No lectura directa de reglas desplegadas ni revisión IAM |
+| TypeScript, lint y suite | PASS previo | 114 PASS, 0 FAIL, 0 SKIP; no repetidos por esta edición documental |
+| Variante Node que nunca regresa y fallos inyectados/multisesión reales | PENDIENTE | Tests cubren casos; ensayo adicional solo en entorno autorizado aislado |
+| Arranque frío de los tres teléfonos: misma Session, roles y originales | PASS físico H3 | Operador, 2026-11-16; no prueba reinicio de Render ni confirma laptop apagada |
+| Conservación de importaciones previas y ejecución con laptop apagada | PENDIENTE | No confirmadas específicamente por el operador |
+| Dependencias y riesgos pendientes | PENDIENTE decisión | Auditorías previas; sin cambios de dependencias |
+| P5: candidato, APK y relay H4 finales | PENDIENTE | Sin publicación/despliegue/build ni validación final H4 |
+
+Para P5: IDs/historial visible ya PASS; completar evidencia de no replay y acordar con DevA los
+riesgos aceptados y verificaciones restantes (incluido reinicio real solo en
+ventana autorizada). Seleccionar SHA candidato H4 y repetir validaciones; después,
+solo con autorización, publicar/desplegar y decidir si se requiere APK nuevo.
+Las correcciones actuales son principalmente de servidor; un build nuevo no
+sustituye desplegar el relay corregido. Si se genera APK final H4, registrar SHA,
+build ID, versionCode y firma compatible e instalar como actualización sin borrar
+datos. Repetir P3/P4 con ese par cliente/relay e identificar sus SHAs y evidencias.
+La firma y procedencia del APK no se certifican con el relato de pruebas físicas.
+
+No se realizaron operaciones contra servicios reales, reinicios ni pruebas nuevas
+por Codex en esta actualización. Sin cambios funcionales, commit, push o despliegue.
+Solo ENTREGA.md actualizado; .env, LAN, repositorio original, documentos personales
+y stash se conservan. Las correcciones H4 locales siguen sin desplegarse.
+
+### 2026-11-16 · H4 · Arranque frío físico H3 e integración propuesta
+
+El operador confirma arranque frío de Controller, MAIN y SIDE con APK H3
+f6cfefce-9958-4ddd-acee-8eaa4f32ad9f y relay Render H3
+bfe2cbad41752c3e2959badb6a5ab5892e1f10ba. Controller recuperó la misma Session
+y tomas anteriores; MAIN y SIDE reanudaron conservando roles y sus grabaciones
+locales. No fue necesario crear otra Session ni borrar datos. PASS físico
+comunicado por el operador; no observado directamente por Codex. No se añaden
+suposiciones de nodeId, READY, laptop apagada o importaciones previas no reportadas.
+
+Este resultado prueba recuperación de clientes tras arranque frío, NO recuperación
+del proceso relay tras reinicio real de Render. Ese ensayo continúa PENDIENTE y
+requiere ventana autorizada. Tampoco certifica las correcciones H4 sin desplegar.
+Las menciones pendientes de arranque frío en registros anteriores son históricas;
+esta evidencia y la matriz actualizada las sustituyen para el alcance indicado.
+
+Integración propuesta, sin ejecutar: commits locales 301f650 (autorización y
+routing), 3e287dc (infraestructura emulador) y 315fd12 (reglas de DevA/UID), en ese
+orden. ENTREGA.md contiene además evidencias P3/P4 sin commit que se deberán
+revisar y registrar aparte solo con autorización. Consulta de solo lectura
+`git ls-remote origin refs/heads/desarrollo` el 2026-11-16: desarrollo sigue en
+bfe2cbad41752c3e2959badb6a5ab5892e1f10ba. No informa del trabajo local o de
+otras ramas de DevA; no garantiza ausencia de conflictos futuros.
+
+Riesgo de conflicto textual: app/(tabs)/linterna.tsx y vibracion.tsx (mensajes,
+listeners y habilitación A→B segura frente a rediseño de interfaz); ENTREGA.md
+(registros de ambos); services/SESSION_CONTRACT.md (contratos compartidos).
+server/sessions.js y server/relay.js son sensibles si DevA modifica flujo, mensajes
+o routing. tests/device-presence.test.cjs y tests/relay-storage.test.cjs pueden
+coincidir con sus regresiones; tests/emulator/* y los nuevos tests solo entrarían
+en conflicto si DevA creó rutas equivalentes. Revisar también integración semántica
+de componentes/servicios aunque Git no declare conflictos.
+
+Antes de integrar: acordar con DevA SHA/ramas y una ventana de único integrador;
+registrar ambos trabajos sin incluir .env/LAN/archivos personales. Con autorización,
+actualizar referencias y comparar diff desde merge-base con ambas ramas. Integrar
+en copia/rama aislada de revisión sobre desarrollo más reciente; conservar el
+worktree original. Si los commits H4 son ancestros, no reaplicarlos. Usar una sola
+estrategia coordinada (merge de rama completa mediante PR, preferida; cherry-pick
+en orden solo si se acuerda selección), evitando duplicar commits. Resolver con
+DevA cualquier conflicto de UI conservando autorización, rechazo explícito y
+socket compartido; no resolver usando un lado completo por defecto. La compatibilidad
+heredada restringe A→B a Controller y un único Node aceptado en una única Session;
+B→A/control sin Session/múltiples destinos no son compatibles con el envelope viejo.
+
+Validar candidato integrado: TypeScript, lint/ESLint, suite completa mediante
+emulador aislado (referencia previa 114/0/0; el total puede cambiar con DevA),
+diff-check y revisión de archivos/secretos. Probar privacidad de pending y routing
+entre Sessions con clientes sintéticos aislados, incluidos rechazos y regresiones
+legítimas. No usar relay local adicional contra la RTDB compartida. Desplegar solo
+tras autorización y con sesiones compartidas sin capturas activas: registrar SHA
+servidor, comprobar health ready tras recuperación, probar APK H3 contra relay nuevo
+y repetir P3/P4/arranque frío; revisar errores de contrato. Cambios cliente H4 de
+mensajes/controles y UI DevA necesitan bundle/APK candidato compatible; APK H3 no
+los recibe automáticamente. Validar ambos lados y firma conservando datos. Ensayar
+reinicio real coordinado y documentar plan de reversión autorizado, nunca rollback
+ciego si hubiera cambios incompatibles de datos. No se ejecuta integración,
+publicación, build, reinicio ni despliegue en esta etapa.
