@@ -105,6 +105,30 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     clients.set(id, client);
     return true;
   };
+  // Legacy screens have no Session/Node destination. Resolve only a unique,
+  // authorized Controller -> single accepted Node pair; never guess from A/B labels.
+  const routeLegacyCapability = (client, m, error) => {
+    const vibration = m.capability === 'vibration' && m.action === 'vibrate' &&
+      Number.isInteger(m.duration) && m.duration >= 1 && m.duration <= 10000;
+    const flashlight = m.capability === 'flashlight' && ['flash_on', 'flash_off'].includes(m.action);
+    const keys = ['type', 'from', 'target', 'capability', 'action', ...(vibration ? ['duration'] : [])];
+    if (m.from !== 'A' || m.target !== 'B' || (!vibration && !flashlight) ||
+        Object.keys(m).length !== keys.length || Object.keys(m).some((key) => !keys.includes(key))) return error('INVALID_CAPABILITY_COMMAND');
+    const id = client.studioIdentity?.deviceId;
+    if (!bind(client, id)) return error('IDENTITY_CONFLICT');
+    const candidates = [...sessions.values()].filter((s) => !s.closedAt && s.controllerId === id &&
+      s.members.get(id)?.uid === client.studioIdentity.uid && s.members.get(id)?.online);
+    if (!candidates.length) return error('CAPABILITY_SESSION_REQUIRED');
+    if (candidates.length !== 1) return error('CAPABILITY_SESSION_AMBIGUOUS');
+    // Count offline members too: their absence never authorizes selecting someone else.
+    const targets = [...candidates[0].members.values()].filter((m) => m.kind === 'node');
+    if (targets.length !== 1) return error('CAPABILITY_TARGET_AMBIGUOUS');
+    const target = targets[0], recipient = clients.get(target.deviceId);
+    if (!target.online || recipient?.readyState !== 1 || recipient.studioIdentity?.uid !== target.uid ||
+        owners.get(target.deviceId) !== target.uid || !(recipient.studioIdentity.expiresAt > Date.now())) return error('CAPABILITY_TARGET_UNAVAILABLE');
+    emit(recipient, JSON.stringify(m));
+    return true;
+  };
   const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
       if (s.closedAt) continue;
@@ -136,8 +160,8 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       // Malformed JSON cannot safely be classified as legacy traffic.
       try { m = JSON.parse(text); } catch { return true; }
       if (!isRecord(m)) return true;
-      // Only these existing messages may enter the legacy handlers/broadcast.
-      if (['DEVICE_INFO', 'DEVICE_INFO_REQUEST', 'DEVICE_LEFT', 'CAPABILITY_COMMAND'].includes(m.type) &&
+      // Only presence messages may enter the existing global presence handler.
+      if (['DEVICE_INFO', 'DEVICE_INFO_REQUEST', 'DEVICE_LEFT'].includes(m.type) &&
           !['protocolVersion', 'sessionId', 'senderId', 'messageId'].some((key) => key in m)) return false;
       const error = (code) => {
         if (client.readyState === 1) client.send(JSON.stringify({
@@ -148,13 +172,16 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         }));
         return true;
       };
+      if (m.type === 'CAPABILITY_COMMAND' && !['protocolVersion', 'sessionId', 'senderId', 'messageId'].some((key) => key in m)) {
+        return routeLegacyCapability(client, m, error);
+      }
       if (!isSessionRequest(m)) return error('INVALID_MESSAGE');
       if (client.readyState !== 1) return true;
       if (m.senderId === RELAY_ID || !bind(client, m.senderId)) return error('IDENTITY_CONFLICT');
       if (m.type === 'SESSION_LIST') {
         const owned = [...sessions.values()].filter((s) => !s.closedAt && s.members.get(m.senderId)?.uid === client.studioIdentity.uid);
         send(client, 'SESSION_LIST_RESULT', m.sessionId, { requestId: m.messageId, sessionIds: owned.map((s) => s.sessionId) });
-        for (const s of owned) send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), pending: pendingFor(s) });
+        for (const s of owned) send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId), ...(m.senderId === s.controllerId ? { pending: pendingFor(s) } : {}) });
         return true;
       }
       if (m.type === 'SESSION_CREATE') {
