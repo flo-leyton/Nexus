@@ -1406,3 +1406,44 @@ ampliado de relay/pantallas/tests PASS; suite completa 107 PASS, 1 SKIP, 0 FAIL
 El SKIP es el emulador RTDB no configurado. git diff --check PASS. La advertencia
 MODULE_TYPELESS_PACKAGE_JSON de Node ya existente no produce fallos; no se cambian
 formatos de módulos ni dependencias para ocultarla. Validación física pendiente.
+
+### 2026-11-15 · H4 P2 · RTDB emulada aislada
+
+Base 301f650, worktree Nexus-H4-DevB, rama devb/h4-preparation. Firebase CLI no
+estaba instalada y Java 8 era el valor del PATH. Se prepararon herramientas solo
+en tests/emulator/tools (CLI 15.36.0, rules-unit-testing 5.0.0, Firebase 12.19.0)
+con manifest/lockfile propios y sin scripts de instalación. Java 21 existente se
+selecciona únicamente en el proceso de pruebas. Emulador RTDB 4.11.2 en caché CLI.
+No se modifican dependencias/configuración de la app ni el .env de DevA.
+
+Proyecto demo-nexus-h34b, RTDB loopback 19000; hub/logging 14400/14500. El ejecutor
+limpia variables públicas/privadas de producción y proxies, no carga .env, valida
+proyecto/host, aísla configuración CLI y bloquea sockets externos en los tests.
+Un primer intento se detuvo porque CLI inyectaba FIREBASE_CONFIG; ahora se proporciona
+un fixture projectId-only verificado y se elimina antes de las pruebas, sin URLs
+remotas ni credenciales. No se usó Firebase Auth/RTDB/Render de producción.
+
+Resultado final: suite COMPLETA con emulador 113 PASS, 0 FAIL, 0 SKIP; TypeScript,
+lint y ESLint ampliado PASS. El test RTDB anteriormente SKIP se ejecutó con Admin
+SDK y transacciones reales del emulador: persistencia y conflicto de revisión.
+La integración adicional crea Session, dos Nodes, roles, READY, Takes y referencias
+sintéticas; termina abruptamente solo un relay hijo y arranca otro contra los mismos
+datos locales. Conserva identidad/código/roles/historial/medios, retira READY, mantiene
+resultados desconocidos, rechaza ACK antiguo y permite cerrar e iniciar otra Take.
+No se afirman capturas o reproducción física: verificador, resultados y URLs son fixtures.
+Se adaptó una aserción de tests/relay-storage.test.cjs para reconocer la reescritura
+de URL del Admin SDK al activar el emulador; no se cambió código de producción.
+
+Seguridad: pruebas de clientes sin Auth, Controller, Node y ajenos deniegan lectura
+y escritura al prefijo/descendientes/padres con una POLÍTICA LOCAL PROPUESTA.
+Un control negativo comprueba que un padre permisivo sí anula el deny del hijo;
+se restaura después la política segura. No se conocen ni se modificaron las reglas
+realmente desplegadas; esas verificaciones permanecen PENDIENTES.
+
+La instalación de herramientas de test reportó 19 avisos (14 moderados, 5 altos),
+separados de las dependencias de la app. No se ejecutó audit fix ni se ocultó esa
+deuda. Los logs/configuración temporal y node_modules se ignoran en Git.
+El emulador se detiene al terminar y sus datos sintéticos se limpian; no se promete
+persistencia de esos datos tras apagar el emulador. Reproducción y límites en
+tests/emulator/README.md. Commit local en historial; sin push/despliegue. Originales, documentos
+personales, LAN, .env y stash permanecen intactos. H3/H4 no están cerrados globalmente.

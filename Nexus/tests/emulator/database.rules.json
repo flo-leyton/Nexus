@@ -1,0 +1,14 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "nexusStudio": {
+      ".read": false,
+      ".write": false,
+      "relayV1": {
+        ".read": false,
+        ".write": false
+      }
+    }
+  }
+}
