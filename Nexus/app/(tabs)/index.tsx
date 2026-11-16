@@ -1,5 +1,7 @@
 import { router, type Href } from 'expo-router';
 import { useRef, useState } from 'react';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { StudioUI } from '@/constants/studio-ui';
 import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +14,7 @@ import { connectSocket } from '@/services/socket';
 
 export default function StudioScreen() {
   const insets = useSafeAreaInsets();
+  const palette = StudioUI[useColorScheme() === 'dark' ? 'dark' : 'light'];
   const [code, setCode] = useState('');
   const [notice, setNotice] = useState('Crea una sesión o solicita ingreso con el código del Controller.');
   const [failed, setFailed] = useState(false);
@@ -82,17 +85,17 @@ export default function StudioScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 48 }]}>
-        <ThemedView style={styles.hero}>
-          <ThemedText style={styles.eyebrow}>NEXUS</ThemedText>
-          <ThemedText type="title" style={styles.title}>NEXUS STUDIO</ThemedText>
+        <ThemedView style={[styles.hero, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <ThemedText style={[styles.eyebrow, { color: palette.primary }]}>NEXUS / CONTROL CENTER</ThemedText>
+          <ThemedText type="title" style={styles.title}>Tu estudio, conectado.</ThemedText>
           <ThemedText style={styles.tagline}>Un estudio de grabación para el bolsillo.</ThemedText>
         </ThemedView>
         <StudioIdentityPanel />
         {connected && <Pressable accessibilityRole="button" onPress={() => {
           try { service?.discoverSessions(); setNotice('Consultando tus Sessions activas persistidas…'); }
           catch (cause) { setNotice(sessionErrorMessage(cause)); }
-        }} style={styles.button}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACTUALIZAR MIS SESSIONS</ThemedText></Pressable>}
-        <ThemedView style={styles.model}>
+        }} style={[styles.button, { backgroundColor: palette.primary }]}><ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">ACTUALIZAR MIS SESSIONS</ThemedText></Pressable>}
+        <ThemedView style={[styles.model, { backgroundColor: palette.surface, borderColor: palette.border }]}>
           <ThemedText type="subtitle">Controller + Nodes + Session</ThemedText>
           <ThemedText>Relay: {connectionLabel(snapshot?.connection)}</ThemedText>
           <ThemedText selectable style={styles.identity}>Este dispositivo: {deviceId || 'Preparando identidad…'}</ThemedText>
@@ -107,14 +110,14 @@ export default function StudioScreen() {
         {service && snapshot && <ThemedView style={styles.model}>
           <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} />
         </ThemedView>}
-        <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('create')} style={({ pressed }) => [styles.button, busy && styles.disabled, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('create')} style={({ pressed }) => [styles.button, { backgroundColor: palette.primary }, busy && styles.disabled, pressed && styles.pressed]}>
           <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>NUEVA SESIÓN</ThemedText>
         </Pressable>
         <ThemedView style={styles.model}>
           <ThemedText type="subtitle">Ingresar como Node</ThemedText>
           <TextInput accessibilityLabel="Código de sesión" autoCapitalize="characters" autoCorrect={false} maxLength={6}
-            editable={!busy} value={code} onChangeText={setCode} placeholder="Código de 6 caracteres" style={styles.input} />
-          <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('join')} style={[styles.button, busy && styles.disabled]}>
+            editable={!busy} value={code} onChangeText={setCode} placeholder="Código de 6 caracteres" style={[styles.input, { backgroundColor: palette.surfaceRaised, borderColor: palette.border, color: palette.text }]} placeholderTextColor={palette.muted} />
+          <Pressable accessibilityRole="button" disabled={busy || !service} onPress={() => start('join')} style={[styles.button, { backgroundColor: palette.primary }, busy && styles.disabled]}>
             <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.buttonText}>SOLICITAR INGRESO</ThemedText>
           </Pressable>
         </ThemedView>
@@ -135,19 +138,19 @@ export default function StudioScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { alignSelf: 'center', flexGrow: 1, gap: 32, justifyContent: 'center', maxWidth: 560, padding: 24, paddingBottom: 64, width: '100%' },
-  hero: { gap: 12 },
+  content: { alignSelf: 'center', flexGrow: 1, gap: 20, maxWidth: 560, padding: 20, paddingBottom: 64, width: '100%' },
+  hero: { gap: 10, padding: 24, borderRadius: 24, borderWidth: 1 },
   eyebrow: { fontSize: 13, fontWeight: '800', letterSpacing: 4, opacity: 0.55 },
-  title: { fontSize: 40, lineHeight: 44 },
-  tagline: { fontSize: 22, lineHeight: 30, opacity: 0.76 },
-  model: { borderColor: '#687076', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, gap: 10, padding: 20 },
+  title: { fontSize: 33, lineHeight: 39, fontWeight: '800' },
+  tagline: { fontSize: 16, lineHeight: 23, opacity: 0.76 },
+  model: { borderRadius: 20, borderWidth: 1, gap: 12, padding: 20 },
   description: { opacity: 0.72 },
-  button: { alignItems: 'center', backgroundColor: '#474FE7', borderRadius: 16, padding: 18 },
+  button: { alignItems: 'center', borderRadius: 14, padding: 16, minHeight: 52, justifyContent: 'center' },
   buttonText: { fontSize: 16, fontWeight: '800', letterSpacing: 1 },
   pressed: { opacity: 0.78 },
   disabled: { opacity: 0.5 },
   error: { color: '#D92D20' },
   identity: { fontSize: 12 },
   code: { fontSize: 24, lineHeight: 32, fontWeight: '800' },
-  input: { backgroundColor: '#FFFFFF', borderColor: '#687076', borderWidth: 1, borderRadius: 12, color: '#111827', padding: 14, fontSize: 18 },
+  input: { borderWidth: 1, borderRadius: 12, padding: 14, fontSize: 18 },
 });
