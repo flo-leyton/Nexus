@@ -6,7 +6,7 @@ import {
     update,
 } from 'firebase/database';
 
-import { auth, database } from '../app/firebase';
+import { auth, database } from '../config/firebase';
 import { getOrCreateDeviceId } from './deviceIdentity';
 import { collectDeviceInfo } from './deviceInfo';
 

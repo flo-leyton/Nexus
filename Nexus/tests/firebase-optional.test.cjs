@@ -7,7 +7,7 @@ test('account: email Gmail login links anonymous UID first; existing-account col
   const original = { uid: 'studio-original', isAnonymous: true }, auth = { currentUser: original };
   const link = load('../services/identityLink.ts', {});
   const account = load('../services/authService.ts', {
-    '../app/firebase': { requireFirebase: () => ({ auth, database: {} }) },
+    '../config/firebase': { requireFirebase: () => ({ auth, database: {} }) },
     './studioIdentity': { rememberStudioIdentity() { remembered++; } }, './identityLink': link,
     'firebase/auth': {
       EmailAuthProvider: { credential: (email, password) => ({ email, password }) },
@@ -47,7 +47,7 @@ function firebase(env, options = {}) {
   const app = { name: 'test-app' };
   const auth = { currentUser: null };
   const database = {};
-  const result = load('../app/firebase.ts', {
+  const result = load('../config/firebase.ts', {
     '@react-native-async-storage/async-storage': {},
     'firebase/app': {
       getApps: () => options.existing ? [app] : [],
@@ -71,10 +71,10 @@ test('Firebase absent or partial: import and startup diagnostic do not initializ
     assert.equal(result.firebaseApp, null);
     assert.equal(result.auth, null);
     assert.equal(result.database, null);
-    load('../services/firebaseTest.ts', { '../app/firebase': result }).testFirebaseInitialization();
+    load('../services/firebaseTest.ts', { '../config/firebase': result }).testFirebaseInitialization();
     assert.deepEqual(calls, []);
     const account = load('../services/authService.ts', {
-      '../app/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {}, 'firebase/auth': {}, 'firebase/database': {},
+      '../config/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {}, 'firebase/auth': {}, 'firebase/database': {},
     });
     await assert.rejects(account.loginUser('test@example.com', 'password'), /Firebase no configurado/);
     await assert.rejects(account.registerUser('test@example.com', 'password'), /Firebase no configurado/);
@@ -94,7 +94,7 @@ test('Firebase configured: persistence, auth and profile writes keep existing be
     const user = { uid: 'user-id', email: 'test@example.com' };
     const actions = [];
     const account = load('../services/authService.ts', {
-      '../app/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {},
+      '../config/firebase': result, './studioIdentity': { rememberStudioIdentity() {} }, './identityLink': {},
       'firebase/auth': {
         async signInWithEmailAndPassword(a, email) { assert.equal(a, auth); assert.equal(email, user.email); actions.push('login'); return { user }; },
         async createUserWithEmailAndPassword(a, email) { assert.equal(a, auth); assert.equal(email, user.email); actions.push('register'); return { user }; },
@@ -111,5 +111,15 @@ test('Firebase configured: persistence, auth and profile writes keep existing be
     await account.loginUser(' TEST@example.com ', 'password');
     await account.logoutUser();
     assert.deepEqual(actions, ['register', 'profile-create', 'login', 'profile-update', 'logout']);
+  }
+});
+
+test('Firebase configuration is not a Router screen and all runtime consumers use the single relocated module',()=>{
+  assert.equal(fs.existsSync(path.resolve(__dirname,'../app/firebase.ts')),false);
+  assert.ok(fs.existsSync(path.resolve(__dirname,'../config/firebase.ts')));
+  for(const file of ['services/authService.ts','services/firebaseTest.ts','services/deviceRegistry.ts','services/studioIdentity.ts','components/StudioIdentityPanel.tsx','app/(tabs)/explore.tsx']){
+    const source=fs.readFileSync(path.resolve(__dirname,'..',file),'utf8');
+    assert.ok(source.includes('/config/firebase'),file);
+    assert.ok(!source.includes('/app/firebase'),file);
   }
 });

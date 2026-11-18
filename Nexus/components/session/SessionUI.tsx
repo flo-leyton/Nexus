@@ -1,3 +1,4 @@
+import { retainedVisibility } from '@/components/retainedVisibility';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Icon, Portal, Surface, Text, useTheme } from 'react-native-paper';
@@ -70,7 +71,7 @@ export function SessionDetails({ title = 'Datos técnicos', children }: { title?
   return <View style={{ gap: expanded ? 8 : 0 }}>
     <Button mode="text" icon={expanded ? 'chevron-up' : 'chevron-down'} onPress={() => setExpanded((value) => !value)}
       accessibilityState={{ expanded }} contentStyle={sessionStyles.touch} style={{ alignSelf: 'flex-start' }}>{title}</Button>
-    <View style={{ display: expanded ? 'flex' : 'none', gap: 8 }} accessibilityElementsHidden={!expanded}
+    <View style={{ ...retainedVisibility(expanded), gap: 8 }} accessibilityElementsHidden={!expanded}
       importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}>{children}</View>
   </View>;
 }

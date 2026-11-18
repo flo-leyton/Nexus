@@ -1,3 +1,4 @@
+import { retainedVisibility } from '@/components/retainedVisibility';
 import type { ReactNode } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 import { Button } from 'react-native-paper';
@@ -16,16 +17,16 @@ export function SessionPage(props: Props) {
     {props.header}
     <View style={{ flexDirection: wide ? 'row' : 'column', gap: 28, alignItems: 'stretch' }}>
       <View style={{ flex: wide ? 1.7 : undefined, minWidth: 0, gap: 24 }}>
-        <View key="capture-owner" style={{ display: props.capture ? 'flex' : 'none' }}>{props.capture}</View>
-        <View key="members" style={{ display: props.members ? 'flex' : 'none' }}>{props.members}</View>
-        <View key="console-owner" style={{ display: props.console ? 'flex' : 'none' }}>{props.console}</View>
+        <View key="capture-owner" style={{ ...retainedVisibility(Boolean(props.capture)) }}>{props.capture}</View>
+        <View key="members" style={{ ...retainedVisibility(Boolean(props.members)) }}>{props.members}</View>
+        <View key="console-owner" style={{ ...retainedVisibility(Boolean(props.console)) }}>{props.console}</View>
       </View>
       <View style={{ flex: wide ? 1 : undefined, minWidth: 0, gap: 24 }}>
-        <View key="rejoin" style={{ display: props.rejoin ? 'flex' : 'none' }}>{props.rejoin}</View>
-        <View key="admission" style={{ display: props.admission ? 'flex' : 'none' }}>{props.admission}</View>
-        <View key="media" style={{ display: props.media ? 'flex' : 'none' }}>{props.media}</View>
-        <View key="imports" style={{ display: props.imports ? 'flex' : 'none' }}>{props.imports}</View>
-        <View key="administration" style={{ display: props.administration ? 'flex' : 'none' }}>{props.administration}</View>
+        <View key="rejoin" style={{ ...retainedVisibility(Boolean(props.rejoin)) }}>{props.rejoin}</View>
+        <View key="admission" style={{ ...retainedVisibility(Boolean(props.admission)) }}>{props.admission}</View>
+        <View key="media" style={{ ...retainedVisibility(Boolean(props.media)) }}>{props.media}</View>
+        <View key="imports" style={{ ...retainedVisibility(Boolean(props.imports)) }}>{props.imports}</View>
+        <View key="administration" style={{ ...retainedVisibility(Boolean(props.administration)) }}>{props.administration}</View>
       </View>
     </View>
   </SessionCanvas>;

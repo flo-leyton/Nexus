@@ -1796,3 +1796,37 @@ Detalles y procedimiento Android: docs/ux/implementation/ETAPA_3.md y ETAPA_4.md
 galería stage4-gallery.html. Commits locales identificables en el historial por
 los mensajes de Etapas 3/4; sin push, PR, merge remoto, despliegue ni build productivo.
 Originales, .env de H4, documentos personales y stash se mantienen intactos.
+
+### 2026-11-16 · Incidente nativo durante reproducción · candidato 146a926
+
+El operador comunica siete SIGABRT en Redmi Android 13. Se leyó completo el log
+privado, no incorporado a Git: misma aserción YogaLayoutableShadowNode.cpp:708 y
+stacks Fabric/ScrollView/RNSScreen. No se certifica fallo del códec por esos stacks.
+Hipótesis fuerte: paneles retenidos display:none y defecto de layout upstream.
+Preparada mitigación visual sin desmontar propietarios y trazas dev-only sin URIs
+ni identidades. Sin cambios de servicios, Auth, captura, REC/STOP o subida; uncertain
+tras cierre conserva su semántica prevista. Detalle, prueba mínima y plan Android:
+docs/diagnostics/PLAYBACK_YOGA.md. Problema NO resuelto físicamente todavía.
+TypeScript/lint/guard PASS; suite emulada 120 PASS / 0 FAIL / 0 SKIP. Estos tests no
+certifican Yoga nativo. Edición y mitigación sin commit/push/merge/despliegue.
+
+### 2026-11-16 · Tablet · Firebase fuera de rutas y diagnóstico de arranque
+
+Se reubicó app/firebase.ts a config/firebase.ts con contenido local idéntico y
+solo imports/mocks actualizados. Auth y AsyncStorage conservan exactamente su
+inicialización y persistencia. Mitigación Yoga mantenida. Guard PASS; TypeScript,
+lint, tests emulados 121 PASS / 0 FAIL / 0 SKIP. Keep-awake se rastrea a Expo DevTools
+y rechazo nativo sin Activity actual; no se prueba causalidad de la pantalla blanca.
+Metro 8091 sirve la copia original según su manifiesto; comprobar qué URL abre la
+tablet antes de atribuir el comportamiento al candidato. Detalle y logcat requerido:
+docs/diagnostics/TABLET_STARTUP.md. Sin reconstrucción APK, commit, push o despliegue.
+
+### 2026-11-17 · Relevo integrado para DEV-A
+
+Candidato de documentación basado en 146a926, con traslado de Firebase y
+mitigación Yoga incluidos. TypeScript, lint, auditorías de Etapa 4 y layout
+retenido, y suite aislada con RTDB emulada: 121 PASS, 0 FAIL, 0 SKIP.
+P3/P4 físicos corresponden a H3 según el operador. Queda pendiente validar
+el candidato completo en Android, incluida reproducción, arranque en tablet
+y accesibilidad. No se generó APK ni se desplegó el relay para este relevo.
+Instrucciones reproducibles en docs/HANDOFF_DEVA.md.

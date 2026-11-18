@@ -1,3 +1,4 @@
+import { retainedVisibility } from '@/components/retainedVisibility';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Button, Text, TextInput, useTheme } from 'react-native-paper';
@@ -14,7 +15,7 @@ export function NodeRoleEditorView({ deviceId, draft, busy, notice, compact, onC
     {compact && <Button mode="text" icon={visible ? 'chevron-up' : 'pencil-outline'} disabled={busy}
       onPress={() => setExpanded((value) => !value)} accessibilityState={{ expanded: visible }}
       style={{ alignSelf: 'flex-start' }} contentStyle={sessionStyles.touch}>{visible ? 'Cerrar editor de rol' : 'Editar rol'}</Button>}
-    <View style={{ display: visible ? 'flex' : 'none', gap: 10 }} accessibilityElementsHidden={!visible}
+    <View style={{ ...retainedVisibility(visible), gap: 10 }} accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}>
       <TextInput mode="outlined" label="Rol del Node" accessibilityLabel={`Rol de ${deviceId}`} value={draft} onChangeText={onChange}
         maxLength={64} editable={!busy} outlineStyle={sessionStyles.control} style={{ backgroundColor: colors.background }} />

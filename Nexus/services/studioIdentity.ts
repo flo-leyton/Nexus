@@ -1,5 +1,5 @@
 import { onAuthStateChanged, signInAnonymously, updateCurrentUser, type User } from 'firebase/auth';
-import { auth } from '../app/firebase';
+import { auth } from '../config/firebase';
 import { getOrCreateDeviceId } from './deviceIdentity';
 
 let signingIn: Promise<unknown> | null = null;

@@ -13,7 +13,7 @@ import {
     update,
 } from 'firebase/database';
 
-import { requireFirebase } from '../app/firebase';
+import { requireFirebase } from '../config/firebase';
 import { rememberStudioIdentity } from './studioIdentity';
 import { linkAnonymousCredential } from './identityLink';
 

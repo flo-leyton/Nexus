@@ -184,7 +184,7 @@ test('identity: valid Google linking preserves anonymous UID; existing Google ac
 
 test('identity: retained anonymous user can be verified and restored, but a fresh app cannot reconstruct an abandoned user', async () => {
   const original = { uid: 'anonymous', isAnonymous: true, getIdToken: async (force) => { assert.equal(force, true); return 'proof'; } };
-  const auth = { currentUser: original }, deps = { '../app/firebase': { auth }, './deviceIdentity': {},
+  const auth = { currentUser: original }, deps = { '../config/firebase': { auth }, './deviceIdentity': {},
     'firebase/auth': { updateCurrentUser: async (a, user) => { a.currentUser = user; } } };
   const recovery = load('../services/studioIdentity.ts', deps);
   recovery.rememberStudioIdentity(); auth.currentUser = { uid: 'google' };
@@ -248,7 +248,7 @@ test('H3.4a: missing URL/Auth or invalid authorization shows explicit error and 
 test('H3.4a: Firebase restores existing/anonymous identity, signs in once and forces fresh ID tokens', async () => {
   const calls = [], auth = { currentUser: null, authStateReady: async () => { calls.push('restore'); } };
   const user = { uid: 'persistent-anonymous', getIdToken: async (force) => { calls.push(force); return 'id-token'; } };
-  const dependencies = { '../app/firebase': { auth }, './deviceIdentity': { getOrCreateDeviceId: async () => 'device' },
+  const dependencies = { '../config/firebase': { auth }, './deviceIdentity': { getOrCreateDeviceId: async () => 'device' },
     'firebase/auth': { signInAnonymously: async () => { calls.push('anonymous'); await turn(); auth.currentUser = user; }, onAuthStateChanged() {} } };
   const service = load('../services/studioIdentity.ts', dependencies);
   await Promise.all([service.getStudioCredentials(), service.getStudioCredentials()]);
@@ -260,9 +260,9 @@ test('H3.4a: Firebase restores existing/anonymous identity, signs in once and fo
 });
 
 test('H3.4a: absent Firebase and disabled Anonymous Auth fail explicitly without faking identity', async () => {
-  const dependencies = { '../app/firebase': { auth: null }, './deviceIdentity': {}, 'firebase/auth': {} };
+  const dependencies = { '../config/firebase': { auth: null }, './deviceIdentity': {}, 'firebase/auth': {} };
   await assert.rejects(load('../services/studioIdentity.ts', dependencies).getStudioCredentials(), /Firebase no configurado/);
-  dependencies['../app/firebase'].auth = { currentUser: null, authStateReady: async () => {} };
+  dependencies['../config/firebase'].auth = { currentUser: null, authStateReady: async () => {} };
   dependencies['firebase/auth'] = { signInAnonymously: async () => { throw { code: 'auth/operation-not-allowed' }; } };
   await assert.rejects(load('../services/studioIdentity.ts', dependencies).getStudioCredentials(), /Anonymous Authentication no está habilitado/);
 });

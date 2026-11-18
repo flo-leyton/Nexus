@@ -11,7 +11,7 @@ import {
   StyleSheet,
 } from 'react-native';
 
-import { auth, database } from '@/app/firebase';
+import { auth, database } from '@/config/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';

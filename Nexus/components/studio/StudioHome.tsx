@@ -1,3 +1,4 @@
+import { retainedVisibility } from '@/components/retainedVisibility';
 import { useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Divider, Icon, Text, TextInput, TouchableRipple, useTheme } from 'react-native-paper';
@@ -167,5 +168,5 @@ const styles = StyleSheet.create({
   sessionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: StudioSpacing.sm },
   code: { fontFamily: 'monospace', letterSpacing: 1.5 },
   joinForm: { gap: StudioSpacing.md },
-  hidden: { display: 'none' },
+  hidden: retainedVisibility(false),
 });

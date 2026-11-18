@@ -1,3 +1,4 @@
+import { retainedVisibility } from '@/components/retainedVisibility';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Icon, Text, useTheme } from 'react-native-paper';
@@ -71,5 +72,5 @@ const styles = StyleSheet.create({
   touch: { minHeight: StudioShape.touchTarget },
   control: { borderRadius: StudioShape.control },
   details: { gap: StudioSpacing.sm },
-  hidden: { display: 'none' },
+  hidden: retainedVisibility(false),
 });

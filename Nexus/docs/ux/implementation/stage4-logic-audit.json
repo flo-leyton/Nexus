@@ -1,9 +1,9 @@
 {
   "baseline": "6379986816154d5e052c96c57041aab01e60520d",
-  "scope": "Exact protected diff and account handlers; no native or production certification.",
+  "scope": "Protected runtime exact; retained-panel exceptions checked for identical non-style AST, native player signature and account handlers unchanged; Firebase relocation byte-identical and consumer imports only. No native certification.",
   "checks": [
     {
-      "check": "Protected runtime, camera owners, Session tree, H4 legacy controls and configuration unchanged",
+      "check": "Protected runtime/owners/H4 exact; retained-panel changes style-only and native playback signature unchanged",
       "status": "PASS"
     },
     {

@@ -1,7 +1,7 @@
 import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable } from 'react-native';
-import { auth } from '../app/firebase';
+import { auth } from '../config/firebase';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { forgetPreviousStudioIdentity, getPreviousStudioUser, restorePreviousStudioIdentity } from '../services/studioIdentity';
