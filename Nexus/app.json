@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
-    }, 
+    },
     "android": {
       "package": "com.floleyton.nexus",
       "googleServicesFile": "./google-services.json",
@@ -36,7 +36,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Permite que Nexus use la cámara para controlar la linterna.",
+          "cameraPermission": "Permite que Nexus use la cámara para grabar vídeos locales de Studio.",
           "recordAudioAndroid": false
         }
       ],
@@ -58,7 +58,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

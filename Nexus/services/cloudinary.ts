@@ -3,7 +3,8 @@ import { fetch as expoFetch } from 'expo/fetch';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-import type { NexusMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
+import type { RemoteMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
+import { isCloudinaryVideoUrl } from './sessionProtocol';
 
 export type UploadMediaAssetInput = {
   uri: string;
@@ -12,6 +13,9 @@ export type UploadMediaAssetInput = {
   sessionId: string;
   source: NexusMediaSource;
   file?: Blob;
+  assetId?: string;
+  publicId?: string;
+  expectedBytes?: number;
 };
 
 type CloudinaryUploadResponse = {
@@ -75,6 +79,7 @@ async function uploadFromWeb(
   const form = new FormData();
   form.append('file', input.file, input.fileName);
   form.append('upload_preset', uploadPreset);
+  if (input.publicId) form.append('public_id', input.publicId);
   form.append('context', `nexus_session_id=${input.sessionId}|nexus_source=${input.source}`);
   const response = await expoFetch(endpoint, { method: 'POST', body: form });
   return { status: response.status, statusText: response.statusText, body: await response.text() };
@@ -93,7 +98,8 @@ async function uploadFromNative(
     const detail = error instanceof Error ? error.message : 'URI no compatible';
     throw new Error(`LOCAL FILE ERROR: no se pudo leer el archivo seleccionado (${detail}).`);
   }
-  if (!info.exists) throw new Error('LOCAL FILE ERROR: el archivo seleccionado no existe o no puede leerse.');
+  if (!info.exists || info.isDirectory || !Number.isFinite(info.size) || info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado no existe, está vacío o no puede leerse.');
+  if (input.expectedBytes !== undefined && info.size !== input.expectedBytes) throw new Error('LOCAL FILE ERROR: el tamaño del original cambió desde su verificación.');
   if (typeof info.size === 'number' && info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado está vacío.');
   if (typeof info.size === 'number' && info.size > MAX_UPLOAD_BYTES) {
     throw new Error('LOCAL FILE ERROR: el archivo supera el máximo de 80 MB.');
@@ -106,13 +112,14 @@ async function uploadFromNative(
     mimeType,
     parameters: {
       upload_preset: uploadPreset,
+      ...(input.publicId ? { public_id: input.publicId } : {}),
       context: `nexus_session_id=${input.sessionId}|nexus_source=${input.source}`,
     },
   });
   return { status: response.status, statusText: '', body: response.body };
 }
 
-export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<NexusMediaAsset> {
+export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<RemoteMediaAsset> {
   if (!input.uri.trim()) throw new Error('LOCAL FILE ERROR: la URI del archivo está vacía.');
   if (!input.fileName.trim()) throw new Error('LOCAL FILE ERROR: el nombre del archivo está vacío.');
 
@@ -139,7 +146,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Ne
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('LOCAL FILE ERROR:')) throw error;
     const detail = error instanceof Error ? error.message : 'sin detalle';
-    throw new Error(`NETWORK ERROR: no se pudo conectar con Cloudinary (${detail}).`);
+    throw Object.assign(new Error(`NETWORK ERROR: no se confirmó la transferencia con Cloudinary (${detail}). Puede haber recibido el archivo.`), { code: 'UPLOAD_UNCERTAIN' });
   }
 
   const responseBody = response.body;
@@ -150,7 +157,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Ne
     payload = JSON.parse(responseBody) as CloudinaryUploadResponse;
   } catch {
     if (responseOk) {
-      throw new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): la respuesta no es JSON válido.`);
+      throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): la respuesta no es JSON válido; subida sin confirmar.`), { code: 'UPLOAD_UNCERTAIN' });
     }
   }
 
@@ -160,15 +167,25 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Ne
   }
   if (
     !payload ||
-    typeof payload.public_id !== 'string' ||
+    typeof payload.public_id !== 'string' || !payload.public_id.trim() || payload.public_id.length > 512 ||
     typeof payload.secure_url !== 'string' ||
     (payload.resource_type !== 'image' && payload.resource_type !== 'video')
   ) {
-    throw new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`);
+    throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR (${response.status}): faltan public_id, secure_url o resource_type válido.`), { code: 'UPLOAD_UNCERTAIN' });
+  }
+  if (input.source === 'capture') {
+    const problems: string[] = [];
+    // The requested ID is a naming hint. Only the provider response defines the
+    // remote identity; catalogId and original participation remain local identities.
+    if (payload.resource_type !== 'video') problems.push(`resource_type esperado video, recibido ${payload.resource_type}`);
+    if (!isCloudinaryVideoUrl(payload.secure_url)) problems.push('secure_url no es una URL HTTPS de vídeo de Cloudinary compatible');
+    if (typeof payload.bytes !== 'number' || !Number.isFinite(payload.bytes) || payload.bytes <= 0) problems.push('bytes ausentes o no positivos en la respuesta');
+    if (problems.length) throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR: ${problems.join('; ')}. Subida sin confirmar.`), { code: 'UPLOAD_UNCERTAIN' });
   }
 
   return {
-    id: Crypto.randomUUID(),
+    storage: 'remote',
+    id: input.assetId ?? Crypto.randomUUID(),
     sessionId: input.sessionId,
     source: input.source,
     resourceType: payload.resource_type as NexusMediaResourceType,
@@ -179,7 +196,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Ne
     width: optionalNumber(payload.width),
     height: optionalNumber(payload.height),
     duration: optionalNumber(payload.duration),
-    role: 'controller-import',
+    ...(input.source === 'import' ? { role: 'controller-import' } : {}),
     createdAt: new Date().toISOString(),
   };
 }

@@ -9,7 +9,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "relay": "node server/index.js"
+    "relay": "node server/index.js",
+    "check:preview": "node scripts/check-preview.cjs",
+    "eas-build-post-install": "node scripts/check-native.cjs"
   },
   "dependencies": {
     "@cloudinary/react": "^1.14.4",
@@ -39,8 +41,10 @@
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
     "expo-system-ui": "~6.0.9",
+    "expo-video": "~3.0.16",
     "expo-web-browser": "~15.0.11",
     "firebase": "^12.19.0",
+    "firebase-admin": "^13.10.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

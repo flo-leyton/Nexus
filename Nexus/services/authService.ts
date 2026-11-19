@@ -2,6 +2,9 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
+    EmailAuthProvider,
+    linkWithCredential,
+    type AuthCredential,
 } from 'firebase/auth';
 import {
     ref,
@@ -10,12 +13,23 @@ import {
     update,
 } from 'firebase/database';
 
-import { auth, database } from '../app/firebase';
+import { requireFirebase } from '../config/firebase';
+import { rememberStudioIdentity } from './studioIdentity';
+import { linkAnonymousCredential } from './identityLink';
+
+export async function linkStudioCredential(credential: AuthCredential) {
+  const { auth } = requireFirebase();
+  if (!auth.currentUser) throw new Error('Abre Studio primero para recuperar tu identidad anónima.');
+  return linkAnonymousCredential(auth.currentUser, credential, linkWithCredential);
+}
 
 export async function registerUser(email: string, password: string) {
+  const { auth, database } = requireFirebase();
   const normalizedEmail = email.trim().toLowerCase();
 
-  const credential = await createUserWithEmailAndPassword(
+  const credential = auth.currentUser?.isAnonymous
+    ? await linkStudioCredential(EmailAuthProvider.credential(normalizedEmail, password))
+    : await createUserWithEmailAndPassword(
     auth,
     normalizedEmail,
     password,
@@ -30,10 +44,14 @@ export async function registerUser(email: string, password: string) {
   return credential.user;
 }
 
-export async function loginUser(email: string, password: string) {
+export async function loginUser(email: string, password: string, allowAccountChange = false) {
+  const { auth, database } = requireFirebase();
   const normalizedEmail = email.trim().toLowerCase();
 
-  const credential = await signInWithEmailAndPassword(
+  rememberStudioIdentity();
+  const credential = auth.currentUser?.isAnonymous && !allowAccountChange
+    ? await linkStudioCredential(EmailAuthProvider.credential(normalizedEmail, password))
+    : await signInWithEmailAndPassword(
     auth,
     normalizedEmail,
     password,
@@ -47,6 +65,8 @@ export async function loginUser(email: string, password: string) {
 }
 
 export async function logoutUser() {
+  const { auth } = requireFirebase();
+  rememberStudioIdentity();
   await signOut(auth);
 }
 

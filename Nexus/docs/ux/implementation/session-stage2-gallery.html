@@ -1,0 +1,43 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUS · Session A / Consola · Etapa 2 completa</title>
+<style>
+body{margin:0;background:#131018;color:#f6f3fa;font:16px/1.5 system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:36px 24px}h1{font-size:36px;font-weight:600;letter-spacing:-.8px}h2{font-size:24px;font-weight:600}h3{font-size:16px;font-weight:600}p{color:#b0a8bc;max-width:1000px}a{color:#bcb2ff}nav{display:flex;gap:20px;flex-wrap:wrap;margin:24px 0}.grid{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}.grid article{width:390px;max-width:100%}img{max-width:100%;height:auto;border:1px solid #393145;border-radius:12px}section{margin-top:44px;padding-top:16px;border-top:1px solid #393145}.label{color:#bcb2ff;font-size:12px;letter-spacing:2px}.note{padding:16px;background:#272131;border-radius:12px}article p{font-size:13px}
+</style><main>
+<span class="label">IMPLEMENTACIÓN CONSOLIDADA · MATERIAL DESIGN 3 · EXPO SDK 54</span>
+<h1>Una Session. Dos experiencias de operación.</h1>
+<p>Controller coordina; Node captura. La Etapa 2 integra toda la pantalla y sus medios con A / Consola. Estas capturas ejecutan los componentes reales de producción en Expo web, con datos sintéticos rotulados y servicios externos bloqueados. El encuadre Node es ilustrativo; no demuestra captura nativa ni archivos reales.</p>
+<p class="note"><a href="ETAPA_2.md">Informe completo, archivos, límites y prueba Android</a> · <a href="stage2-qa-results.json">12 comprobaciones de interfaz</a> · <a href="stage2-logic-audit.json">17 comprobaciones del diff</a> · <a href="../proposals/02-operacion.png">Referencia A aprobada</a></p>
+<nav><a href="#controller">Controller</a><a href="#node">Node</a><a href="#media">Medios</a><a href="#safety">Confirmaciones</a><a href="#desktop">Pantalla grande</a><a href="#integration">Ruta real</a></nav>
+<section id="controller"><h2>Controller · preparar, enviar y comprobar</h2><div class="grid">
+<article><h3>Preparado</h3><p>Roles y READY independientes. REC/STOP siempre visibles.</p><a href="stage2-controller-ready.png"><img src="stage2-controller-ready.png" alt="Controller preparado con dos Nodes READY y acciones fijas."></a></article>
+<article><h3>Comando pendiente</h3><p>Enviado no significa ACK, grabación ni archivo.</p><a href="stage2-controller-pending.png"><img src="stage2-controller-pending.png" alt="Comando pendiente del relay y recepción aún sin ACK."></a></article>
+<article><h3>Grabación activa</h3><p>ACK y fase se muestran por separado en cada Node.</p><a href="stage2-controller-recording.png"><img src="stage2-controller-recording.png" alt="Resultados por Node con ACK REC y grabación activa."></a></article>
+<article><h3>Fallo parcial</h3><p>El Node offline queda desconocido; otro conserva STOP.</p><a href="stage2-controller-partial.png"><img src="stage2-controller-partial.png" alt="Un Node graba y otro tiene conexión perdida y resultado desconocido."></a></article>
+<article><h3>Toma interrumpida</h3><p>Reconciliar originales antes de cerrar y comenzar otra.</p><a href="stage2-controller-interrupted.png"><img src="stage2-controller-interrupted.png" alt="Toma interrumpida sin inferir resultados guardados."></a></article>
+<article><h3>Archivos e historial</h3><p>Archivo informado como guardado sigue siendo distinto de una subida.</p><a href="stage2-controller-saved.png"><img src="stage2-controller-saved.png" alt="Resultados guardados y acceso a historial de tomas."></a></article>
+</div></section>
+<section id="node"><h2>Node · cámara y parada local</h2><div class="grid">
+<article><h3>Preparación nueva</h3><a href="stage2-node-ready.png"><img src="stage2-node-ready.png" alt="Node preparado que debe confirmar READY para otra toma."></a></article>
+<article><h3>Grabando</h3><a href="stage2-node-recording.png"><img src="stage2-node-recording.png" alt="Vista Node grabando, encuadre de QA y parada local fija."></a></article>
+<article><h3>REC sin relay</h3><a href="stage2-node-offline.png"><img src="stage2-node-offline.png" alt="Node offline mantiene el propietario del encuadre y el botón Detener y guardar."></a></article>
+<article><h3>Permiso denegado</h3><a href="stage2-node-permission.png"><img src="stage2-node-permission.png" alt="Permiso denegado, comprobación y explicación de ajustes antes del placeholder."></a></article>
+<article><h3>Guardado fallido</h3><a href="stage2-node-save-error.png"><img src="stage2-node-save-error.png" alt="Clip aún no guardado, error persistente y reintento disponible."></a></article>
+<article><h3>Archivo disponible</h3><a href="stage2-node-saved.png"><img src="stage2-node-saved.png" alt="Estado de archivo disponible, separado de la preparación y subida."></a></article>
+</div></section>
+<section id="media"><h2>Medios e importación</h2><div class="grid">
+<article><h3>Ángulos por toma</h3><a href="stage2-media-angles.png"><img src="stage2-media-angles.png" alt="Ángulo con subida confirmada y otro sólo local en su Node."></a></article>
+<article><h3>Original y reintento de subida</h3><a href="stage2-local-original.png"><img src="stage2-local-original.png" alt="Original local, reproducción propia y fallo de subida con reintento."></a></article>
+<article><h3>Importación en tema claro</h3><a href="stage2-import-light.png"><img src="stage2-import-light.png" alt="Selección de medio, cambio y subida, conservando límite de 80 MB."></a></article>
+</div></section>
+<section id="safety"><h2>Seguridad de las acciones</h2><div class="grid">
+<article><h3>Solicitante offline</h3><a href="stage2-admission-offline.png"><img src="stage2-admission-offline.png" alt="Aceptar deshabilitado para un solicitante offline; solicitud conservada."></a></article>
+<article><h3>Cerrar toma no detiene el Node</h3><a href="stage2-interrupted-confirmation.png"><img src="stage2-interrupted-confirmation.png" alt="Diálogo con advertencia completa sobre resultados desconocidos y Node offline."></a></article>
+<article><h3>Cerrar Session</h3><a href="stage2-session-close.png"><img src="stage2-session-close.png" alt="Diálogo de cierre de Session con Cancelar y Confirmar cierre."></a></article>
+</div></section>
+<section id="desktop"><h2>Adaptable sin cambiar de propietario</h2><p>Las columnas cambian por estilos; cámara y propietarios permanecen en el mismo árbol React. El tema claro conserva el mismo diseño.</p>
+<a href="stage2-controller-desktop.png"><img src="stage2-controller-desktop.png" alt="Session Controller en dos columnas con consola fija y administración secundaria."></a>
+<div class="grid"><article><h3>Node en tema claro</h3><a href="stage2-node-light.png"><img src="stage2-node-light.png" alt="Node con el mismo layout en tema claro."></a></article></div></section>
+<section id="integration"><h2>Ruta real sin conexión</h2><p>Esta captura sí utiliza /session/[id]. La red de servicios está bloqueada; no hay sesión real autorizada ni cámara conectada. Los paneles usan sus estados reales de error/vacío.</p>
+<div class="grid"><article><a href="stage2-actual-route-disconnected.png"><img src="stage2-actual-route-disconnected.png" alt="Ruta Session real desconectada con encabezado y paneles MD3."></a></article></div></section>
+<p>Sin cambios a relay, Auth/RTDB, protocolos, captura, roles o navegación global. La prueba Android y el flujo físico Controller + dos Nodes se registran como pendientes en el informe.</p>
+</main></html>

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUS · Session 2A · Revisión visual</title>
+<style>body{margin:0;background:#131018;color:#f6f3fa;font:16px/1.5 system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:32px 24px}h1{font-weight:600}h2{font-size:18px}p{color:#b0a8bc;max-width:1000px}a{color:#bcb2ff}.grid{display:flex;gap:24px;flex-wrap:wrap}.grid article{width:390px;max-width:100%}img{max-width:100%;height:auto;border:1px solid #393145;border-radius:12px}section{margin-top:32px}.label{font-size:12px;letter-spacing:2px;color:#bcb2ff}</style>
+<main>
+<span class="label">ETAPA 2A · COMPONENTES REALES · ESCENAS AISLADAS</span>
+<h1>Session: leer cada Node con claridad.</h1>
+<p>Se implementaron encabezado, filas Controller y presentación del editor de rol. Las escenas siguientes usan datos sintéticos, sin sesiones reales. No representan una implementación de 2B/2C ni prueban cámara, ACK real o guardado.</p>
+<p><a href="ETAPA_2A.md">Informe y prueba del operador</a> · <a href="ETAPA_2_PLAN.md">Plan de Etapa 2</a> · <a href="../proposals/02-operacion.png">Referencia A aprobada</a></p>
+<div class="grid">
+<article><h2>Dos READY y editor de rol</h2><a href="session-2a-ready-dark.png"><img src="session-2a-ready-dark.png" alt="Componentes 2A con dos Nodes READY y editor de rol; datos sintéticos."></a></article>
+<article><h2>Preparación anterior caducada</h2><a href="session-2a-mixed-dark.png"><img src="session-2a-mixed-dark.png" alt="Un Node READY y otro NO LISTO, con aviso de confirmación nueva."></a></article>
+<article><h2>Un Node offline</h2><a href="session-2a-offline-dark.png"><img src="session-2a-offline-dark.png" alt="Node offline conservado y último informe, diferenciado de READY."></a></article>
+</div>
+<section><h2>Escena mixta en tema claro</h2><a href="session-2a-mixed-light.png"><img src="session-2a-mixed-light.png" alt="Componentes 2A en tema claro con colores de texto de estado de mayor contraste."></a></section>
+<section><h2>Ruta real · sin Session confirmada</h2><p>Captura de integración con servicios externos bloqueados. No es una sesión Controller real ni una admisión por el código de ejemplo.</p><a href="session-2a-route-disconnected.png"><img src="session-2a-route-disconnected.png" alt="Encabezado 2A integrado en la ruta real desconectada."></a></section>
+<p>feat/ui-polish · base 43d0d0b + cambios locales sin commit. ControllerTakePanel, NodeReadinessPanel y sus ciclos de vida permanecen intactos.</p>
+</main></html>

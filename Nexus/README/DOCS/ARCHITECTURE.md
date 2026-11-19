@@ -680,6 +680,12 @@ Ningún secret vive en la aplicación cliente.
 
 # 17. Firebase
 
+**Decisión H3.4a autorizada por el operador (2026-11-15):** el transporte online
+y LAN se autentica con Firebase Auth (cuenta existente o anónima persistente) y
+Firebase Admin verifica ID tokens en el servidor. Esto sustituye la excepción
+MVP siguiente sobre Auth opcional para participar; no sustituye el ingreso ni la
+aceptación del Controller. Ver ADR-H3.4a y services/SESSION_CONTRACT.md.
+
 Firebase Auth permanece como subsistema existente.
 
 Durante el MVP académico:
@@ -946,3 +952,52 @@ Si el código contradice este documento:
 Si la arquitectura necesita cambiar:
 
 **primero cambia este documento mediante decisión humana y después el código.**
+
+## ADR-H3.4a · Acceso online autenticado
+
+Contexto: la identidad declarada en una LAN confiable no basta para exponer el
+relay a Internet. El operador solicitó H3.4a explícitamente en desarrollo.
+
+Decisión: URL única en config/relay.ts, LAN manual por defecto sólo en desarrollo,
+wss:// explícito en preview/producción. Firebase Auth (existente/anónimo persistente)
+autentica el transporte; Firebase Admin sólo en servidor. Handshake inicial y
+renovación en el socket compartido antes de presencia/Studio; UID verificado se
+asocia al deviceId y no reemplaza DeviceId, NodeId ni autorización de Session.
+HTTP /health y WebSocket comparten proceso/puerto, escuchando 0.0.0.0 con PORT
+privado o puerto manual local. Blueprint Render preparado, sin servicio desplegado.
+
+Alternativas descartadas para esta entrega: aceptar senderId como credencial,
+permitir LAN sin autenticar, incluir secretos Admin en el APK o reproducir comandos
+pendientes al reconectar. La ruta de control permanece separada de archivos/preview.
+
+Consecuencias: Firebase e Internet para obtener/verificar tokens son necesarios
+también al conectar en LAN. Renovar in situ conserva la Session; una desconexión
+real mantiene las consecuencias H2 y exige reingreso aprobado. Identidades y
+Sessions siguen en memoria; el vínculo por deviceId/UID no es atestación de hardware.
+Cambiar de cuenta no transfiere automáticamente la instalación a otro UID.
+H3.4b persistirá Sessions/medios en RTDB; H3.4c hará reanudación durable y H3.4d
+despliegue/APK sin laptop. No hay garantía de supervivencia al reiniciar el relay.
+
+Estado: implementado para prueba; pendiente validación física con Firebase real
+y, en H3.4d, WSS público/Render. No se certifica operación online con simulaciones.
+
+## ADR-H3.4b · Metadatos compartidos durables
+
+Decisión autorizada por el operador tras aceptar H3.4a: el relay sigue siendo la
+autoridad y persiste metadatos en Firebase RTDB mediante Admin, detrás de un
+adaptador independiente de WebSocket. Sustituye la duración sólo en memoria de
+Session/UID-deviceId; no migra sesiones que nunca se escribieron en la base.
+Esquema 1 en nexusStudio/relayV1, proyección explícita sin vídeos, tokens ni rutas
+de teléfonos; cola serial y transacción de revisión antes de confirmar efectos.
+El uso de RTDB para este estado compartido sustituye en este alcance la propuesta
+histórica de SQLite del apartado 15; los originales permanecen en filesystem.
+
+Desconectar conserva miembros offline, retirar READY y mantener historial. Reiniciar
+marca resultados activos desconocidos e interrumpe la Take; jamás reenvía comandos.
+Sólo un cierre explícito autorizado cierra Session y reserva su código. Se mantiene
+un relay escritor activo; una revisión obsoleta se rechaza, no hay coordinación de
+cluster. H3.4c completará descubrimiento/reapertura y reconciliación en interfaz.
+H3.4d sigue siendo despliegue y prueba APK sin laptop; no se ejecuta aquí.
+
+Estado: implementado, validado con adaptador simulado; RTDB/emulador y reinicio
+físico quedan pendientes. Contrato y prueba exacta en SESSION_CONTRACT/ENTREGA.

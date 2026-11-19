@@ -6,7 +6,7 @@ import {
     update,
 } from 'firebase/database';
 
-import { auth, database } from '../app/firebase';
+import { auth, database } from '../config/firebase';
 import { getOrCreateDeviceId } from './deviceIdentity';
 import { collectDeviceInfo } from './deviceInfo';
 
@@ -18,6 +18,7 @@ function hardwareSupport(value: string | null) {
 }
 
 export async function registerCurrentDevice() {
+  if (!auth || !database) return null;
   const user = auth.currentUser;
 
   if (!user) {
@@ -104,6 +105,7 @@ export async function registerCurrentDevice() {
 }
 
 export function startDeviceRegistry() {
+  if (!auth || !database) return () => {};
   return onAuthStateChanged(auth, (user) => {
     if (!user) {
       return;

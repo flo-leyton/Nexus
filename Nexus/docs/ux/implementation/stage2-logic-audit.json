@@ -1,0 +1,90 @@
+{
+  "baseline": "43d0d0b859ac0a67bfc9ffa768c8261f32c5c21f",
+  "scope": "Static diff inspection; layout/native behavior requires runtime and physical tests.",
+  "checks": [
+    {
+      "file": "app/session/[id].tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "app/session/[id].tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/NodeReadinessPanel.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/NodeReadinessPanel.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/ControllerTakePanel.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/ControllerTakePanel.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/NodeRoleEditor.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/NodeRoleEditor.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/LocalCapturesPanel.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/LocalCapturesPanel.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/TakeMediaPanel.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/TakeMediaPanel.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/CaptureUploadControls.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/CaptureUploadControls.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/RejoinSessionPanel.tsx",
+      "check": "state/effects/calculations unchanged",
+      "status": "PASS"
+    },
+    {
+      "file": "components/RejoinSessionPanel.tsx",
+      "check": "service/engine/navigation calls unchanged",
+      "status": "PASS"
+    },
+    {
+      "check": "protected services/config/navigation/test paths unchanged",
+      "status": "PASS"
+    }
+  ]
+}

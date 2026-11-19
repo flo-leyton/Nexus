@@ -1,7 +1,11 @@
+import { router } from 'expo-router';
+import { Button, Text } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StudioUI } from '@/constants/studio-ui';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { DeviceInfoCard } from '@/components/DeviceInfoCard';
 import { ThemedText } from '@/components/themed-text';
@@ -15,28 +19,27 @@ const statuses = { Connected: 'Conectado', Disconnected: 'Desconectado', Connect
 export default function DevicesScreen() {
   const { local, remote, remoteState, connection } = useDeviceInfo();
   const insets = useSafeAreaInsets();
+  const palette = StudioUI[useColorScheme() === 'dark' ? 'dark' : 'light'];
   useFocusEffect(useCallback(() => { void refreshDeviceInfo(); }, []));
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]}>
         <ThemedText type="title">Dispositivos</ThemedText>
-        <ThemedText>Información local y del otro teléfono conectado.</ThemedText>
-        <Pressable accessibilityRole="button" onPress={() => void refreshDeviceInfo()} style={styles.button}>
-          <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">Actualizar información</ThemedText>
-        </Pressable>
-        {connection !== 'Connected' && (
-          <Pressable accessibilityRole="button" disabled={connection === 'Connecting'} onPress={connectSocket} style={styles.button}>
-            <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF">{connection === 'Connecting' ? 'Conectando...' : 'Conectar'}</ThemedText>
-          </Pressable>
-        )}
+        <ThemedText>Este telefono y el ultimo remoto observado. No es un inventario de todos los Nodes.</ThemedText>
+        <Button mode="contained" icon="refresh" contentStyle={{ minHeight: 48 }} onPress={() => void refreshDeviceInfo()}>Actualizar informacion</Button>
+        {connection !== 'Connected' && <Button mode="outlined" icon="connection" contentStyle={{ minHeight: 48 }} disabled={connection === 'Connecting'} onPress={connectSocket}>{connection === 'Connecting' ? 'Conectando...' : 'Conectar'}</Button>}
         {local ? <DeviceInfoCard title="Dispositivo local" info={local} status={statuses[connection]} connected={connection === 'Connected'} /> :
           <ThemedText>Obteniendo información...</ThemedText>}
         {remote ? <DeviceInfoCard title="Dispositivo remoto" info={remote} status={remoteState === 'connected' ? 'Conectado' : 'Dispositivo remoto desconectado'} connected={remoteState === 'connected'} /> :
-          <ThemedView style={styles.waiting}>
+          <ThemedView style={[styles.waiting, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <ThemedText type="subtitle">Dispositivo remoto</ThemedText>
             <ThemedText>Esperando otro dispositivo...</ThemedText>
           </ThemedView>}
-        <ThemedText style={styles.note}>Los roles se seleccionan en Vibración y Linterna. Si son distintos, se muestran por separado. Los datos se actualizan al abrir esta pestaña y cada 30 segundos mientras la aplicación está activa y conectada.</ThemedText>
+        <Text variant="titleMedium">Herramientas heredadas A/B</Text>
+        <Text>Pruebas de diagnostico. A/B no asigna roles MAIN/SIDE de Session. El control remoto exige Controller y un unico Node autorizado en una unica Session.</Text>
+        <Button mode="outlined" icon="vibrate" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/vibracion')}>Vibracion A/B</Button>
+        <Button mode="outlined" icon="flashlight" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/linterna')}>Linterna A/B</Button>
+        <ThemedText style={styles.note}>La informacion se actualiza al abrir esta pantalla y cada 30 segundos mientras la app esta activa y conectada.</ThemedText>
       </ScrollView>
     </ThemedView>
   );
@@ -44,8 +47,8 @@ export default function DevicesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 24, paddingBottom: 48, gap: 20, maxWidth: 560, width: '100%', alignSelf: 'center' },
-  button: { backgroundColor: '#474fe7', borderRadius: 12, alignItems: 'center', padding: 14 },
-  waiting: { padding: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: '#687076', borderRadius: 16, gap: 12 },
+  content: { padding: 20, paddingBottom: 56, gap: 16, maxWidth: 560, width: '100%', alignSelf: 'center' },
+  button: { borderRadius: 14, alignItems: 'center', padding: 16, minHeight: 52 },
+  waiting: { padding: 20, borderWidth: 1, borderRadius: 20, gap: 12 },
   note: { fontSize: 13, opacity: 0.65 },
 });

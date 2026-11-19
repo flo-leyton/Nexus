@@ -68,6 +68,11 @@ export default function VibrationDemoScreen() {
       return;
     }
 
+    if (isRecord(receivedMessage) && receivedMessage.type === 'SESSION_ERROR' && isRecord(receivedMessage.payload) &&
+        typeof receivedMessage.payload.code === 'string' && (receivedMessage.payload.code.startsWith('CAPABILITY_') || receivedMessage.payload.code === 'INVALID_CAPABILITY_COMMAND')) {
+      setLastEvent('Control rechazado: usa A como Controller y un único B aceptado/online en una única Session activa de Studio.');
+      return;
+    }
     if (isRecord(receivedMessage) && ['DEVICE_INFO', 'DEVICE_LEFT'].includes(String(receivedMessage.type))) return;
 
     if (!isValidCapabilityCommand(receivedMessage)) {
@@ -122,7 +127,7 @@ export default function VibrationDemoScreen() {
   const isConnecting = connectionStatus === 'Connecting';
   const isConnected = connectionStatus === 'Connected';
   const remoteRole: PhoneRole | null = selectedRole === 'A' ? 'B' : selectedRole === 'B' ? 'A' : null;
-  const canSendVibrationCommand = selectedRole !== null && isConnected;
+  const canSendVibrationCommand = selectedRole === 'A' && isConnected;
 
   return (
     <ThemedView style={styles.container}>
@@ -131,6 +136,7 @@ export default function VibrationDemoScreen() {
           <ThemedView style={styles.header}>
             <ThemedText type="title">NEXUS</ThemedText>
             <ThemedText style={styles.tagline}>Remote Capability Demo</ThemedText>
+            <ThemedText>Remoto seguro: A debe ser Controller de una única Session activa con un único Node B aceptado y online. Configura la Session desde Studio.</ThemedText>
           </ThemedView>
 
           <ThemedView style={styles.section}>

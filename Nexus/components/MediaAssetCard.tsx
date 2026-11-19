@@ -2,7 +2,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import type { NexusMediaAsset } from '@/types/media';
+import { mediaUploadLabel, type NexusMediaAsset } from '@/types/media';
 
 export function formatBytes(bytes?: number) {
   if (bytes === undefined) return 'Tamaño no disponible';
@@ -13,7 +13,7 @@ export function formatBytes(bytes?: number) {
 export function MediaAssetCard({ asset, onPress }: { asset: NexusMediaAsset; onPress?: () => void }) {
   const content = (
     <ThemedView style={styles.card}>
-      {asset.resourceType === 'image' ? (
+      {asset.storage === 'remote' && asset.resourceType === 'image' ? (
         <Image source={{ uri: asset.url }} style={styles.preview} />
       ) : (
         <View style={styles.videoPreview}>
@@ -21,10 +21,15 @@ export function MediaAssetCard({ asset, onPress }: { asset: NexusMediaAsset; onP
         </View>
       )}
       <View style={styles.body}>
-        <ThemedText type="defaultSemiBold" numberOfLines={1}>{asset.fileName ?? asset.publicId}</ThemedText>
+        <ThemedText type="defaultSemiBold" numberOfLines={1}>{asset.storage === 'local' ? `${asset.fileName} · ${asset.localId}` : asset.fileName ?? asset.publicId}</ThemedText>
         <ThemedText>{asset.resourceType === 'image' ? 'Imagen' : 'Video'} · {formatBytes(asset.bytes)}</ThemedText>
         <ThemedText style={styles.meta}>Sesión: {asset.sessionId}</ThemedText>
-        <ThemedText style={styles.meta}>Origen: {asset.source} · Cloudinary disponible</ThemedText>
+        <ThemedText style={styles.meta}>Origen: {asset.source} · {mediaUploadLabel(asset)}</ThemedText>
+        {asset.storage === 'local' && <>
+          <ThemedText style={styles.meta}>Toma: {asset.takeId ?? 'Manual H1'} · Node: {asset.nodeId}</ThemedText>
+          <ThemedText style={styles.meta}>Archivo: {asset.localAvailable ? 'Local verificado' : 'No disponible'} · Clip: {asset.localId}</ThemedText>
+          {asset.localError && <ThemedText style={styles.meta}>{asset.localError}</ThemedText>}
+        </>}
         <ThemedText style={styles.meta}>{new Date(asset.createdAt).toLocaleString()}</ThemedText>
       </View>
     </ThemedView>

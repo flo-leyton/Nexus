@@ -1,0 +1,36 @@
+# Used with EAS_NO_VCS=1 and EAS_PROJECT_ROOT pointing to Nexus/.
+# Only application/build sources go to EAS; parent-repository work stays local.
+/*
+!/app
+!/assets
+!/components
+!/config
+!/constants
+!/hooks
+!/services
+!/types
+!/scripts
+/scripts/*
+!/scripts/check-native.cjs
+!/scripts/check-preview.cjs
+!/app.json
+!/app.config.js
+!/eas.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/eslint.config.js
+!/.easignore
+**/.env*
+**/*[Aa]dmin*.json
+**/*[Ss]ervice*[Aa]ccount*.json
+**/credentials*.json
+**/*.pem
+**/*.key
+**/*.jks
+**/*.mp4
+**/*.mov
+**/*.webm
+**/node_modules/
+# Public Android client configuration, explicitly retained (not an Admin key).
+!/google-services.json
