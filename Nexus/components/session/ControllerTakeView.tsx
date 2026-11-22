@@ -86,7 +86,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
         disabled={recording ? !props.canStop : !props.canStart || !!allActive.length}
         onPress={recording ? props.onStop : props.onStart} buttonColor={recording ? undefined : colors.error}
         textColor={recording ? undefined : colors.onError} style={sessionStyles.control} contentStyle={sessionStyles.touch}>
-        {recording ? 'STOP general' : 'REC general'}
+        {recording ? 'STOP todos los Nodes' : 'REC todos los Nodes'}
       </Button>
     </SessionActionDock>
   </View>;
