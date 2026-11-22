@@ -6,7 +6,7 @@ import type { getSessionService } from '@/services/session';
 import { readinessReasons, takeFinished, type Session } from '@/services/sessionProtocol';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function ControllerTakePanel({ service, session }: { service: Service; session: Session }) {
+export function ControllerTakePanel({ service, session, closingSession = false }: { service: Service; session: Session; closingSession?: boolean }) {
   const focused = useIsFocused();
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState(false);
@@ -31,8 +31,8 @@ export function ControllerTakePanel({ service, session }: { service: Service; se
   const nodes = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false);
   const take = session.take;
   const finished = takeFinished(take);
-  const canStart = session.state !== 'closed' && !pending && finished && nodes.length > 0 && nodes.every((n) => !readinessReasons(n.readiness).length);
-  const canStop = !pending && !!take && !take.closed && !take.interrupted && Object.values(take.nodes).some((n) => n.phase !== 'saved');
+  const canStart = !closingSession && session.state !== 'closed' && !pending && finished && nodes.length > 0 && nodes.every((n) => !readinessReasons(n.readiness).length);
+  const canStop = !closingSession && !pending && !!take && !take.closed && !take.interrupted && Object.values(take.nodes).some((n) => n.phase !== 'saved');
   const canClose = !pending && !!take && !finished && (!!take.stopMessageId || !!take.interrupted);
   const close = () => {
     if (!take || request.current) return;

@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { usePreventRemove } from '@react-navigation/native';
+import { useIsFocused, usePreventRemove } from '@react-navigation/native';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
@@ -48,7 +48,10 @@ export default function SessionScreen() {
   const [verified, setVerified] = useState(false);
   const [sessionFailed, setSessionFailed] = useState(false);
   const [confirmSessionClose, setConfirmSessionClose] = useState(false);
-  const closeRequest = useRef<string | null>(null);
+  const [closingSession, setClosingSession] = useState(false);
+  const closeRequest = useRef<{ stopId?: string; closeId?: string } | null>(null);
+  const [closedSessionId, setClosedSessionId] = useState<string | null>(null);
+  const focused = useIsFocused();
   const [deciding, setDeciding] = useState<Record<string, string>>({});
   const decisions = useRef<Record<string, string>>({});
   const refreshId = useRef<string | null>(null);
@@ -59,6 +62,8 @@ export default function SessionScreen() {
   usePreventRemove(captureBusy, () => Alert.alert('Captura local en curso', 'Detén la grabación y espera al guardado. Si falló, pulsa REINTENTAR GUARDADO.'));
   const { service, snapshot, deviceId, error: serviceError } = useStudioSession((next) => {
     if (next.connection !== 'Connected') {
+      closeRequest.current = null;
+      setClosingSession(false);
       refreshId.current = null;
       decisions.current = {};
       setDeciding({});
@@ -74,13 +79,19 @@ export default function SessionScreen() {
       delete decisions.current[decisionDevice];
       setDeciding({ ...decisions.current });
     }
-    if (event.type === 'SESSION_CLOSED') {
+    if (event.type === 'SESSION_CLOSED' || (event.type === 'SESSION_ERROR' && event.payload.code === 'SESSION_IS_CLOSED')) {
       closeRequest.current = null;
+      setClosingSession(false);
+      setClosedSessionId(sessionId);
       setVerified(false);
       setSessionFailed(true);
       setSessionNotice('El Controller cerró explícitamente la Session. Su historial y los originales se conservan.');
-    } else if (event.type === 'SESSION_ERROR' && (event.payload.requestId === refreshId.current || decisionDevice || event.payload.requestId === closeRequest.current)) {
-      if (event.payload.requestId === closeRequest.current) closeRequest.current = null;
+    } else if (event.type === 'SESSION_ERROR' && (event.payload.requestId === refreshId.current || decisionDevice ||
+        event.payload.requestId === closeRequest.current?.stopId || event.payload.requestId === closeRequest.current?.closeId)) {
+      if (event.payload.requestId === closeRequest.current?.stopId || event.payload.requestId === closeRequest.current?.closeId) {
+        closeRequest.current = null;
+        setClosingSession(false);
+      }
       if (event.payload.requestId === refreshId.current) {
         refreshId.current = null;
         setVerified(false);
@@ -105,6 +116,33 @@ export default function SessionScreen() {
   const connected = snapshot?.connection === 'Connected';
   const session = verified ? snapshot?.sessions[sessionId] : undefined;
   const isController = session?.controllerId === deviceId;
+  const sessionClosed = closedSessionId === sessionId;
+  useEffect(() => {
+    if (sessionClosed && focused && !captureBusy) router.dismissTo('/(tabs)');
+  }, [sessionClosed, focused, captureBusy]);
+
+  useEffect(() => {
+    if (!closingSession) return;
+    const timer = setTimeout(() => {
+      closeRequest.current = null;
+      setClosingSession(false);
+      setSessionNotice('Cierre sin confirmar. Actualiza la sesión. Revisa los guardados pendientes y usa STOP local si hace falta.');
+    }, 60_000);
+    return () => clearTimeout(timer);
+  }, [closingSession]);
+
+  useEffect(() => {
+    const request = closeRequest.current;
+    if (!closingSession || !request || request.closeId || !service || !connected || !session || !takeFinished(session.take)) return;
+    try {
+      request.closeId = service.closeSession(sessionId);
+      setSessionNotice('Guardando cierre de sesión en el relay…');
+    } catch (cause) {
+      closeRequest.current = null;
+      setClosingSession(false);
+      setSessionNotice(sessionErrorMessage(cause));
+    }
+  }, [closingSession, connected, service, session, sessionId]);
   useEffect(() => {
     const member = session?.members[deviceId];
     if (!captureBusy && member?.kind === 'node' && member.nodeId &&
@@ -114,6 +152,7 @@ export default function SessionScreen() {
   }, [session, sessionId, deviceId, localNode, captureBusy]);
 
   const refresh = useCallback(() => {
+    if (sessionClosed) return;
     setVerified(false);
     setSessionFailed(false);
     setSessionNotice('Consultando la sesión en el relay…');
@@ -124,7 +163,7 @@ export default function SessionScreen() {
       setSessionFailed(true);
       setSessionNotice(sessionErrorMessage(cause));
     }
-  }, [service, connected, sessionId]);
+  }, [service, connected, sessionId, sessionClosed]);
 
   useFocusEffect(useCallback(() => {
     if (service && sessionId) refresh();
@@ -230,7 +269,7 @@ export default function SessionScreen() {
       notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
     capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
-      onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
+      sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
     members={session && <SessionSection title={isController ? 'Dispositivos de la sesión' : 'Participación'}>
       <Text variant="bodyMedium">Estado de la sesión: {sessionStateLabel[session.state]}</Text>
       {isController ? <>
@@ -256,7 +295,7 @@ export default function SessionScreen() {
         </SessionDetails>
       </>}
     </SessionSection>}
-    console={isController && service && session && <ControllerTakePanel service={service} session={session} />}
+    console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}
@@ -273,10 +312,22 @@ export default function SessionScreen() {
     imports={<SessionImportView selected={selected} status={status} message={message} hasLastSaved={!!lastSaved}
       onSelect={selectMedia} onUpload={uploadSelected} onOpenLast={() => { if (lastSaved) router.push(`/media/${lastSaved.id}` as Href); }} />}
     administration={isController && service && session && session.state !== 'closed' && <SessionCloseView
-      disabled={!takeFinished(session.take) || !!closeRequest.current} pending={!!closeRequest.current} confirming={confirmSessionClose}
+      disabled={!connected || closingSession} pending={closingSession} confirming={confirmSessionClose}
       onRequest={() => setConfirmSessionClose(true)} onCancel={() => setConfirmSessionClose(false)} onConfirm={() => {
-        try { closeRequest.current = service.closeSession(sessionId); setConfirmSessionClose(false); setSessionNotice('Guardando cierre de Session en el servidor…'); }
-        catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
+        if (!connected || closeRequest.current) return;
+        const current = service.getSnapshot().sessions[sessionId];
+        if (!current || current.controllerId !== deviceId) return;
+        try {
+          const take = current.take;
+          closeRequest.current = {
+            stopId: take && !takeFinished(take) && !take.interrupted && !take.stopMessageId ? service.stopTake(sessionId) : undefined,
+          };
+          setConfirmSessionClose(false);
+          setClosingSession(true);
+          setSessionFailed(false);
+          if (!takeFinished(take)) setSessionNotice(
+            'Cierre pendiente. Espera el guardado de los videos. Si una cámara quedó desconectada, revisa su original y usa el cierre de toma interrumpida.');
+        } catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
       }} />}
   />;
 }

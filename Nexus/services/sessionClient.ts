@@ -98,7 +98,13 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       for (const [id, session] of Object.entries(sessions)) {
         if (session.controllerId === deviceId && !event.payload.sessionIds.includes(id)) { delete sessions[id]; delete pending[id]; }
       }
+      const last = state.lastNodeSession;
+      if (last && !event.payload.sessionIds.includes(last.sessionId)) {
+        try { send({ ...envelope(last.sessionId), type: 'SESSION_GET', payload: {} }); }
+        catch { /* Retry discovery on the next connection. */ }
+      }
     }
+    let closed: SessionEvent | undefined;
     if (event.type === 'SESSION_SNAPSHOT') {
       sessions[event.sessionId] = event.payload.session;
       if (mediaHistory && event.payload.session.controllerId === deviceId && event.payload.session.mediaAngles) {
@@ -107,21 +113,19 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
         });
       }
       if (event.payload.pending) pending[event.sessionId] = event.payload.pending;
-      if (event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
-        if (state.sessions[event.sessionId]?.members[deviceId]?.kind !== 'node' || joining?.sessionId === event.sessionId) {
+      if (event.payload.session.state === 'closed') {
+        closed = { ...event, type: 'SESSION_CLOSED', payload: { requestId: event.payload.requestId } };
+      } else if (event.payload.session.members[deviceId]?.kind === 'node' &&
+          (event.payload.session.members[deviceId]?.online !== false || joining?.messageId === event.payload.requestId)) {
+        if (state.sessions[event.sessionId]?.members[deviceId]?.kind !== 'node' || joining?.sessionId === event.sessionId ||
+            joining?.messageId === event.payload.requestId) {
           remember({ sessionId: event.sessionId, code: event.payload.session.code });
         }
-        if (joining?.sessionId === event.sessionId) joining = null;
+        if (joining?.sessionId === event.sessionId || joining?.messageId === event.payload.requestId) joining = null;
       }
     } else if (event.type === 'SESSION_JOIN_PENDING') {
       pending[event.sessionId] = [...(pending[event.sessionId] || []).filter((r) => r.deviceId !== event.payload.deviceId), event.payload];
       if (joining?.messageId === event.payload.requestId) joining.sessionId = event.sessionId;
-    } else if (event.type === 'SESSION_CLOSED') {
-      roleCommands.delete(event.sessionId);
-      delete sessions[event.sessionId];
-      delete pending[event.sessionId];
-      if (state.lastNodeSession?.sessionId === event.sessionId) remember(null);
-      if (joining?.sessionId === event.sessionId) joining = null;
     } else if (event.type === 'SESSION_JOIN_REJECTED') {
       pending[event.sessionId] = (pending[event.sessionId] || []).filter((r) => r.requestId !== event.payload.requestId);
       if (joining?.messageId === event.payload.requestId) joining = null;
@@ -130,10 +134,16 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
           state.lastNodeSession?.sessionId === joining.sessionId) remember(null);
       joining = null;
     }
-    if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId] && event.payload.session.members[deviceId]?.online !== false) {
+    if (closed || event.type === 'SESSION_CLOSED') {
+      roleCommands.delete(event.sessionId);
+      delete sessions[event.sessionId];
+      delete pending[event.sessionId];
+      if (state.lastNodeSession?.sessionId === event.sessionId) remember(null);
+      if (joining?.sessionId === event.sessionId) joining = null;
+    } else if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId] && event.payload.session.members[deviceId]?.online !== false) {
       pending[event.sessionId] = (pending[event.sessionId] || []).filter((r) => r.deviceId !== deviceId);
     }
-    state = { ...state, sessions, pending, lastEvent: event, joinInFlight: !!joining };
+    state = { ...state, sessions, pending, lastEvent: closed ?? event, joinInFlight: !!joining };
     emit();
   });
   const unsubscribeStatus = transport.subscribeStatus((connection) => {

@@ -41,7 +41,10 @@ export default function StudioScreen() {
         (current.kind === 'join' && current.sessionId === event.sessionId))) {
       operation.current = null;
       setSending(false);
-      setNotice(current.kind === 'create' ? 'Sesión creada. Comparte su código y ábrela para aceptar Nodes.' : 'Ingreso aceptado. Ya puedes abrir la sesión.');
+      setNotice(current.kind === 'create' ? 'Sesión creada. Comparte su código y ábrela para aceptar Nodes.'
+        : event.payload.session.members[deviceId]?.online === false
+          ? 'Ya perteneces a esta sesión. Ábrela y reanuda tu participación.'
+          : 'Participación confirmada. Ya puedes abrir la sesión.');
     } else if ((event?.type === 'SESSION_ERROR' || event?.type === 'SESSION_JOIN_REJECTED') &&
         event.payload.requestId === current.messageId) {
       operation.current = null;

@@ -14,8 +14,8 @@ import { nodeTakePending, readinessReasons } from '@/services/sessionProtocol';
 import type { CaptureIdentity } from '@/types/capture';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, onBusyChange, onSaved }: CaptureIdentity & {
-  service: Service; controllerId: string; accepted: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
+export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false, onBusyChange, onSaved }: CaptureIdentity & {
+  service: Service; controllerId: string; accepted: boolean; sessionClosed?: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
 }) {
   const focused = useIsFocused();
   const [appState, setAppState] = useState(AppState.currentState);
@@ -86,13 +86,14 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     };
   }, [engine, service, sessionId, controllerId, deviceId, nodeId, onBusyChange, onSaved]);
   useEffect(() => {
+    if (sessionClosed) { engine.deactivate(); return; }
     if (focused && appState === 'active') { if (!engine.isBusy() && !engine.getSnapshot().pendingSave) void engine.prepare(); }
     else engine.deactivate();
     return () => engine.deactivate();
-  }, [engine, focused, appState]);
+  }, [engine, focused, appState, sessionClosed]);
   useEffect(() => {
-    if (focused && appState === 'active' && !engine.isBusy() && !engine.getSnapshot().active && !preparation.pendingSave) void engine.prepare();
-  }, [engine, focused, appState, preparation.phase, preparation.pendingSave]);
+    if (!sessionClosed && focused && appState === 'active' && !engine.isBusy() && !engine.getSnapshot().active && !preparation.pendingSave) void engine.prepare();
+  }, [engine, focused, appState, sessionClosed, preparation.phase, preparation.pendingSave]);
 
   const { readiness, generation } = preparation;
   const busy = engine.isBusy();
@@ -115,7 +116,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   return <NodeCaptureView preparation={preparation} phaseLabel={phaseLabels[preparation.phase]} reasons={reasons} busy={busy}
     accepted={accepted} requiresConfirmation={!!self?.requiresReadyConfirmation}
     confirmDisabled={!accepted || busy || readinessReasons(engine.getReadiness()).length > 0}
-    canRecord={canRecord} prepareDisabled={busy || !focused || appState !== 'active' || preparation.pendingSave}
+    canRecord={canRecord} prepareDisabled={sessionClosed || busy || !focused || appState !== 'active' || preparation.pendingSave}
     focused={focused} isWeb={Platform.OS === 'web'} reportError={reportError} controlError={controlError}
     takeId={takeNode ? coordinatedTake?.takeId : undefined}
     camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={sessionStyles.preview}

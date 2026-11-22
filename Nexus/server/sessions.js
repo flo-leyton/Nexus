@@ -200,7 +200,13 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         const s = sessions.get(codes.get(m.payload.code));
         if (m.sessionId !== JOIN_BY_CODE && (!s || s.sessionId !== m.sessionId)) return error('SESSION_NOT_FOUND');
         if (!s || s.closedAt) return error('INVALID_CODE');
-        if (s.members.get(m.senderId)?.online) return error('ALREADY_MEMBER');
+        const member = s.members.get(m.senderId);
+        if (member?.uid === client.studioIdentity.uid && (member.online || m.sessionId === JOIN_BY_CODE)) {
+          // A code can locate an existing membership, but cannot reactivate it.
+          send(client, 'SESSION_SNAPSHOT', s.sessionId, { requestId: m.messageId, session: wireSession(s, m.senderId) });
+          return true;
+        }
+        if (member?.online) return error('ALREADY_MEMBER');
         const request = { requestId: m.messageId, deviceId: m.senderId, uid: client.studioIdentity.uid };
         s.pending.set(m.senderId, request);
         const pending = pendingFor(s).find((p) => p.deviceId === m.senderId);
@@ -211,7 +217,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       const s = sessions.get(m.sessionId);
       if (!s) return error('SESSION_NOT_FOUND');
       if (s.members.get(m.senderId)?.uid !== client.studioIdentity.uid) return error('NOT_MEMBER');
-      if (s.closedAt && !['SESSION_GET', 'SESSION_CLOSE'].includes(m.type)) return error('SESSION_IS_CLOSED');
+      if (s.closedAt && !['SESSION_GET', 'SESSION_CLOSE', 'MEDIA_STATE'].includes(m.type)) return error('SESSION_IS_CLOSED');
       if (m.type === 'SESSION_RESUME') {
         const member = s.members.get(m.senderId);
         if (!member.online) {
@@ -278,11 +284,23 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
       if (m.type === 'SESSION_CLOSE') {
-        if (!s.closedAt && !takeFinished(s.take)) return error('TAKE_ACTIVE');
-        const recipients = new Set([...s.members.keys(), ...s.pending.keys()]);
-        if (!s.closedAt) { s.closedAt = Date.now(); s.pending.clear(); for (const member of s.members.values()) { member.online = false; if (member.kind === 'node') member.readiness = { ...INITIAL_READINESS }; } }
+        if (s.closedAt) {
+          send(client, 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
+          return true;
+        }
+        if (!takeFinished(s.take)) return error('TAKE_ACTIVE');
+        const recipients = new Map([...s.pending, ...s.members]);
+        s.closedAt = Date.now();
+        s.pending.clear();
+        for (const member of s.members.values()) {
+          member.online = false;
+          if (member.kind === 'node') resetReady(member);
+        }
         snapshot(s, m.messageId);
-        for (const id of recipients) if (clients.has(id)) send(clients.get(id), 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
+        for (const [id, recipient] of recipients) {
+          const socket = clients.get(id);
+          if (socket?.studioIdentity?.uid === recipient.uid) send(socket, 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
+        }
         return true;
       }
       if (m.type === 'ASSIGN_ROLE') {

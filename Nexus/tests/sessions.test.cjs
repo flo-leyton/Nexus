@@ -514,6 +514,34 @@ test('rejoin: rejection allows a new explicit request; closing the session clear
   assert.throws(() => n.service.requestRejoin(), /NO_REMEMBERED_SESSION/);
 });
 
+test('NX-01: a closed session is reconciled on reconnect and an existing member can recover by code', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('nx01-controller');
+  const memory = memoryHistory(), first = await connect('nx01-camera', await memory.options());
+  const old = await createForRejoin(c);
+  const member = await approveForRejoin(c, first, old);
+  const duplicateJoin = first.service.requestJoin(old.code);
+  const existing = await first.wait(replyTo(duplicateJoin));
+  assert.equal(existing.payload.session.members[first.deviceId].nodeId, member.nodeId);
+  assert.equal(first.service.getSnapshot().joinInFlight, false);
+  assert.ok(!(c.service.getSnapshot().pending[old.sessionId] ?? []).length);
+
+  first.ws.close(); await once(first.ws, 'close');
+  const close = c.service.closeSession(old.sessionId);
+  await c.wait((m) => m.type === 'SESSION_CLOSED' && replyTo(close)(m));
+  const retry = c.service.closeSession(old.sessionId);
+  await c.wait((m) => m.type === 'SESSION_CLOSED' && replyTo(retry)(m));
+
+  const node = await connect(first.deviceId, await memory.options());
+  const closed = await node.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.sessionId === old.sessionId);
+  assert.equal(closed.payload.session.state, 'closed');
+  assert.equal(node.service.getSnapshot().lastNodeSession, null);
+  assert.equal(node.service.getSnapshot().sessions[old.sessionId], undefined);
+  assert.equal(await memory.store.load(), null);
+  const next = await createForRejoin(c);
+  await approveForRejoin(c, node, next);
+  assert.equal(node.service.getSnapshot().lastNodeSession.sessionId, next.sessionId);
+});
+
 test('rejoin: ended/mismatched session cannot reuse another session code; manual joining remains available', { timeout: 10000 }, async (t) => {
   const connect = await harness(t), c = await connect('controller'), memory = memoryHistory();
   const live = await createForRejoin(c);

@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-01 · Cierre de sesiones
+
+Implementado sobre el candidato `aa638ae` en `nx-01/session-close`. El Controller confirma el cierre y, con una toma activa, coordina STOP y espera el resultado de guardado. Si se pierde una cámara, la espera de la interfaz vence a los 60 segundos y sigue disponible el cierre explícito de toma interrumpida. El relay conserva el historial y registra el cierre antes de avisar. Al reconectar, la cámara consulta la sesión recordada y sale a Studio después de terminar cualquier guardado local.
+
+Verificación automatizada puntual: TypeScript, ESLint sobre los archivos de código modificados y 19 pruebas de cierre, reconexión y grabación coordinada. Pendiente de prueba física. Para repetirla, usar un relay NX-01 y el cliente NX-01 en el Controller y las dos cámaras. Cerrar primero en reposo y luego durante REC. En otra sesión, desconectar una cámara durante REC, detenerla y guardar localmente, comprobar el aviso del Controller y resolver la toma interrumpida. Al reconectarla, comprobar que vuelve a Studio. Crear otra sesión, ingresar ambas cámaras y reproducir los originales anteriores desde Medios.
+
 Actualizar después de cada prueba. Usar pendiente, en curso, listo para prueba física, verificado o bloqueado. Anotar el SHA del código probado y conservar la evidencia junto al registro o enlazarla en el PR.
 
 | Hito | Estado inicial | SHA probado | Evidencia que debe registrar el equipo | Fallo o siguiente acción |

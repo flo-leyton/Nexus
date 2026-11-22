@@ -90,7 +90,7 @@ test('H3: approved rejoin may publish an old original without inheriting nodeId 
   c.service.stopTake(s.sessionId);
   const close = c.service.closeInterruptedTake(s.sessionId, start.takeId); await c.wait(reply(close));
   const frozen = JSON.stringify(c.service.getSnapshot().sessions[s.sessionId].take);
-  const rejoined = await connect(n.deviceId); await admit(c, rejoined, s);
+  const rejoined = await connect(n.deviceId); await admit(c, rejoined, s, { replace: true });
   assert.notEqual(rejoined.service.getSnapshot().sessions[s.sessionId].members.node.nodeId, oldNodeId);
   const id = rejoined.service.reportMedia(s.sessionId, c.deviceId, { clipId: 'offline-original', deviceId: n.deviceId,
     nodeId: oldNodeId, takeId: start.takeId, bytes: 128, revision: 3, upload: uploadedFixture('offline-original') });
@@ -132,8 +132,10 @@ async function create(controller) {
   const first = controller.service.createSession();
   return (await controller.wait(reply(first.messageId))).payload.session;
 }
-async function admit(c, n, session) {
-  const join = n.service.requestJoin(session.code);
+async function admit(c, n, session, { replace = false } = {}) {
+  const rejoin = replace ? request('SESSION_JOIN_REQUEST', n.deviceId, session.sessionId, { code: session.code }) : null;
+  if (rejoin) n.send(rejoin);
+  const join = rejoin?.messageId ?? n.service.requestJoin(session.code);
   await c.wait(reply(join));
   const accept = c.service.acceptJoin(session.sessionId, n.deviceId, join);
   await n.wait(reply(accept)); await c.wait(reply(accept));
@@ -154,7 +156,12 @@ async function attachCamera(t, peer, session, options = {}) {
     createId: randomUUID,
     record() { records++; if (options.failStart) return Promise.reject(new Error('native camera failed')); return new Promise((resolve) => { complete = resolve; }); },
     stop() { stops++; if (failStop) throw new Error('native STOP failed'); complete({ uri: `file:///cache/${peer.deviceId}.mp4` }); },
-    async persist(value) { draft = value; if (failSave) throw new Error('disk full'); return { ...value, localUri: `file:///documents/${peer.deviceId}/${value.id}.mp4`, fileName: 'video.mp4', bytes: 512 }; },
+    async persist(value) {
+      draft = value;
+      if (failSave) throw new Error('disk full');
+      if (options.persistUntil) await options.persistUntil;
+      return { ...value, localUri: `file:///documents/${peer.deviceId}/${value.id}.mp4`, fileName: 'video.mp4', bytes: 512 };
+    },
   });
   await engine.prepare(); engine.cameraReady(engine.getSnapshot().generation);
   const runtime = coordinateCapture(engine, identity, (report) => peer.service.reportCapture(session.sessionId, session.controllerId, report));
@@ -175,17 +182,25 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const connect = await harness(t), c = await connect('controller'), a = await connect('node-a'), b = await connect('node-b');
   const session = await create(c);
   await admit(c, a, session); await admit(c, b, session);
-  const ca = await attachCamera(t, a, session), cb = await attachCamera(t, b, session);
+  const saving = Promise.withResolvers();
+  const ca = await attachCamera(t, a, session), cb = await attachCamera(t, b, session, { persistUntil: saving.promise });
   await waitReady(c, session, ['node-a', 'node-b']);
   const start = c.service.startTake(session.sessionId);
   await c.wait(hasNode(start.takeId, 'node-a', 'recording')); await c.wait(hasNode(start.takeId, 'node-b', 'recording'));
   assert.equal(c.service.getSnapshot().sessions[session.sessionId].take.nodes['node-a'].startReceived, true);
   assert.equal(c.service.getSnapshot().sessions[session.sessionId].take.nodes['node-a'].capture, null);
+  const earlyClose = c.service.closeSession(session.sessionId);
+  assert.equal((await c.wait(reply(earlyClose))).payload.code, 'TAKE_ACTIVE');
   const startMessage = c.sent.find((m) => m.messageId === start.messageId);
   c.send(startMessage); c.send(startMessage);
   const barrier = c.service.refreshSession(session.sessionId); await c.wait(reply(barrier));
   assert.equal(ca.counts().records, 1); assert.equal(cb.counts().records, 1);
   const stopId = c.service.stopTake(session.sessionId), stopMessage = c.sent.find((m) => m.messageId === stopId);
+  await c.wait(hasNode(start.takeId, 'node-b', 'saving'));
+  assert.equal(c.service.getSnapshot().sessions[session.sessionId].take.nodes['node-b'].stopReceived, true);
+  const closeWhileSaving = c.service.closeSession(session.sessionId);
+  assert.equal((await c.wait(reply(closeWhileSaving))).payload.code, 'TAKE_ACTIVE');
+  saving.resolve();
   await c.wait(hasNode(start.takeId, 'node-a', 'saved')); await c.wait(hasNode(start.takeId, 'node-b', 'saved'));
   const take = c.service.getSnapshot().sessions[session.sessionId].take;
   assert.equal(ca.draft().takeId, start.takeId); assert.equal(cb.draft().takeId, start.takeId);
@@ -207,6 +222,12 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const finalStop = c.service.stopTake(session.sessionId); await c.wait(reply(finalStop));
   await c.wait(hasNode(second.takeId, 'node-a', 'saved')); await c.wait(hasNode(second.takeId, 'node-b', 'saved'));
   assert.equal(ca.counts().records, 2); assert.equal(cb.counts().stops, 2);
+  const close = c.service.closeSession(session.sessionId);
+  await a.wait((m) => m.type === 'SESSION_CLOSED' && reply(close)(m));
+  await b.wait((m) => m.type === 'SESSION_CLOSED' && reply(close)(m));
+  const closed = await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && reply(close)(m));
+  assert.equal(closed.payload.session.take.nodes['node-a'].phase, 'saved');
+  assert.equal(closed.payload.session.takeHistory[0].takeId, start.takeId);
 });
 
 test('H2: a failing Node does not stop another; STOP failure and save retry report real outcomes', { timeout: 10000 }, async (t) => {
@@ -350,7 +371,7 @@ test('H2 recovery: disconnect, offline save, approved rejoin, explicit close and
   while (cb.engine.getSnapshot().phase === 'saving') await new Promise((resolve) => setImmediate(resolve));
   const offline = cb.engine.getSnapshot().lastCapture;
   assert.equal(offline.takeId, first.takeId); assert.equal(offline.nodeId, cb.identity.nodeId);
-  const returned = await connect('b'); await admit(c, returned, s);
+  const returned = await connect('b'); await admit(c, returned, s, { replace: true });
   const newNodeId = returned.service.getSnapshot().sessions[s.sessionId].members.b.nodeId;
   assert.notEqual(newNodeId, cb.identity.nodeId);
   const notPrepared = c.service.closeInterruptedTake(s.sessionId, first.takeId);

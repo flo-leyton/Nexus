@@ -33,12 +33,11 @@ export function SessionCloseView({ disabled, pending, confirming, onRequest, onC
   return <SessionSection title="Administrar sesión" description="Cerrar la Session impide nuevos ingresos y comandos; conserva historial y originales.">
     <Button mode="outlined" icon="close-circle-outline" textColor={colors.error} disabled={disabled} onPress={onRequest}
       style={sessionStyles.control} contentStyle={sessionStyles.touch}>Cerrar sesión</Button>
-    {disabled && !pending && <Text variant="bodyMedium">Finaliza o cierra explícitamente la toma pendiente antes de cerrar esta sesión.</Text>}
-    {pending && <Text variant="bodyMedium">Guardando cierre de Session en el servidor…</Text>}
+    {pending && <Text variant="bodyMedium">Finalizando sesión. El estado del guardado se muestra en la toma.</Text>}
     {confirming && <Portal><Dialog visible onDismiss={onCancel} style={{ maxWidth: 560, width: '90%', alignSelf: 'center' }}>
       <Dialog.Title>Confirmar cierre de Session</Dialog.Title>
       <Dialog.ScrollArea style={{ maxHeight: 320 }}><ScrollView contentContainerStyle={{ paddingVertical: 16 }}>
-        <Text variant="bodyMedium">Cerrar impide nuevos ingresos y comandos. Conserva el historial y los originales. Finaliza o cierra primero cualquier Take interrumpida.</Text>
+        <Text variant="bodyMedium">Finalizarás la sesión para todos. Si hay una grabación coordinada en curso, se enviará STOP y se esperará el resultado de cada cámara. Se conservan el historial y los originales.</Text>
       </ScrollView></Dialog.ScrollArea>
       <Dialog.Actions style={{ flexWrap: 'wrap' }}>
         <Button onPress={onCancel} contentStyle={sessionStyles.touch}>Cancelar</Button>
