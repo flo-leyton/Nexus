@@ -144,6 +144,8 @@ export type SessionRequest =
   | (NexusMessage<{ code: string }> & { type: 'SESSION_JOIN_REQUEST' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
+  | (NexusMessage<{ enabled: boolean }> & { type: 'TORCH_SET'; targetId: string })
+  | (NexusMessage<{ requestId: string; available: boolean }> & { type: 'TORCH_ACK'; targetId: string })
   | (NexusMessage<{ readiness: NodeReadiness; readyEpoch?: string; confirmReady?: true }> & { type: 'NODE_STATE'; targetId: string })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[]; durationSeconds?: number }> & { type: 'START_RECORDING' })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'STOP_RECORDING' })
@@ -157,6 +159,7 @@ export type SessionEvent =
   | (NexusMessage<{ requestId: string; sessionIds: string[] }> & { type: 'SESSION_LIST_RESULT' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_REJECTED' | 'SESSION_CLOSED' })
   | (NexusMessage<{ requestId: string; angle: TakeMediaAngle }> & { type: 'MEDIA_ACCEPTED' })
+  | (NexusMessage<{ requestId: string; nodeId: string; enabled: boolean; available: boolean }> & { type: 'TORCH_RESULT' })
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
 
 export function isNodeRole(value: unknown): value is string {
@@ -232,6 +235,11 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isProtocolId(value.payload.requestId);
     case 'ASSIGN_ROLE':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isNodeRole(value.payload.role);
+    case 'TORCH_SET':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && typeof value.payload.enabled === 'boolean';
+    case 'TORCH_ACK':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 2 &&
+        isProtocolId(value.payload.requestId) && typeof value.payload.available === 'boolean';
     case 'NODE_STATE':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.every((k) => ['readiness', 'readyEpoch', 'confirmReady'].includes(k)) && isNodeReadiness(value.payload.readiness) &&
         (value.payload.readyEpoch === undefined || isProtocolId(value.payload.readyEpoch)) && (value.payload.confirmReady === undefined || value.payload.confirmReady === true);
@@ -264,6 +272,7 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
     case 'SESSION_ERROR': return typeof p.code === 'string';
     case 'SESSION_LIST_RESULT': return Array.isArray(p.sessionIds) && p.sessionIds.every(isProtocolId);
     case 'MEDIA_ACCEPTED': return isTakeMediaAngle(p.angle);
+    case 'TORCH_RESULT': return isProtocolId(p.nodeId) && typeof p.enabled === 'boolean' && typeof p.available === 'boolean';
     case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId) &&
       (p.online === undefined || typeof p.online === 'boolean') && (p.controllerOnline === undefined || typeof p.controllerOnline === 'boolean');
     case 'SESSION_JOIN_REJECTED':

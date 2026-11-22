@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-04 · Linterna remota por cámara
+
+El Controller envía solicitudes por `nodeId` al Node aceptado en la sesión. El Node usa `enableTorch` en la vista de cámara que ya está montada. La respuesta indica recepción y si había una vista disponible. El estado físico del flash queda por probar en los teléfonos. Al desconectarse la cámara se descarta la solicitud visible y se deshabilitan sus botones.
+
+Pasaron seis pruebas puntuales de enrutamiento, recepción, autorización y grabación, además de TypeScript y ESLint dirigido. Prueba física pendiente con relay NX-04 y las APK de desarrollo cargando NX-04 por Metro. Enciende y apaga por separado en cada cámara antes de REC y durante una toma manual o programada. Comprueba el flash en el teléfono y reproduce el original guardado. Desconecta una cámara y comprueba que sus botones quedan deshabilitados.
+
 ### NX-03 · Grabaciones programadas
 
 El Controller programa una cámara o todas las preparadas con cuenta regresiva y duración de 1 a 3600 segundos. La cuenta regresiva pertenece al servicio de sesión y se cancela si el Controller pierde la conexión o confirma el cierre antes de REC. La cámara seleccionada aplica el límite nativo de Expo Camera y guarda con el `takeId` de la programación. Los controles manuales conservan su comportamiento.

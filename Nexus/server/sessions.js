@@ -88,6 +88,8 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
   };
   const markOffline = (s, id) => {
     const member = s.members.get(id);
+    if (id === s.controllerId) s.torchRequests?.clear();
+    else if (member?.nodeId) s.torchRequests?.delete(member.nodeId);
     if (member) {
       member.online = false; recording.disconnect(s, id);
       if (member.kind === 'node') resetReady(member);
@@ -132,6 +134,9 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
   const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
       if (s.closedAt) continue;
+      for (const [nodeId, request] of s.torchRequests ?? []) {
+        if (request.expiresAt <= Date.now()) s.torchRequests.delete(nodeId);
+      }
       for (const member of s.members.values()) if (member.online && clients.get(member.deviceId)?.readyState !== 1) {
         markOffline(s, member.deviceId);
         snapshot(s, randomUUID());
@@ -251,6 +256,17 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       if (s.members.get(m.senderId).kind === 'node' && !s.members.get(m.senderId).online && !['SESSION_GET'].includes(m.type)) return error('REJOIN_REQUIRED');
+      if (m.type === 'TORCH_ACK') {
+        const member = s.members.get(m.senderId);
+        const request = s.torchRequests?.get(member.nodeId);
+        if (member.kind !== 'node' || m.targetId !== s.controllerId || !request ||
+            request.messageId !== m.payload.requestId || request.expiresAt <= Date.now()) return error('INVALID_TARGET');
+        s.torchRequests.delete(member.nodeId);
+        send(clients.get(s.controllerId), 'TORCH_RESULT', s.sessionId, {
+          requestId: request.messageId, nodeId: member.nodeId, enabled: request.enabled, available: m.payload.available,
+        });
+        return true;
+      }
       if (recording.handle(s, m, error)) return true;
       if (m.type === 'NODE_STATE') {
         const member = s.members.get(m.senderId);
@@ -283,6 +299,17 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+      if (m.type === 'TORCH_SET') {
+        const target = [...s.members.values()].find((member) =>
+          member.kind === 'node' && member.nodeId === m.targetId && member.online);
+        const socket = target && clients.get(target.deviceId);
+        if (!target || socket?.readyState !== 1 || socket.studioIdentity?.uid !== target.uid ||
+            !(socket.studioIdentity.expiresAt > Date.now())) return error('INVALID_TARGET');
+        s.torchRequests ??= new Map();
+        s.torchRequests.set(target.nodeId, { messageId: m.messageId, enabled: m.payload.enabled, expiresAt: Date.now() + 5000 });
+        emit(socket, JSON.stringify(m));
+        return true;
+      }
       if (m.type === 'SESSION_CLOSE') {
         if (s.closedAt) {
           send(client, 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
@@ -291,6 +318,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         if (activeTakes(s).length) return error('TAKE_ACTIVE');
         const recipients = new Map([...s.pending, ...s.members]);
         s.closedAt = Date.now();
+        s.torchRequests?.clear();
         s.pending.clear();
         for (const member of s.members.values()) {
           member.online = false;

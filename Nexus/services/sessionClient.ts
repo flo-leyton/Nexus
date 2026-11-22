@@ -39,6 +39,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const listeners = new Set<(snapshot: SessionSnapshot) => void>();
   const roleCommands = new Map<string, Map<string, string>>();
   const captureHandlers = new Map<string, (command: RecordingCommand) => void>();
+  const torchHandlers = new Map<string, (enabled: boolean) => boolean>();
   const captureCommands = new Map<string, string>();
   const captureReports = new Map<string, RecordingReport>();
   const schedules = new Map<string, Schedule>();
@@ -63,6 +64,19 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const unsubscribeMessages = transport.subscribeMessages((raw) => {
     let event: unknown;
     try { event = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
+    if (isSessionRequest(event) && event.type === 'TORCH_SET') {
+      const session = state.sessions[event.sessionId];
+      const member = session?.members[deviceId];
+      if (state.connection !== 'Connected' || !session || session.state === 'closed' ||
+          event.senderId !== session.controllerId || member?.kind !== 'node' ||
+          member.online === false || event.targetId !== member.nodeId) return;
+      try {
+        const available = torchHandlers.get(event.sessionId)?.(event.payload.enabled) ?? false;
+        send({ ...envelope(event.sessionId), type: 'TORCH_ACK', targetId: session.controllerId,
+          payload: { requestId: event.messageId, available } });
+      } catch { /* The Controller will time out without a receipt. */ }
+      return;
+    }
     if (isSessionRequest(event) && (event.type === 'START_RECORDING' || event.type === 'STOP_RECORDING') && event.targetId === deviceId) {
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
@@ -272,6 +286,17 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     assignRole(sessionId: string, deviceId: string, role: string) {
       return send({ ...envelope(sessionId), type: 'ASSIGN_ROLE', targetId: deviceId, payload: { role: role.trim() } });
     },
+    setRemoteTorch(sessionId: string, nodeId: string, enabled: boolean) {
+      const session = controllerSession(sessionId);
+      if (state.connection !== 'Connected') throw new Error('SOCKET_NOT_CONNECTED');
+      if (session.state === 'closed' || !Object.values(session.members).some((member) =>
+          member.kind === 'node' && member.nodeId === nodeId && member.online !== false)) throw new Error('INVALID_TARGET');
+      return send({ ...envelope(sessionId), type: 'TORCH_SET', targetId: nodeId, payload: { enabled } });
+    },
+    registerTorchHandler(sessionId: string, handler: (enabled: boolean) => boolean) {
+      torchHandlers.set(sessionId, handler);
+      return () => { if (torchHandlers.get(sessionId) === handler) torchHandlers.delete(sessionId); };
+    },
     reportNodeState(sessionId: string, controllerId: string, readiness: NodeReadiness) {
       const member = state.sessions[sessionId]?.members[deviceId];
       return send({ ...envelope(sessionId), type: 'NODE_STATE', targetId: controllerId, payload: {
@@ -356,7 +381,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       return send({ ...envelope(sessionId), type: 'SESSION_CLOSE', payload: {} });
     },
     dispose() {
-      disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); captureCommands.clear(); captureReports.clear();
+      disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); torchHandlers.clear(); captureCommands.clear(); captureReports.clear();
       for (const id of scheduleTimers.keys()) cancelSchedule(id);
       schedules.clear();
     },

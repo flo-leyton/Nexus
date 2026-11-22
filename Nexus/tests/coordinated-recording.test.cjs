@@ -243,6 +243,45 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   assert.equal(closed.payload.session.takeHistory[0].takeId, start.takeId);
 });
 
+test('NX-04: torch requests target one node, report receipt, and preserve REC/STOP', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const camera = await attachCamera(t, a, s);
+  const nodeA = camera.identity.nodeId;
+  const nodeB = c.service.getSnapshot().sessions[s.sessionId].members.b.nodeId;
+  const received = [];
+  t.after(a.service.registerTorchHandler(s.sessionId, (enabled) => { received.push(enabled); return true; }));
+  const on = c.service.setRemoteTorch(s.sessionId, nodeA, true);
+  const receipt = await c.wait(reply(on));
+  assert.equal(receipt.type, 'TORCH_RESULT');
+  assert.deepEqual(receipt.payload, { requestId: on, nodeId: nodeA, enabled: true, available: true });
+  assert.equal(b.inbox.some((event) => event.type === 'TORCH_SET'), false);
+  const unavailable = c.service.setRemoteTorch(s.sessionId, nodeB, true);
+  assert.equal((await c.wait(reply(unavailable))).payload.available, false);
+
+  const unauthorized = request('TORCH_SET', b.deviceId, s.sessionId, { enabled: false }, nodeA);
+  b.send(unauthorized); assert.equal((await b.wait(reply(unauthorized.messageId))).payload.code, 'CONTROLLER_REQUIRED');
+  const forged = request('TORCH_ACK', b.deviceId, s.sessionId, { requestId: on, available: true }, c.deviceId);
+  b.send(forged); assert.equal((await b.wait(reply(forged.messageId))).payload.code, 'INVALID_TARGET');
+
+  await waitReady(c, s, ['a']);
+  const take = c.service.startTake(s.sessionId, ['a']);
+  await c.wait(hasNode(take.takeId, 'a', 'recording'));
+  const off = c.service.setRemoteTorch(s.sessionId, nodeA, false);
+  assert.equal((await c.wait(reply(off))).payload.enabled, false);
+  assert.deepEqual(received, [true, false]);
+  assert.equal(camera.engine.getSnapshot().phase, 'recording');
+  c.service.stopActiveTakes(s.sessionId);
+  await c.wait(hasNode(take.takeId, 'a', 'saved'));
+  assert.equal(camera.counts().stops, 1);
+
+  a.ws.close(); await once(a.ws, 'close');
+  await c.wait((event) => event.type === 'SESSION_SNAPSHOT' && event.payload.session.members.a?.online === false);
+  assert.throws(() => c.service.setRemoteTorch(s.sessionId, nodeA, true), /INVALID_TARGET/);
+  const offline = request('TORCH_SET', c.deviceId, s.sessionId, { enabled: true }, nodeA);
+  c.send(offline); assert.equal((await c.wait(reply(offline.messageId))).payload.code, 'INVALID_TARGET');
+});
+
 test('NX-03: individual recording ends locally without stopping an existing recording', { timeout: 10000 }, async (t) => {
   const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
   const s = await create(c); await admit(c, a, s); await admit(c, b, s);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { ControllerTakeView } from './session/ControllerTakeView';
 import { ScheduledRecordingPanel } from './session/ScheduledRecordingPanel';
+import { RemoteTorchControl } from './session/RemoteTorchControl';
 
 import type { getSessionService } from '@/services/session';
 import { activeTakeForDevice, activeTakes, readinessReasons, type Session } from '@/services/sessionProtocol';
@@ -38,7 +39,7 @@ export function ControllerTakePanel({ service, session, closingSession = false }
     const status = !online ? 'DESCONECTADA' : result?.connectionLost ? 'ESTADO SIN CONFIRMAR'
       : result?.phase === 'recording' ? 'GRABANDO' : result?.phase === 'saving' ? 'GUARDANDO'
         : result?.phase === 'error' ? 'REVISAR CÁMARA' : result ? 'INICIANDO' : 'DETENIDA';
-    return { deviceId: member.deviceId, label: member.role === 'unassigned' ? `Cámara · …${member.deviceId.slice(-6)}` : member.role,
+    return { deviceId: member.deviceId, nodeId: member.nodeId, online, label: member.role === 'unassigned' ? `Cámara · …${member.deviceId.slice(-6)}` : member.role,
       status, ready: online && !take && !member.requiresReadyConfirmation && !readinessReasons(member.readiness).length,
       stoppable: online && !!take && !take.interrupted && !result?.connectionLost && result?.phase !== 'saving' };
   });
@@ -63,7 +64,10 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   };
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
-    cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.stoppable }))}
+    cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.stoppable,
+      torchControl: camera.nodeId && <RemoteTorchControl key={camera.nodeId} service={service} sessionId={session.sessionId}
+        nodeId={camera.nodeId} online={camera.online} disabled={closingSession} label={camera.label} />,
+    }))}
     closableTakeIds={pending ? [] : closableTakes.map((take) => take.takeId)}
     notice={notice} pending={pending} focused={focused} confirmingClose={!!takeToClose}
     onStart={() => submit(() => [service.startTake(session.sessionId, readyIds).messageId])}

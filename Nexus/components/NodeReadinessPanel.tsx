@@ -23,6 +23,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const resetTimedCamera = useRef(false);
   const savedId = useRef<string | null>(null);
   const [controlError, setControlError] = useState('');
+  const [torchGeneration, setTorchGeneration] = useState<number | null>(null);
   const [engine] = useState(() => new CaptureEngine({
     getPermission: Camera.getCameraPermissionsAsync,
     requestPermission: Camera.requestCameraPermissionsAsync,
@@ -58,6 +59,24 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     const listener = AppState.addEventListener('change', setAppState);
     return () => listener.remove();
   }, []);
+  useEffect(() => {
+    const off = service.registerTorchHandler(sessionId, (enabled) => {
+      const current = engine.getSnapshot();
+      if (Platform.OS === 'web' || !focused || appState !== 'active' || !accepted || sessionClosed ||
+          !view.current || !current.active || !current.readiness.enginePrepared) return false;
+      setTorchGeneration(enabled ? current.generation : null);
+      return true;
+    });
+    return off;
+  }, [accepted, appState, engine, focused, service, sessionClosed, sessionId]);
+  useEffect(() => service.subscribe((snapshot) => {
+    const current = snapshot.sessions[sessionId];
+    if (snapshot.connection !== 'Connected' || current?.members[deviceId]?.online !== true ||
+        current.members[controllerId]?.online === false) setTorchGeneration(null);
+  }), [controllerId, deviceId, service, sessionId]);
+  useEffect(() => {
+    if (!accepted || !focused || appState !== 'active' || sessionClosed) setTorchGeneration(null);
+  }, [accepted, appState, focused, sessionClosed]);
   useEffect(() => {
     let mounted = true;
     const report = () => {
@@ -130,6 +149,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     focused={focused} isWeb={Platform.OS === 'web'} reportError={reportError} controlError={controlError}
     takeId={takeNode ? coordinatedTake?.takeId : undefined}
     camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={sessionStyles.preview}
+      enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
       onMountError={(event) => engine.cameraFailed(generation, event.message)} />}
     onConfirmReady={() => run(() => { service.confirmNodeReady(sessionId, controllerId, engine.getReadiness()); })}
