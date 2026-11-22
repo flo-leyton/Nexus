@@ -1,13 +1,13 @@
 import { ScrollView, View } from 'react-native';
 import type { ReactNode } from 'react';
 import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
-import { takeFinished, type Session } from '@/services/sessionProtocol';
+import { activeTakes, takeFinished, type Session } from '@/services/sessionProtocol';
 import { SessionActionDock, SessionBadge, SessionDetails, SessionNotice, SessionSection, sessionStyles } from './SessionUI';
 import { TakeHistoryItem, TakeNodeStatus } from './TakeNodeStatus';
 
 export type ControllerTakeViewProps = {
   session: Session; nodeCount: number; canStart: boolean; canStop: boolean;
-  cameras: { deviceId: string; label: string; status: string; canStart: boolean; canStop: boolean; torchControl?: ReactNode }[];
+  cameras: { deviceId: string; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean; torchControl?: ReactNode }[];
   closableTakeIds: string[];
   scheduling?: ReactNode;
   notice: string; pending: boolean; confirmingClose: boolean; focused: boolean;
@@ -21,6 +21,13 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
   const previous = props.session.takeHistory ?? [];
   const active = previous.filter((entry) => !takeFinished(entry));
   const history = previous.filter(takeFinished);
+  const allActive = activeTakes(props.session);
+  const takes = allActive.filter((entry) => !entry.interrupted);
+  const { members } = props.session;
+  const recording = takes.some((entry) => Object.entries(entry.nodes).some(([id, node]) =>
+    members[id] && members[id].online !== false && !node.connectionLost && node.phase === 'recording'));
+  const needsRecovery = !recording && takes.some((entry) => Object.values(entry.nodes).some((node) =>
+    node.connectionLost ? !entry.stopMessageId : node.busy && !!node.error && node.phase !== 'saving'));
   return <View style={sessionStyles.stack}>
     <Text accessibilityRole="header" variant="titleLarge">Consola de grabación</Text>
     <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>REC solicita captura a los Nodes conectados y listos. Cada resultado se confirma por separado.</Text>
@@ -34,12 +41,11 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
         <View style={sessionStyles.between}><Text variant="titleMedium">{camera.label}</Text>
           <SessionBadge label={camera.status} />
         </View>
-        <View style={sessionStyles.row}>
-          <Button mode="outlined" disabled={!camera.canStart} accessibilityLabel={`REC ${camera.label}`}
-            onPress={() => props.onStartCamera(camera.deviceId)} style={sessionStyles.flex} contentStyle={sessionStyles.touch}>REC</Button>
-          <Button mode="outlined" disabled={!camera.canStop} accessibilityLabel={`STOP ${camera.label}`}
-            onPress={() => props.onStopCamera(camera.deviceId)} style={sessionStyles.flex} contentStyle={sessionStyles.touch}>STOP</Button>
-        </View>
+        <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
+          disabled={camera.recording ? !camera.canStop : !camera.canStart}
+          accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
+          onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
+          contentStyle={sessionStyles.touch}>{camera.recording ? 'STOP' : 'REC'}</Button>
         {camera.torchControl}
       </View>)}
     </SessionSection>}
@@ -56,6 +62,8 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     {!!active.length && <SessionSection title="Otras tomas activas">
       {active.map((entry) => <TakeHistoryItem key={entry.takeId} take={entry} />)}
     </SessionSection>}
+    {needsRecovery && <Button mode="outlined" disabled={!props.canStop} onPress={props.onStop}
+      contentStyle={sessionStyles.touch}>Solicitar STOP de las tomas pendientes</Button>}
     {props.closableTakeIds.map((id) => <Button key={id} mode="outlined" icon="alert-circle-outline"
       onPress={() => props.onRequestClose(id)} style={sessionStyles.control} contentStyle={sessionStyles.touch}>Cerrar toma interrumpida · …{id.slice(-6)}</Button>)}
     {props.confirmingClose && props.focused && <Portal><Dialog visible onDismiss={props.onCancelClose} style={{ maxWidth: 560, width: '90%', alignSelf: 'center' }}>
@@ -74,12 +82,12 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
       {history.map((old) => <TakeHistoryItem key={old.takeId} take={old} />)}
     </SessionSection>}
     <SessionActionDock visible={props.focused} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma · vídeo sin audio'}>
-      <View style={sessionStyles.row}>
-        <Button mode="contained" icon="record-circle" disabled={!props.canStart} onPress={props.onStart}
-          buttonColor={colors.error} textColor={colors.onError} style={[sessionStyles.control, sessionStyles.flex]} contentStyle={sessionStyles.touch}>REC · {props.nodeCount} {props.nodeCount === 1 ? 'Node' : 'Nodes'}</Button>
-        <Button mode="contained-tonal" icon="stop" disabled={!props.canStop} onPress={props.onStop}
-          style={[sessionStyles.control, sessionStyles.flex]} contentStyle={sessionStyles.touch}>STOP · Finalizar</Button>
-      </View>
+      <Button mode={recording ? 'contained-tonal' : 'contained'} icon={recording ? 'stop' : 'record-circle'}
+        disabled={recording ? !props.canStop : !props.canStart || !!allActive.length}
+        onPress={recording ? props.onStop : props.onStart} buttonColor={recording ? undefined : colors.error}
+        textColor={recording ? undefined : colors.onError} style={sessionStyles.control} contentStyle={sessionStyles.touch}>
+        {recording ? 'STOP general' : 'REC general'}
+      </Button>
     </SessionActionDock>
   </View>;
 }

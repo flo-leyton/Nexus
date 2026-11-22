@@ -14,6 +14,7 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   const [pending, setPending] = useState(false);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const requests = useRef(new Set<string>());
+  const recordingRequestTarget = useRef<string | null | undefined>(undefined);
   const requestedAt = useRef(0);
   useEffect(() => {
     const unsubscribe = service.subscribe((state) => {
@@ -36,12 +37,13 @@ export function ControllerTakePanel({ service, session, closingSession = false }
     const take = activeTakeForDevice(session, member.deviceId);
     const result = take?.nodes[member.deviceId];
     const online = member.online !== false;
-    const status = !online ? 'DESCONECTADA' : result?.connectionLost ? 'ESTADO SIN CONFIRMAR'
+    const recording = online && !take?.interrupted && !result?.connectionLost && result?.phase === 'recording';
+    const awaiting = pending && (recordingRequestTarget.current === null || recordingRequestTarget.current === member.deviceId);
+    const status = !online ? 'DESCONECTADA' : awaiting ? 'ORDEN PENDIENTE' : result?.connectionLost ? 'ESTADO SIN CONFIRMAR'
       : result?.phase === 'recording' ? 'GRABANDO' : result?.phase === 'saving' ? 'GUARDANDO'
         : result?.phase === 'error' ? 'REVISAR CÁMARA' : result ? 'INICIANDO' : 'DETENIDA';
     return { deviceId: member.deviceId, nodeId: member.nodeId, online, label: member.role === 'unassigned' ? `Cámara · …${member.deviceId.slice(-6)}` : member.role,
-      status, ready: online && !take && !member.requiresReadyConfirmation && !readinessReasons(member.readiness).length,
-      stoppable: online && !!take && !take.interrupted && !result?.connectionLost && result?.phase !== 'saving' };
+      status, recording, ready: online && !take && !member.requiresReadyConfirmation && !readinessReasons(member.readiness).length };
   });
   const readyIds = cameras.filter((camera) => camera.ready).map((camera) => camera.deviceId);
   const canStart = enabled && !captures.length && !!readyIds.length;
@@ -49,10 +51,11 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   const closableTakes = captures.filter((take) => take.interrupted || (take.stopMessageId &&
     Object.values(take.nodes).some((node) => node.connectionLost)));
   const takeToClose = closableTakes.find((take) => take.takeId === confirmClose);
-  const submit = (send: () => string[]) => {
+  const submit = (send: () => string[], target?: string | null) => {
     if (requests.current.size) return;
     try {
       requests.current = new Set(send());
+      recordingRequestTarget.current = target;
       requestedAt.current = Date.now(); setPending(!!requests.current.size);
       setNotice(requests.current.size ? 'Esperando respuesta del relay…' : '');
     } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo enviar.'); }
@@ -64,16 +67,16 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   };
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
-    cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.stoppable,
+    cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.recording,
       torchControl: camera.nodeId && <RemoteTorchControl key={camera.nodeId} service={service} sessionId={session.sessionId}
         nodeId={camera.nodeId} online={camera.online} disabled={closingSession} label={camera.label} />,
     }))}
     closableTakeIds={pending ? [] : closableTakes.map((take) => take.takeId)}
     notice={notice} pending={pending} focused={focused} confirmingClose={!!takeToClose}
-    onStart={() => submit(() => [service.startTake(session.sessionId, readyIds).messageId])}
-    onStop={() => submit(() => service.stopActiveTakes(session.sessionId))}
-    onStartCamera={(id) => submit(() => [service.startTake(session.sessionId, [id]).messageId])}
-    onStopCamera={(id) => submit(() => service.stopActiveTakes(session.sessionId, id))}
+    onStart={() => submit(() => [service.startTake(session.sessionId, readyIds).messageId], null)}
+    onStop={() => submit(() => service.stopActiveTakes(session.sessionId), null)}
+    onStartCamera={(id) => submit(() => [service.startTake(session.sessionId, [id]).messageId], id)}
+    onStopCamera={(id) => submit(() => service.stopActiveTakes(session.sessionId, id), id)}
     onRequestClose={setConfirmClose}
     onClose={close} onCancelClose={() => setConfirmClose(null)} />;
 }
