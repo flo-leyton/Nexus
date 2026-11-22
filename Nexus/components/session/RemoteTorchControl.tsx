@@ -13,6 +13,7 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
   label: string;
 }) {
   const [request, setRequest] = useState<{ enabled: boolean; status: string } | null>(null);
+  const [requestedOn, setRequestedOn] = useState(false);
   const pending = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   useEffect(() => {
     const off = service.subscribe((snapshot) => {
@@ -22,6 +23,7 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
         if (current) clearTimeout(current.timer);
         pending.current = null;
         setRequest(null);
+        setRequestedOn(false);
         return;
       }
       const event = snapshot.lastEvent;
@@ -29,6 +31,7 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
           (event.type !== 'SESSION_ERROR' && (event.type !== 'TORCH_RESULT' || event.payload.nodeId !== nodeId))) return;
       clearTimeout(current.timer);
       pending.current = null;
+      if (event.type === 'TORCH_RESULT' && event.payload.available) setRequestedOn(event.payload.enabled);
       const status = event.type === 'SESSION_ERROR' ? 'Orden rechazada'
         : event.payload.available ? 'Orden recibida' : 'Orden recibida · cámara no disponible';
       setRequest((value) => value && { ...value, status });
@@ -53,18 +56,14 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
       setRequest({ enabled, status: 'Orden no enviada' });
     }
   };
+  const action = online && requestedOn ? 'Apagar linterna' : 'Encender linterna';
   return <View style={sessionStyles.stack}>
     <Text variant="bodyMedium" accessibilityLiveRegion="polite">
       {!online ? 'Linterna · cámara desconectada'
-        : request ? `Linterna · ${request.enabled ? 'encendido' : 'apagado'} solicitado · ${request.status}` : 'Linterna · sin orden reciente'}
+        : request ? `Última orden · ${request.enabled ? 'encender' : 'apagar'} · ${request.status}` : 'Linterna · sin orden reciente'}
     </Text>
-    <View style={sessionStyles.row}>
-      <Button mode="outlined" icon="flashlight" accessibilityLabel={`Encender linterna de ${label}`}
-        disabled={!online || disabled || !!pending.current} onPress={() => send(true)} style={sessionStyles.flex}
-        contentStyle={sessionStyles.touch}>Encender</Button>
-      <Button mode="outlined" icon="flashlight-off" accessibilityLabel={`Apagar linterna de ${label}`}
-        disabled={!online || disabled || !!pending.current} onPress={() => send(false)} style={sessionStyles.flex}
-        contentStyle={sessionStyles.touch}>Apagar</Button>
-    </View>
+    <Button mode="outlined" icon={online && requestedOn ? 'flashlight-off' : 'flashlight'}
+      accessibilityLabel={`${action} de ${label}`} disabled={!online || disabled || !!pending.current}
+      onPress={() => send(!requestedOn)} contentStyle={sessionStyles.touch}>{action}</Button>
   </View>;
 }
