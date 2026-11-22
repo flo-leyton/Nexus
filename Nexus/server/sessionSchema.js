@@ -1,4 +1,4 @@
-const { isSessionEvent, isProtocolId, isNodeRole, INITIAL_READINESS } = require('../services/sessionProtocol.ts');
+const { isSessionEvent, isProtocolId, isNodeRole, INITIAL_READINESS, sessionTakes, activeTakes, nodeTakePending } = require('../services/sessionProtocol.ts');
 const { recordingState } = require('./recording');
 const { randomUUID } = require('node:crypto');
 
@@ -66,18 +66,22 @@ function decodeRegistry(doc) {
       !['responded', 'executed', 'notified', 'expiredTargets'].every((field) => cmd[field] == null || (Array.isArray(cmd[field]) && cmd[field].every(isProtocolId)))) throw new Error('Diario de captura durable inválido.');
     if (raw.usedTakes && (!Array.isArray(raw.usedTakes) || !raw.usedTakes.every(isProtocolId))) throw new Error('Identidades de Take durables inválidas.');
     if (!entries(raw.closeCommands).every(([id, takeId]) => isProtocolId(id) && isProtocolId(takeId))) throw new Error('Cierres durables inválidos.');
-    s.usedTakes = new Set([...(raw.usedTakes || []), ...[s.take, ...s.takeHistory].filter(Boolean).map((t) => t.takeId)]); s.closeCommands = new Map(entries(raw.closeCommands));
+    const takeIds = sessionTakes(s).map((take) => take.takeId);
+    if (new Set(takeIds).size !== takeIds.length) throw new Error('Take duplicada en RTDB.');
+    s.usedTakes = new Set([...(raw.usedTakes || []), ...takeIds]); s.closeCommands = new Map(entries(raw.closeCommands));
     s.recordingCommands = new Map(entries(raw.recordingCommands).map(([key, cmd]) => [key, { ...cmd,
       responded: new Set(cmd.responded || []), executed: new Set(cmd.executed || []), notified: new Set(cmd.notified || []), expiredTargets: new Set(cmd.targetNodeIds), recovered: true }]));
     for (const m of s.members.values()) { m.online = false; if (m.kind === 'node') { m.readiness = { ...INITIAL_READINESS }; m.readyEpoch = randomUUID(); m.requiresReadyConfirmation = true; } }
     // Pending approvals and unacknowledged roles cannot be replayed after restart.
     for (const role of s.roles.values()) if (!role.acked) role.expired = true;
-    for (const take of [s.take, ...s.takeHistory].filter(Boolean)) {
-      if (!take.closed && Object.values(take.nodes).some((n) => n.busy || !['saved', 'error'].includes(n.phase))) {
-        take.interrupted ||= { at: Date.now(), reason: 'relay-restarted' };
-        for (const n of Object.values(take.nodes)) if (n.phase !== 'saved' && (n.busy || n.phase !== 'error')) {
-          n.phase = 'disconnected'; n.busy = true; n.connectionLost = true; n.capture = null; n.error = 'Relay reiniciado; resultado local no confirmado/desconocido';
-        }
+    const activeDevices = new Set();
+    for (const take of activeTakes(s)) {
+      take.interrupted ||= { at: Date.now(), reason: 'relay-restarted' };
+      for (const [deviceId, node] of entries(take.nodes)) {
+        if (!nodeTakePending(take, deviceId, node.nodeId)) continue;
+        if (activeDevices.has(deviceId)) throw new Error('El dispositivo tiene varias tomas activas en RTDB.');
+        activeDevices.add(deviceId);
+        node.phase = 'disconnected'; node.busy = true; node.connectionLost = true; node.capture = null; node.error = 'Relay reiniciado; resultado local no confirmado/desconocido';
       }
     }
     sessions.set(id, s); codes.set(s.code, id);

@@ -44,8 +44,8 @@ export interface Session {
   code: string;
   state: SessionState;
   members: Record<string, SessionMember>;
-  take?: CoordinatedTake;
-  takeHistory?: CoordinatedTake[];
+  take?: CoordinatedTake; // Most recently started take.
+  takeHistory?: CoordinatedTake[]; // Older takes in start order, including any still in progress.
   mediaAngles?: Record<string, TakeMediaAngle>;
 }
 export interface TakeMediaAngle {
@@ -99,7 +99,16 @@ export interface CoordinatedTake {
 export function takeFinished(take: CoordinatedTake | undefined): boolean {
   return !take || !!take.closed || Object.values(take.nodes).every((n) => !n.busy && ['saved', 'error'].includes(n.phase));
 }
-export function nodeTakePending(take: CoordinatedTake | undefined, deviceId: string, nodeId: string): boolean {
+export function sessionTakes(session: Pick<Session, 'take' | 'takeHistory'>): CoordinatedTake[] {
+  return [...(session.take ? [session.take] : []), ...(session.takeHistory ?? [])];
+}
+export function activeTakes(session: Pick<Session, 'take' | 'takeHistory'>): CoordinatedTake[] {
+  return sessionTakes(session).filter((take) => !takeFinished(take));
+}
+export function activeTakeForDevice(session: Pick<Session, 'take' | 'takeHistory'>, deviceId: string) {
+  return activeTakes(session).find((take) => nodeTakePending(take, deviceId, take.nodes[deviceId]?.nodeId));
+}
+export function nodeTakePending(take: CoordinatedTake | undefined, deviceId: string, nodeId: string | undefined): boolean {
   const node = take?.nodes[deviceId];
   return !!node && node.nodeId === nodeId && !take?.closed && (node.busy || !['saved', 'error'].includes(node.phase));
 }

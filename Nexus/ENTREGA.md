@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-02 · Grabación por cámara
+
+El Controller puede iniciar y detener cada cámara por separado. REC general comparte un `takeId` entre las cámaras preparadas cuando la sesión está libre. STOP general envía STOP a cada toma activa. El cierre de sesión espera el resultado de todas las tomas. La persistencia conserva la toma más reciente y las anteriores, que pueden seguir grabando. La recuperación marca resultados pendientes como desconocidos y conserva los clips ya confirmados.
+
+Pasaron 13 pruebas puntuales de REC/STOP, clips consecutivos, recuperación, medios y cierre. También pasaron TypeScript, ESLint dirigido y `git diff --check`. Pendiente de prueba física. Con el relay y el cliente NX-02, inicia A, graba y detén B dos veces mientras A sigue grabando, y comprueba los dos originales de B. Vuelve a iniciar B y verifica STOP general. Prueba REC general y cierra la sesión mientras ambas cámaras graban. Verifica los originales, el historial y el regreso a Studio.
+
 ### NX-01 · Cierre de sesiones
 
 Implementado sobre el candidato `aa638ae` en `nx-01/session-close`. El Controller confirma el cierre y, con una toma activa, coordina STOP y espera el resultado de guardado. Si se pierde una cámara, la espera de la interfaz vence a los 60 segundos y sigue disponible el cierre explícito de toma interrumpida. El relay conserva el historial y registra el cierre antes de avisar. Al reconectar, la cámara consulta la sesión recordada y sale a Studio después de terminar cualquier guardado local.

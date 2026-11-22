@@ -2,6 +2,7 @@ import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
   type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
+  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, type CoordinatedTake,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -53,10 +54,11 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     if (isSessionRequest(event) && (event.type === 'START_RECORDING' || event.type === 'STOP_RECORDING') && event.targetId === deviceId) {
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
+      const take = session && sessionTakes(session).find((entry) => entry.takeId === event.payload.takeId);
       if (!session || session.controllerId !== event.senderId || member?.kind !== 'node' || member.online === false ||
           (event.type === 'START_RECORDING' && member.requiresReadyConfirmation) ||
-          !member.nodeId || !event.payload.targetNodeIds.includes(member.nodeId) || session.take?.takeId !== event.payload.takeId ||
-          session.take.interrupted || session.take.closed || session.take.nodes[deviceId]?.connectionLost) return;
+          !member.nodeId || !event.payload.targetNodeIds.includes(member.nodeId) || !take ||
+          take.interrupted || take.nodes[deviceId]?.connectionLost || !nodeTakePending(take, deviceId, member.nodeId)) return;
       const key = `${event.sessionId}:${event.messageId}`;
       const signature = JSON.stringify([event.type, event.payload]);
       const previous = captureCommands.get(key);
@@ -169,6 +171,13 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     captureReports.set(`${sessionId}:${payload.takeId}`, payload);
     return send({ ...envelope(sessionId), type: 'RECORDING_STATE', targetId: controllerId, payload });
   };
+  const controllerSession = (sessionId: string) => {
+    const session = state.sessions[sessionId];
+    if (!session || session.controllerId !== deviceId) throw new Error('CONTROLLER_REQUIRED');
+    return session;
+  };
+  const stop = (sessionId: string, take: CoordinatedTake, targetNodeIds: string[]) =>
+    send({ ...envelope(sessionId), type: 'STOP_RECORDING', payload: { takeId: take.takeId, targetNodeIds } });
   const requestJoin = (code: string, sessionId = JOIN_BY_CODE) => {
     const normalized = code.trim().toUpperCase();
     const message: SessionRequest = { ...envelope(sessionId), type: 'SESSION_JOIN_REQUEST', payload: { code: normalized } };
@@ -238,21 +247,29 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
         readiness, confirmReady: true, ...(member.readyEpoch ? { readyEpoch: member.readyEpoch } : {}),
       } });
     },
-    startTake(sessionId: string) {
-      const session = state.sessions[sessionId];
-      if (!session || session.controllerId !== deviceId) throw new Error('CONTROLLER_REQUIRED');
-      const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false).map((m) => m.nodeId!);
+    startTake(sessionId: string, targetDeviceIds?: string[]) {
+      const session = controllerSession(sessionId);
+      const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false &&
+        (!targetDeviceIds || targetDeviceIds.includes(m.deviceId))).map((m) => m.nodeId!);
+      if (!targetNodeIds.length) throw new Error('NODE_NOT_READY');
       const takeId = uuid();
       const messageId = send({ ...envelope(sessionId), type: 'START_RECORDING', payload: { takeId, targetNodeIds } });
       return { takeId, messageId };
     },
     stopTake(sessionId: string) {
-      const session = state.sessions[sessionId];
-      if (!session || session.controllerId !== deviceId) throw new Error('CONTROLLER_REQUIRED');
+      const session = controllerSession(sessionId);
       if (!session.take) throw new Error('TAKE_NOT_FOUND');
-      return send({ ...envelope(sessionId), type: 'STOP_RECORDING', payload: {
-        takeId: session.take.takeId, targetNodeIds: Object.values(session.take.nodes).map((n) => n.nodeId),
-      } });
+      return stop(sessionId, session.take, Object.values(session.take.nodes).map((n) => n.nodeId));
+    },
+    stopActiveTakes(sessionId: string, targetDeviceId?: string) {
+      const session = controllerSession(sessionId);
+      if (targetDeviceId) {
+        const take = activeTakeForDevice(session, targetDeviceId);
+        if (!take || take.interrupted) throw new Error('TAKE_NOT_FOUND');
+        return [stop(sessionId, take, [take.nodes[targetDeviceId].nodeId])];
+      }
+      return activeTakes(session).filter((take) => !take.interrupted).map((take) =>
+        stop(sessionId, take, Object.values(take.nodes).map((node) => node.nodeId)));
     },
     closeInterruptedTake(sessionId: string, takeId: string) {
       const session = state.sessions[sessionId];

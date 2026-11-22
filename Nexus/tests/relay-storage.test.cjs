@@ -449,6 +449,30 @@ test('H3.4b: interrupted Take survives restart without saved inference or comman
   assert.equal(newer.event.payload.session.takeHistory[0].nodes.node.stopReceived, false);
 });
 
+test('NX-02: relay restart recovers both outstanding takes without replay', { timeout: 10000 }, async (t) => {
+  const storage = createMemoryStore(), { runtime, c, s } = await session(t, storage);
+  const a = await peer(t, runtime, 'a'), b = await peer(t, runtime, 'b');
+  const ma = await admit(c, a, s), mb = await admit(c, b, s);
+  await ready(a, s); await ready(b, s);
+  for (const [node, member] of [[a, ma], [b, mb]]) {
+    const command = await c.call('START_RECORDING', s.sessionId, { takeId: `take-${node.id}`, targetNodeIds: [member.nodeId] });
+    assert.equal(command.event.type, 'SESSION_SNAPSHOT');
+    await ack(node, s, command.message);
+  }
+  await runtime.close();
+  const restarted = await start(t, createMemoryStore(storage.backing));
+  const owner = await peer(t, restarted, c.id), camera = await peer(t, restarted, a.id);
+  const restored = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(restored.take.nodes.b.phase, 'disconnected');
+  assert.equal(restored.takeHistory[0].nodes.a.phase, 'disconnected');
+  assert.equal(restored.takeHistory[0].nodes.a.capture, null);
+  assert.equal(camera.inbox.some((m) => ['START_RECORDING', 'STOP_RECORDING'].includes(m.type)), false);
+  await owner.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'take-b', acknowledgeUnknown: true });
+  assert.equal((await owner.call('SESSION_CLOSE', s.sessionId)).event.payload.code, 'TAKE_ACTIVE');
+  await owner.call('CLOSE_INTERRUPTED_TAKE', s.sessionId, { takeId: 'take-a', acknowledgeUnknown: true });
+  assert.equal((await owner.call('SESSION_CLOSE', s.sessionId)).event.payload.session.state, 'closed');
+});
+
 test('H3.4b: duplicate codes and stale revisions cannot overwrite another Session', async (t) => {
   const storage = createMemoryStore(), { c } = await session(t, storage, { codeGenerator: () => 'ABC123' });
   assert.equal((await c.call('SESSION_CREATE', 'second-session')).event.payload.code, 'CODE_UNAVAILABLE');

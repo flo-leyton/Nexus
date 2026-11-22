@@ -24,7 +24,7 @@ import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/
 import { uploadMediaAsset } from '@/services/cloudinary';
 import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
-import { takeFinished, type JoinRequest } from '@/services/sessionProtocol';
+import { activeTakes, type JoinRequest } from '@/services/sessionProtocol';
 import type { RemoteMediaAsset } from '@/types/media';
 import type { CaptureIdentity } from '@/types/capture';
 
@@ -49,7 +49,7 @@ export default function SessionScreen() {
   const [sessionFailed, setSessionFailed] = useState(false);
   const [confirmSessionClose, setConfirmSessionClose] = useState(false);
   const [closingSession, setClosingSession] = useState(false);
-  const closeRequest = useRef<{ stopId?: string; closeId?: string } | null>(null);
+  const closeRequest = useRef<{ stopIds: string[]; closeId?: string } | null>(null);
   const [closedSessionId, setClosedSessionId] = useState<string | null>(null);
   const focused = useIsFocused();
   const [deciding, setDeciding] = useState<Record<string, string>>({});
@@ -87,8 +87,8 @@ export default function SessionScreen() {
       setSessionFailed(true);
       setSessionNotice('El Controller cerró explícitamente la Session. Su historial y los originales se conservan.');
     } else if (event.type === 'SESSION_ERROR' && (event.payload.requestId === refreshId.current || decisionDevice ||
-        event.payload.requestId === closeRequest.current?.stopId || event.payload.requestId === closeRequest.current?.closeId)) {
-      if (event.payload.requestId === closeRequest.current?.stopId || event.payload.requestId === closeRequest.current?.closeId) {
+        closeRequest.current?.stopIds.includes(event.payload.requestId) || event.payload.requestId === closeRequest.current?.closeId)) {
+      if (closeRequest.current?.stopIds.includes(event.payload.requestId) || event.payload.requestId === closeRequest.current?.closeId) {
         closeRequest.current = null;
         setClosingSession(false);
       }
@@ -133,7 +133,7 @@ export default function SessionScreen() {
 
   useEffect(() => {
     const request = closeRequest.current;
-    if (!closingSession || !request || request.closeId || !service || !connected || !session || !takeFinished(session.take)) return;
+    if (!closingSession || !request || request.closeId || !service || !connected || !session || activeTakes(session).length) return;
     try {
       request.closeId = service.closeSession(sessionId);
       setSessionNotice('Guardando cierre de sesión en el relay…');
@@ -318,15 +318,12 @@ export default function SessionScreen() {
         const current = service.getSnapshot().sessions[sessionId];
         if (!current || current.controllerId !== deviceId) return;
         try {
-          const take = current.take;
-          closeRequest.current = {
-            stopId: take && !takeFinished(take) && !take.interrupted && !take.stopMessageId ? service.stopTake(sessionId) : undefined,
-          };
+          closeRequest.current = { stopIds: service.stopActiveTakes(sessionId) };
           setConfirmSessionClose(false);
           setClosingSession(true);
           setSessionFailed(false);
-          if (!takeFinished(take)) setSessionNotice(
-            'Cierre pendiente. Espera el guardado de los videos. Si una cámara quedó desconectada, revisa su original y usa el cierre de toma interrumpida.');
+          if (activeTakes(current).length) setSessionNotice(
+            'Cierre pendiente. Espera el guardado de los videos. Si una cámara quedó desconectada, revisa su original y cierra la toma interrumpida.');
         } catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
       }} />}
   />;

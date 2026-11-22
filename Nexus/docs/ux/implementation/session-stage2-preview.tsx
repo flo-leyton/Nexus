@@ -104,9 +104,10 @@ function Preview() {
           </SessionMemberRow>)}
         </>}
       </SessionSection>}
-      console={!node && scenario !== 'media' && <ControllerTakeView session={session} nodeCount={partial || interrupted ? 1 : 2} canStart={scenario === 'controller-ready' || saved} canStop={!pending && !!take && !interrupted && !saved} canClose={interrupted}
+      console={!node && scenario !== 'media' && <ControllerTakeView session={session} nodeCount={partial || interrupted ? 1 : 2} canStart={scenario === 'controller-ready' || saved} canStop={!pending && !!take && !interrupted && !saved}
+        cameras={[]} closableTakeIds={interrupted && take ? [take.takeId] : []}
         pending={pending} notice={pending ? 'Esperando respuesta del relay…' : ''} confirmingClose={confirmTake} focused
-        onStart={() => { action('REC'); setScenario('controller-pending'); }} onStop={() => action('STOP')} onRequestClose={() => setConfirmTake(true)} onClose={() => action('CLOSE-take')} onCancelClose={() => setConfirmTake(false)} />}
+        onStart={() => { action('REC'); setScenario('controller-pending'); }} onStop={() => action('STOP')} onStartCamera={() => action('REC')} onStopCamera={() => action('STOP')} onRequestClose={() => setConfirmTake(true)} onClose={() => action('CLOSE-take')} onCancelClose={() => setConfirmTake(false)} />}
       admission={!node && <SessionAdmissionView requests={[{ deviceId: 'demo-applicant-03', requestId: 'demo-request', online: scenario !== 'admission-offline' }]} deciding={{}} onDecision={(_r, accept) => action(accept ? 'ACCEPT' : 'REJECT')} />}
       rejoin={offline && <RejoinSessionView last={{ code: 'K7M2Q9', sessionId: 'demo-session' }} showLast disabled connected={false} blocked pending={false} notice="" historyError={null} onResume={() => action('RESUME')} onRejoin={() => action('REJOIN')} />}
       media={showMedia ? media : <SessionSection title="Tomas y medios"><Text variant="bodyMedium">No hay referencias o capturas nuevas en esta escena.</Text></SessionSection>}

@@ -1,7 +1,7 @@
 const { randomUUID, randomInt } = require('node:crypto');
 const { attachRecording } = require('./recording');
 const { sharedSession, encodeRegistry, decodeRegistry } = require('./sessionSchema');
-const { isSessionRequest, isRecord, isProtocolId, takeFinished, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
+const { isSessionRequest, isRecord, isProtocolId, activeTakes, sessionTakes, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
 function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
   const sessions = new Map();
@@ -232,7 +232,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         const angle = m.payload;
         if (s.members.get(m.senderId).kind !== 'node' || angle.deviceId !== m.senderId) return error('NODE_REQUIRED');
         if (m.targetId !== s.controllerId) return error('INVALID_TARGET');
-        const take = [s.take, ...(s.takeHistory ?? [])].find((t) => t?.takeId === angle.takeId);
+        const take = sessionTakes(s).find((t) => t.takeId === angle.takeId);
         const participant = take?.nodes[m.senderId];
         // Membership now authorizes transport; frozen participation authorizes this original,
         // even after approved rejoin gave the device a different nodeId.
@@ -288,7 +288,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
           send(client, 'SESSION_CLOSED', s.sessionId, { requestId: m.messageId });
           return true;
         }
-        if (!takeFinished(s.take)) return error('TAKE_ACTIVE');
+        if (activeTakes(s).length) return error('TAKE_ACTIVE');
         const recipients = new Map([...s.pending, ...s.members]);
         s.closedAt = Date.now();
         s.pending.clear();

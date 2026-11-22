@@ -10,7 +10,7 @@ import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture } from '@/services/localCaptures';
 import { coordinateCapture } from '@/services/coordinatedCapture';
 import type { getSessionService } from '@/services/session';
-import { nodeTakePending, readinessReasons } from '@/services/sessionProtocol';
+import { activeTakeForDevice, readinessReasons } from '@/services/sessionProtocol';
 import type { CaptureIdentity } from '@/types/capture';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
@@ -103,9 +103,11 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const self = service.getSnapshot().sessions[sessionId]?.members[deviceId];
   if (!accepted || self?.online === false) reasons.push('Reanuda tu participación autorizada');
   if (self?.requiresReadyConfirmation) reasons.push('Confirma preparación para una nueva grabación');
-  const coordinatedTake = service.getSnapshot().sessions[sessionId]?.take;
+  const session = service.getSnapshot().sessions[sessionId];
+  const activeTake = session && activeTakeForDevice(session, deviceId);
+  const coordinatedTake = activeTake ?? session?.take;
   const takeNode = coordinatedTake?.nodes[deviceId]?.nodeId === nodeId ? coordinatedTake.nodes[deviceId] : undefined;
-  const remotePending = nodeTakePending(coordinatedTake, deviceId, nodeId);
+  const remotePending = !!activeTake;
   const canRecord = Platform.OS !== 'web' && accepted && !self?.requiresReadyConfirmation && focused && appState === 'active' && !remotePending && !busy && !preparation.pendingSave && readinessReasons(engine.getReadiness()).length === 0;
   const phaseLabels = { idle: 'Cámara inactiva', preparing: 'Preparando cámara', ready: 'Cámara lista', starting: 'Iniciando grabación', recording: 'Grabando', saving: 'Guardando archivo', saved: 'Archivo disponible', error: 'Error de captura' };
   const run = (action: () => void | Promise<void>) => {

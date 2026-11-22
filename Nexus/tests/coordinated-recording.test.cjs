@@ -173,7 +173,8 @@ async function attachCamera(t, peer, session, options = {}) {
     delayPermission() { delayPermission = true; }, releasePermission() { releasePermission(); delayPermission = false; },
   };
 }
-const hasNode = (takeId, id, phase) => (m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.take?.takeId === takeId && m.payload.session.take.nodes[id]?.phase === phase;
+const hasNode = (takeId, id, phase) => (m) => m.type === 'SESSION_SNAPSHOT' &&
+  protocol.sessionTakes(m.payload.session).some((take) => take.takeId === takeId && take.nodes[id]?.phase === phase);
 async function waitReady(c, session, ids) {
   for (const id of ids) await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && m.payload.session.sessionId === session.sessionId && m.payload.session.members[id]?.readiness?.enginePrepared);
 }
@@ -228,6 +229,67 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const closed = await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && reply(close)(m));
   assert.equal(closed.payload.session.take.nodes['node-a'].phase, 'saved');
   assert.equal(closed.payload.session.takeHistory[0].takeId, start.takeId);
+});
+
+test('NX-02: independent clips, STOP general across takes, and session close waits for every save', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('nx02-controller'), a = await connect('nx02-a'), b = await connect('nx02-b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const hold = Promise.withResolvers();
+  const ca = await attachCamera(t, a, s, { persistUntil: hold.promise });
+  const cb = await attachCamera(t, b, s);
+  await waitReady(c, s, [a.deviceId, b.deviceId]);
+  const first = c.service.startTake(s.sessionId, [a.deviceId]);
+  await c.wait(hasNode(first.takeId, a.deviceId, 'recording'));
+  const clipB = c.service.startTake(s.sessionId, [b.deviceId]);
+  await c.wait(hasNode(clipB.takeId, b.deviceId, 'recording'));
+  const extra = c.service.startTake(s.sessionId, [a.deviceId]);
+  assert.equal((await c.wait(reply(extra.messageId))).payload.code, 'TAKE_ACTIVE');
+
+  const [stopB] = c.service.stopActiveTakes(s.sessionId, b.deviceId);
+  await c.wait(reply(stopB));
+  await c.wait(hasNode(clipB.takeId, b.deviceId, 'saved'));
+  const originalB = cb.engine.getSnapshot().lastCapture;
+  assert.equal(originalB.takeId, clipB.takeId);
+  assert.equal(ca.counts().stops, 0);
+  const refreshed = b.service.reportNodeState(s.sessionId, c.deviceId, ready); await c.wait(reply(refreshed));
+  const nextB = c.service.startTake(s.sessionId, [b.deviceId]);
+  await c.wait(hasNode(nextB.takeId, b.deviceId, 'recording'));
+  assert.equal(ca.counts().records, 1);
+
+  const stops = c.service.stopActiveTakes(s.sessionId);
+  assert.equal(stops.length, 2);
+  for (const stop of stops) await c.wait(reply(stop));
+  await c.wait(hasNode(nextB.takeId, b.deviceId, 'saved'));
+  await c.wait(hasNode(first.takeId, a.deviceId, 'saving'));
+  const earlyClose = c.service.closeSession(s.sessionId);
+  assert.equal((await c.wait(reply(earlyClose))).payload.code, 'TAKE_ACTIVE');
+  hold.resolve();
+  await c.wait(hasNode(first.takeId, a.deviceId, 'saved'));
+  const close = c.service.closeSession(s.sessionId);
+  const finished = await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && reply(close)(m));
+  assert.equal(finished.payload.session.state, 'closed');
+  assert.equal(ca.counts().stops, 1);
+  assert.equal(cb.counts().stops, 2);
+  assert.notEqual(originalB.id, cb.engine.getSnapshot().lastCapture.id);
+  const completed = protocol.sessionTakes(finished.payload.session);
+  assert.equal(completed.length, 3);
+  assert.equal(completed.find((take) => take.takeId === clipB.takeId).nodes[b.deviceId].capture.id, originalB.id);
+});
+
+test('NX-02: one camera can stop inside a shared general take', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const ca = await attachCamera(t, a, s), cb = await attachCamera(t, b, s);
+  await waitReady(c, s, [a.deviceId, b.deviceId]);
+  const take = c.service.startTake(s.sessionId);
+  await c.wait(hasNode(take.takeId, a.deviceId, 'recording')); await c.wait(hasNode(take.takeId, b.deviceId, 'recording'));
+  c.service.stopActiveTakes(s.sessionId, b.deviceId);
+  await c.wait(hasNode(take.takeId, b.deviceId, 'saved'));
+  assert.equal(ca.counts().stops, 0);
+  assert.equal(c.service.getSnapshot().sessions[s.sessionId].state, 'recording');
+  c.service.stopActiveTakes(s.sessionId);
+  await c.wait(hasNode(take.takeId, a.deviceId, 'saved'));
+  assert.equal(cb.counts().stops, 1);
 });
 
 test('H2: a failing Node does not stop another; STOP failure and save retry report real outcomes', { timeout: 10000 }, async (t) => {
