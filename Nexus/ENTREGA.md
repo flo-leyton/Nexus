@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-03 · Grabaciones programadas
+
+El Controller programa una cámara o todas las preparadas con cuenta regresiva y duración de 1 a 3600 segundos. La cuenta regresiva pertenece al servicio de sesión y se cancela si el Controller pierde la conexión o confirma el cierre antes de REC. La cámara seleccionada aplica el límite nativo de Expo Camera y guarda con el `takeId` de la programación. Los controles manuales conservan su comportamiento.
+
+Validación puntual: seis pruebas de grabación, programación y cierre, TypeScript, ESLint dirigido y `git diff --check`. Pendiente de prueba física con relay y clientes NX-03. Programa una cámara con espera de 5 s y duración de 10 s mientras otra graba en modo manual. Comprueba que sólo la programada se detiene y guarda. Repite con todas las cámaras preparadas y prueba Cancelar durante la cuenta regresiva.
+
 ### NX-02 · Grabación por cámara
 
 El Controller puede iniciar y detener cada cámara por separado. REC general comparte un `takeId` entre las cámaras preparadas cuando la sesión está libre. STOP general envía STOP a cada toma activa. El cierre de sesión espera el resultado de todas las tomas. La persistencia conserva la toma más reciente y las anteriores, que pueden seguir grabando. La recuperación marca resultados pendientes como desconocidos y conserva los clips ya confirmados.

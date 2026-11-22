@@ -20,6 +20,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const focused = useIsFocused();
   const [appState, setAppState] = useState(AppState.currentState);
   const view = useRef<CameraView>(null);
+  const resetTimedCamera = useRef(false);
   const savedId = useRef<string | null>(null);
   const [controlError, setControlError] = useState('');
   const [engine] = useState(() => new CaptureEngine({
@@ -30,9 +31,11 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     isAvailable: () => Platform.OS === 'web' ? CameraView.isAvailableAsync() : Promise.resolve(null),
   }, {
     createId: Crypto.randomUUID,
-    record: () => {
+    record: (durationSeconds) => {
       if (!view.current) throw new Error('La vista de cámara no está montada.');
-      return view.current.recordAsync();
+      // Expo Camera SDK 54 retains the duration limit on the iOS output.
+      resetTimedCamera.current = Platform.OS === 'ios' && durationSeconds !== undefined;
+      return view.current.recordAsync(durationSeconds === undefined ? undefined : { maxDuration: durationSeconds });
     },
     stop: () => {
       if (!view.current) throw new Error('La vista de cámara no está disponible para detener.');
@@ -67,6 +70,11 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       } catch { if (mounted) setReportError('No se pudo informar el estado al Controller.'); }
     };
     const unsubscribe = engine.subscribe((state) => {
+      if (resetTimedCamera.current && !engine.isBusy() && !state.pendingSave) {
+        resetTimedCamera.current = false;
+        engine.deactivate();
+        return;
+      }
       setPreparation(state);
       onBusyChange(engine.isBusy() || state.pendingSave);
       if (state.lastCapture && state.lastCapture.id !== savedId.current) {

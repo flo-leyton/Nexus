@@ -99,6 +99,9 @@ export interface CoordinatedTake {
 export function takeFinished(take: CoordinatedTake | undefined): boolean {
   return !take || !!take.closed || Object.values(take.nodes).every((n) => !n.busy && ['saved', 'error'].includes(n.phase));
 }
+export function isRecordingDuration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600;
+}
 export function sessionTakes(session: Pick<Session, 'take' | 'takeHistory'>): CoordinatedTake[] {
   return [...(session.take ? [session.take] : []), ...(session.takeHistory ?? [])];
 }
@@ -142,7 +145,8 @@ export type SessionRequest =
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
   | (NexusMessage<{ readiness: NodeReadiness; readyEpoch?: string; confirmReady?: true }> & { type: 'NODE_STATE'; targetId: string })
-  | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'START_RECORDING' | 'STOP_RECORDING' })
+  | (NexusMessage<{ takeId: string; targetNodeIds: string[]; durationSeconds?: number }> & { type: 'START_RECORDING' })
+  | (NexusMessage<{ takeId: string; targetNodeIds: string[] }> & { type: 'STOP_RECORDING' })
   | (NexusMessage<{ takeId: string; acknowledgeUnknown: true }> & { type: 'CLOSE_INTERRUPTED_TAKE' })
   | (NexusMessage<{ requestId: string; takeId: string; command: 'START_RECORDING' | 'STOP_RECORDING' }> & { type: 'RECORDING_ACK'; targetId: string })
   | (NexusMessage<RecordingReport> & { type: 'RECORDING_STATE'; targetId: string })
@@ -233,7 +237,9 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
         (value.payload.readyEpoch === undefined || isProtocolId(value.payload.readyEpoch)) && (value.payload.confirmReady === undefined || value.payload.confirmReady === true);
     case 'START_RECORDING':
     case 'STOP_RECORDING':
-      return value.sessionId !== JOIN_BY_CODE && keys.length === 2 && isProtocolId(value.payload.takeId) &&
+      return value.sessionId !== JOIN_BY_CODE && keys.every((key) => key === 'takeId' || key === 'targetNodeIds' ||
+        (key === 'durationSeconds' && value.type === 'START_RECORDING' && isRecordingDuration(value.payload.durationSeconds))) &&
+        isProtocolId(value.payload.takeId) &&
         Array.isArray(value.payload.targetNodeIds) && value.payload.targetNodeIds.length > 0 &&
         value.payload.targetNodeIds.every(isProtocolId) && new Set(value.payload.targetNodeIds).size === value.payload.targetNodeIds.length;
     case 'CLOSE_INTERRUPTED_TAKE':

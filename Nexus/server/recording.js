@@ -87,7 +87,8 @@ function attachRecording({ clients, stateTimes, snapshot, emit = (client, text) 
       if (s.closeCommands.has(m.messageId)) return error('MESSAGE_ID_CONFLICT');
       if (m.type === 'STOP_RECORDING' && (!take || take.closed || (take.takeId !== s.take?.takeId && takeFinished(take)))) return error('TAKE_CLOSED');
       const previous = s.recordingCommands.get(m.messageId);
-      const signature = JSON.stringify([m.type, m.payload.takeId, [...m.payload.targetNodeIds].sort()]);
+      const signature = JSON.stringify([m.type, m.payload.takeId, [...m.payload.targetNodeIds].sort(),
+        ...(m.type === 'START_RECORDING' && m.payload.durationSeconds !== undefined ? [m.payload.durationSeconds] : [])]);
       if (previous) {
         if (previous.signature !== signature) return error('MESSAGE_ID_CONFLICT');
         if (!previous.recovered && take && !takeFinished(take)) deliver(s, take, m);

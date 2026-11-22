@@ -16,7 +16,7 @@ function load(file, dependencies) {
   const code = ts.transpileModule(fs.readFileSync(path.resolve(__dirname, file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
-  vm.runInNewContext(code, { exports, require(name) { assert.ok(name in dependencies, name); return dependencies[name]; } });
+  vm.runInNewContext(code, { exports, setTimeout, clearTimeout, require(name) { assert.ok(name in dependencies, name); return dependencies[name]; } });
   return exports;
 }
 const { createSessionClient } = load('../services/sessionClient.ts', { './sessionProtocol': protocol });
@@ -144,6 +144,7 @@ async function attachCamera(t, peer, session, options = {}) {
   const identity = { sessionId: session.sessionId, deviceId: peer.deviceId,
     nodeId: peer.service.getSnapshot().sessions[session.sessionId].members[peer.deviceId].nodeId };
   let complete, records = 0, stops = 0, draft;
+  const durations = [];
   let failStop = !!options.failStop;
   let failSave = !!options.failSave;
   let releasePermission;
@@ -154,7 +155,18 @@ async function attachCamera(t, peer, session, options = {}) {
     requestPermission: async () => permission, isAvailable: async () => true,
   }, {
     createId: randomUUID,
-    record() { records++; if (options.failStart) return Promise.reject(new Error('native camera failed')); return new Promise((resolve) => { complete = resolve; }); },
+    record(durationSeconds) {
+      records++;
+      durations.push(durationSeconds);
+      if (options.failStart) return Promise.reject(new Error('native camera failed'));
+      return new Promise((resolve) => {
+        complete = resolve;
+        if (durationSeconds !== undefined) {
+          const timer = setTimeout(() => resolve({ uri: `file:///cache/${peer.deviceId}.mp4` }), 30);
+          t.after(() => clearTimeout(timer));
+        }
+      });
+    },
     stop() { stops++; if (failStop) throw new Error('native STOP failed'); complete({ uri: `file:///cache/${peer.deviceId}.mp4` }); },
     async persist(value) {
       draft = value;
@@ -168,7 +180,7 @@ async function attachCamera(t, peer, session, options = {}) {
   const off = peer.service.registerCaptureHandler(session.sessionId, runtime.handle);
   const offState = engine.subscribe(() => { try { peer.service.reportNodeState(session.sessionId, session.controllerId, engine.getReadiness()); } catch { /* disconnected */ } });
   t.after(() => { offState(); off(); runtime.dispose(); });
-  return { engine, identity, counts: () => ({ records, stops }), draft: () => draft,
+  return { engine, identity, durations, counts: () => ({ records, stops }), draft: () => draft,
     failStop(v) { failStop = v; }, failSave(v) { failSave = v; },
     delayPermission() { delayPermission = true; }, releasePermission() { releasePermission(); delayPermission = false; },
   };
@@ -229,6 +241,65 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const closed = await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && reply(close)(m));
   assert.equal(closed.payload.session.take.nodes['node-a'].phase, 'saved');
   assert.equal(closed.payload.session.takeHistory[0].takeId, start.takeId);
+});
+
+test('NX-03: individual recording ends locally without stopping an existing recording', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const ca = await attachCamera(t, a, s), cb = await attachCamera(t, b, s);
+  await waitReady(c, s, ['a', 'b']);
+  const manual = c.service.startTake(s.sessionId, ['a']);
+  await c.wait(hasNode(manual.takeId, 'a', 'recording'));
+  assert.throws(() => c.service.scheduleRecording(s.sessionId, 1, 5, 'a'), /NODE_NOT_READY/);
+  c.service.scheduleRecording(s.sessionId, 1, 5, 'b');
+  assert.throws(() => c.service.scheduleRecording(s.sessionId, 1, 5, 'b'), /RECORDING_SCHEDULE_ACTIVE/);
+  const timed = await b.wait((m) => m.type === 'START_RECORDING');
+  await c.wait(hasNode(timed.payload.takeId, 'b', 'saved'));
+  assert.deepEqual(cb.durations, [5]);
+  assert.equal(cb.draft().takeId, timed.payload.takeId);
+  assert.equal(ca.engine.getSnapshot().phase, 'recording');
+  assert.equal(c.sent.filter((m) => m.type === 'START_RECORDING' && m.payload.durationSeconds === 5).length, 1);
+  assert.equal(c.sent.some((m) => m.type === 'STOP_RECORDING'), false);
+  c.service.stopActiveTakes(s.sessionId);
+  await c.wait(hasNode(manual.takeId, 'a', 'saved'));
+});
+
+test('NX-03: all ready cameras share a timed take and session close waits for saves', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const hold = Promise.withResolvers();
+  const ca = await attachCamera(t, a, s, { persistUntil: hold.promise }), cb = await attachCamera(t, b, s);
+  await waitReady(c, s, ['a', 'b']);
+  c.service.scheduleRecording(s.sessionId, 1, 10);
+  const timed = await a.wait((m) => m.type === 'START_RECORDING');
+  await c.wait(hasNode(timed.payload.takeId, 'a', 'saving'));
+  await c.wait(hasNode(timed.payload.takeId, 'b', 'saved'));
+  assert.deepEqual(ca.durations, [10]); assert.deepEqual(cb.durations, [10]);
+  const early = c.service.closeSession(s.sessionId);
+  assert.equal((await c.wait(reply(early))).payload.code, 'TAKE_ACTIVE');
+  hold.resolve();
+  await c.wait(hasNode(timed.payload.takeId, 'a', 'saved'));
+  const close = c.service.closeSession(s.sessionId);
+  await c.wait((m) => m.type === 'SESSION_CLOSED' && reply(close)(m));
+});
+
+test('NX-03: cancel, session close, and disconnect prevent pending REC', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a');
+  const s = await create(c); await admit(c, a, s);
+  await attachCamera(t, a, s); await waitReady(c, s, ['a']);
+  c.service.scheduleRecording(s.sessionId, 1, 10);
+  c.service.cancelScheduledRecording(s.sessionId);
+  assert.equal(c.service.getScheduledRecording(s.sessionId), undefined);
+  c.service.scheduleRecording(s.sessionId, 1, 10);
+  const close = c.service.closeSession(s.sessionId);
+  await c.wait((m) => m.type === 'SESSION_CLOSED' && reply(close)(m));
+  const next = await create(c); await admit(c, a, next);
+  await attachCamera(t, a, next); await waitReady(c, next, ['a']);
+  c.service.scheduleRecording(next.sessionId, 1, 10);
+  c.ws.close(); await once(c.ws, 'close');
+  assert.equal(c.service.getScheduledRecording(next.sessionId).error, 'SOCKET_NOT_CONNECTED');
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.equal(c.sent.some((m) => m.type === 'START_RECORDING'), false);
 });
 
 test('NX-02: independent clips, STOP general across takes, and session close waits for every save', { timeout: 10000 }, async (t) => {

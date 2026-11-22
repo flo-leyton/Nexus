@@ -45,7 +45,7 @@ export function coordinateCapture(engine: CaptureEngine, identity: CaptureIdenti
         last = '';
         terminal = null;
         observing = true;
-        try { void engine.start({ ...identity, takeId: active.takeId }).catch((error: unknown) => publish('error', String(error))); }
+        try { void engine.start({ ...identity, takeId: active.takeId }, command.payload.durationSeconds).catch((error: unknown) => publish('error', String(error))); }
         catch (error) { publish('error', error instanceof Error ? error.message : String(error)); }
       } else {
         if (!active || active.takeId !== command.payload.takeId) throw new Error('No existe esa toma en el motor local.');

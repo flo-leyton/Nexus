@@ -2,7 +2,7 @@ import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
   type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
-  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, type CoordinatedTake,
+  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -27,6 +27,7 @@ interface SessionHistory {
   initialError?: string | null;
   save(value: LastNodeSession | null): Promise<void>;
 }
+type Schedule = { startsAt: number; durationSeconds: number; requestId?: string; takeId?: string; error?: string };
 
 // One client per device, independent of Firebase, UI and transport implementation.
 export function createSessionClient(deviceId: string, uuid: () => string, transport: SessionTransport, history?: SessionHistory,
@@ -40,7 +41,18 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const captureHandlers = new Map<string, (command: RecordingCommand) => void>();
   const captureCommands = new Map<string, string>();
   const captureReports = new Map<string, RecordingReport>();
+  const schedules = new Map<string, Schedule>();
+  const scheduleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const emit = () => listeners.forEach((listener) => listener(state));
+  const cancelSchedule = (sessionId: string, error?: string) => {
+    const timer = scheduleTimers.get(sessionId);
+    if (timer === undefined) return false;
+    clearTimeout(timer);
+    scheduleTimers.delete(sessionId);
+    if (error) schedules.set(sessionId, { ...schedules.get(sessionId)!, error });
+    else schedules.delete(sessionId);
+    return true;
+  };
   const remember = (value: LastNodeSession | null) => {
     if (state.lastNodeSession?.sessionId === value?.sessionId && state.lastNodeSession?.code === value?.code) return;
     state = { ...state, lastNodeSession: value };
@@ -137,6 +149,8 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       joining = null;
     }
     if (closed || event.type === 'SESSION_CLOSED') {
+      cancelSchedule(event.sessionId);
+      schedules.delete(event.sessionId);
       roleCommands.delete(event.sessionId);
       delete sessions[event.sessionId];
       delete pending[event.sessionId];
@@ -145,12 +159,19 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     } else if (event.type === 'SESSION_SNAPSHOT' && event.payload.session.members[deviceId] && event.payload.session.members[deviceId]?.online !== false) {
       pending[event.sessionId] = (pending[event.sessionId] || []).filter((r) => r.deviceId !== deviceId);
     }
+    const schedule = schedules.get(event.sessionId);
+    if (event.type === 'SESSION_ERROR' && schedule?.requestId === event.payload.requestId) {
+      schedules.set(event.sessionId, { ...schedule, error: event.payload.code });
+    }
     state = { ...state, sessions, pending, lastEvent: closed ?? event, joinInFlight: !!joining };
     emit();
   });
   const unsubscribeStatus = transport.subscribeStatus((connection) => {
     if (connection !== 'Connected') roleCommands.clear();
     if (connection !== 'Connected') joining = null;
+    if (connection !== 'Connected') {
+      for (const id of scheduleTimers.keys()) cancelSchedule(id, 'SOCKET_NOT_CONNECTED');
+    }
     state = connection === 'Connected' ? { ...state, connection } :
       { ...state, connection, sessions: {}, pending: {}, lastEvent: null, joinInFlight: false };
     emit();
@@ -178,6 +199,24 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   };
   const stop = (sessionId: string, take: CoordinatedTake, targetNodeIds: string[]) =>
     send({ ...envelope(sessionId), type: 'STOP_RECORDING', payload: { takeId: take.takeId, targetNodeIds } });
+  const start = (sessionId: string, targetDeviceIds?: string[], durationSeconds?: number) => {
+    const session = controllerSession(sessionId);
+    const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false &&
+      (!targetDeviceIds || targetDeviceIds.includes(m.deviceId))).map((m) => m.nodeId!);
+    if (!targetNodeIds.length) throw new Error('NODE_NOT_READY');
+    const takeId = uuid();
+    const messageId = send({ ...envelope(sessionId), type: 'START_RECORDING', payload: { takeId, targetNodeIds,
+      ...(durationSeconds === undefined ? {} : { durationSeconds }) } });
+    return { takeId, messageId };
+  };
+  const scheduleTargets = (sessionId: string, targetDeviceId?: string) => {
+    const session = controllerSession(sessionId);
+    const ready = Object.values(session.members).filter((member) => member.kind === 'node' && member.online !== false &&
+      (!targetDeviceId || member.deviceId === targetDeviceId) && !member.requiresReadyConfirmation &&
+      !readinessReasons(member.readiness).length && !activeTakeForDevice(session, member.deviceId));
+    if (!ready.length) throw new Error('NODE_NOT_READY');
+    return ready;
+  };
   const requestJoin = (code: string, sessionId = JOIN_BY_CODE) => {
     const normalized = code.trim().toUpperCase();
     const message: SessionRequest = { ...envelope(sessionId), type: 'SESSION_JOIN_REQUEST', payload: { code: normalized } };
@@ -247,14 +286,41 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
         readiness, confirmReady: true, ...(member.readyEpoch ? { readyEpoch: member.readyEpoch } : {}),
       } });
     },
-    startTake(sessionId: string, targetDeviceIds?: string[]) {
-      const session = controllerSession(sessionId);
-      const targetNodeIds = Object.values(session.members).filter((m) => m.kind === 'node' && m.online !== false &&
-        (!targetDeviceIds || targetDeviceIds.includes(m.deviceId))).map((m) => m.nodeId!);
-      if (!targetNodeIds.length) throw new Error('NODE_NOT_READY');
-      const takeId = uuid();
-      const messageId = send({ ...envelope(sessionId), type: 'START_RECORDING', payload: { takeId, targetNodeIds } });
-      return { takeId, messageId };
+    startTake: start,
+    getScheduledRecording(sessionId: string) { return schedules.get(sessionId); },
+    scheduleRecording(sessionId: string, delaySeconds: number, durationSeconds: number, targetDeviceId?: string) {
+      if (state.connection !== 'Connected') throw new Error('SOCKET_NOT_CONNECTED');
+      if (!isRecordingDuration(delaySeconds) || !isRecordingDuration(durationSeconds)) throw new Error('INVALID_RECORDING_TIMER');
+      const previous = schedules.get(sessionId);
+      if (previous && !previous.error) {
+        const take = previous.takeId && sessionTakes(controllerSession(sessionId)).find((entry) => entry.takeId === previous.takeId);
+        if (scheduleTimers.has(sessionId) || (take ? !takeFinished(take) : Date.now() < previous.startsAt + 15000)) {
+          throw new Error('RECORDING_SCHEDULE_ACTIVE');
+        }
+      }
+      const targets = scheduleTargets(sessionId, targetDeviceId);
+      const schedule: Schedule = { startsAt: Date.now() + delaySeconds * 1000, durationSeconds };
+      schedules.set(sessionId, schedule);
+      scheduleTimers.set(sessionId, setTimeout(() => {
+        scheduleTimers.delete(sessionId);
+        try {
+          if (Date.now() > schedule.startsAt + 2000) throw new Error('RECORDING_TIMER_EXPIRED');
+          const ids = targets.map((target) => {
+            const current = scheduleTargets(sessionId, target.deviceId)[0];
+            if (current.nodeId !== target.nodeId || current.readyEpoch !== target.readyEpoch) throw new Error('NODE_NOT_READY');
+            return current.deviceId;
+          });
+          const { takeId, messageId } = start(sessionId, ids, durationSeconds);
+          schedules.set(sessionId, { ...schedule, takeId, requestId: messageId });
+        } catch (error) {
+          schedules.set(sessionId, { ...schedule, error: error instanceof Error ? error.message : 'NODE_NOT_READY' });
+        }
+        emit();
+      }, delaySeconds * 1000));
+      emit();
+    },
+    cancelScheduledRecording(sessionId: string) {
+      if (cancelSchedule(sessionId)) emit();
     },
     stopTake(sessionId: string) {
       const session = controllerSession(sessionId);
@@ -285,7 +351,14 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     reportMedia(sessionId: string, controllerId: string, payload: TakeMediaAngle) {
       return send({ ...envelope(sessionId), type: 'MEDIA_STATE', targetId: controllerId, payload });
     },
-    closeSession(sessionId: string) { return send({ ...envelope(sessionId), type: 'SESSION_CLOSE', payload: {} }); },
-    dispose() { disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); captureCommands.clear(); captureReports.clear(); },
+    closeSession(sessionId: string) {
+      cancelSchedule(sessionId);
+      return send({ ...envelope(sessionId), type: 'SESSION_CLOSE', payload: {} });
+    },
+    dispose() {
+      disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); captureCommands.clear(); captureReports.clear();
+      for (const id of scheduleTimers.keys()) cancelSchedule(id);
+      schedules.clear();
+    },
   };
 }

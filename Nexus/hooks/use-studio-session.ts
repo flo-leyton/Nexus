@@ -8,6 +8,10 @@ import { getSocketError, subscribeToSocketStatus } from '@/services/socket';
 export function sessionErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
   const messages: Record<string, string> = {
+    INVALID_RECORDING_TIMER: 'Introduce segundos enteros entre 1 y 3600.',
+    RECORDING_TIMER_EXPIRED: 'La cuenta regresiva venció mientras la aplicación estaba suspendida.',
+    RECORDING_SCHEDULE_ACTIVE: 'Ya hay una grabación programada en curso.',
+    NODE_NOT_READY: 'La cámara debe estar conectada, detenida y preparada.',
     COMMAND_EXPIRED: 'El comando pertenece a una conexión interrumpida y ha caducado. No se repetirá ni confirmará.',
     READY_CONFIRMATION_REQUIRED: 'La preparación anterior caducó. El Node debe confirmar READY para una nueva toma.',
     STORE_UNAVAILABLE: 'El relay no pudo guardar el cambio en RTDB. No se confirmó: vuelve a intentarlo cuando se recupere la base.',

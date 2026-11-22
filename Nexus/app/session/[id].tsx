@@ -318,6 +318,7 @@ export default function SessionScreen() {
         const current = service.getSnapshot().sessions[sessionId];
         if (!current || current.controllerId !== deviceId) return;
         try {
+          service.cancelScheduledRecording(sessionId);
           closeRequest.current = { stopIds: service.stopActiveTakes(sessionId) };
           setConfirmSessionClose(false);
           setClosingSession(true);

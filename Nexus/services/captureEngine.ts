@@ -20,7 +20,7 @@ export interface CapturePreparation {
 }
 export interface CaptureRecordingAdapter {
   createId(): string;
-  record(): Promise<{ uri: string } | undefined>;
+  record(durationSeconds?: number): Promise<{ uri: string } | undefined>;
   stop(): void;
   persist(draft: LocalCaptureDraft, temporaryUri: string): Promise<LocalCapture>;
 }
@@ -89,7 +89,7 @@ export class CaptureEngine {
     if (this.recording && !this.stopRequested) { try { this.stop(); } catch { /* Keep the recording state and allow STOP retry. */ } }
   }
 
-  start(identity: CaptureIdentity): Promise<void> {
+  start(identity: CaptureIdentity, durationSeconds?: number): Promise<void> {
     if (this.task || this.isBusy()) throw new Error('Ya hay una captura en curso.');
     if (this.pending) throw new Error('Reintenta guardar el clip pendiente antes de iniciar otro.');
     if (!this.recorder || !this.state.active || readinessReasons(this.getReadiness()).length) throw new Error('La cámara no está lista. Comprueba permisos y vuelve a prepararla.');
@@ -99,10 +99,10 @@ export class CaptureEngine {
     const generation = this.state.generation;
     this.stopRequested = false;
     this.update({ phase: 'starting', captureError: null });
-    this.task = this.capture(draft, generation).finally(() => { this.task = null; });
+    this.task = this.capture(draft, generation, durationSeconds).finally(() => { this.task = null; });
     return this.task;
   }
-  private async capture(draft: LocalCaptureDraft, generation: number) {
+  private async capture(draft: LocalCaptureDraft, generation: number, durationSeconds?: number) {
     try {
       // Recheck permission at START; a previous READY is not permission to record forever.
       const permission = await this.adapter.getPermission();
@@ -112,7 +112,7 @@ export class CaptureEngine {
       }
       if (!this.state.active || generation !== this.state.generation) throw new Error('La cámara se desactivó antes de iniciar la grabación.');
       if (readinessReasons(this.state.readiness).length) throw new Error('La cámara dejó de estar lista antes de iniciar la grabación.');
-      const result = this.recorder!.record();
+      const result = this.recorder!.record(durationSeconds);
       this.recording = true;
       this.update({ phase: 'recording' });
       const video = await result;

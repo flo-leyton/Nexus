@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { ControllerTakeView } from './session/ControllerTakeView';
+import { ScheduledRecordingPanel } from './session/ScheduledRecordingPanel';
 
 import type { getSessionService } from '@/services/session';
 import { activeTakeForDevice, activeTakes, readinessReasons, type Session } from '@/services/sessionProtocol';
@@ -61,6 +62,7 @@ export function ControllerTakePanel({ service, session, closingSession = false }
     setConfirmClose(null);
   };
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
+    scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
     cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.stoppable }))}
     closableTakeIds={pending ? [] : closableTakes.map((take) => take.takeId)}
     notice={notice} pending={pending} focused={focused} confirmingClose={!!takeToClose}

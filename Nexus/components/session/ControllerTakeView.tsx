@@ -1,4 +1,5 @@
 import { ScrollView, View } from 'react-native';
+import type { ReactNode } from 'react';
 import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
 import { takeFinished, type Session } from '@/services/sessionProtocol';
 import { SessionActionDock, SessionBadge, SessionDetails, SessionNotice, SessionSection, sessionStyles } from './SessionUI';
@@ -8,6 +9,7 @@ export type ControllerTakeViewProps = {
   session: Session; nodeCount: number; canStart: boolean; canStop: boolean;
   cameras: { deviceId: string; label: string; status: string; canStart: boolean; canStop: boolean }[];
   closableTakeIds: string[];
+  scheduling?: ReactNode;
   notice: string; pending: boolean; confirmingClose: boolean; focused: boolean;
   onStart(): void; onStop(): void; onStartCamera(id: string): void; onStopCamera(id: string): void;
   onRequestClose(takeId: string): void; onClose(): void; onCancelClose(): void;
@@ -40,6 +42,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
         </View>
       </View>)}
     </SessionSection>}
+    {props.scheduling}
     {take ? <>
       <View style={sessionStyles.between}><Text variant="titleMedium">Toma · …{take.takeId.slice(-6)}</Text>
         <SessionBadge label={take.closed ? 'Cerrada operativamente' : take.interrupted ? 'Interrumpida' : 'Resultados por Node'} tone={take.interrupted || take.closed ? 'warning' : 'neutral'} />
