@@ -33,6 +33,7 @@ asignado por Render con `wss://`, sin puerto interno; health usa `https://`.
 | FIREBASE_PROJECT_ID | Proyecto Firebase existente de la app |
 | FIREBASE_DATABASE_URL | URL HTTPS exacta de esa RTDB |
 | FIREBASE_ADMIN_CREDENTIALS | JSON completo de cuenta de servicio privada, como variable protegida del servidor |
+| NEXUS_RELAY_DB_PATH | Opcional. Predeterminado: `nexusStudio/relayV1`. Para el servicio independiente de NX-01: `nexusStudio/relayDevB`. |
 
 Credenciales con permisos para verificar Firebase Auth/revocación y leer/escribir
 RTDB. Alternativa local ADC: GOOGLE_APPLICATION_CREDENTIALS apunta a un archivo
@@ -41,7 +42,13 @@ ni subir una cuenta de servicio a EAS. Nunca EXPO_PUBLIC para una credencial Adm
 No incluir tokens/JSON en comandos, documentación, capturas o logs. El blueprint
 deja los tres valores Firebase sin sincronizar (`sync:false`), para carga privada.
 
-Persistencia existente: `nexusStudio/relayV1`, schemaVersion=1. Sessions, códigos,
+El relay usa el mismo registro para recuperar y guardar el estado. Si dos relays
+usan la misma RTDB, configura registros hermanos distintos y un solo relay por
+registro. La separación es operativa: las credenciales Admin conservan los
+permisos de su cuenta de servicio en Firebase. El cliente elige el relay con
+`EXPO_PUBLIC_RELAY_URL`.
+
+Persistencia del relay, schemaVersion=1. Sessions, códigos,
 miembros, roles, Takes, diarios y referencias Cloudinary viven en RTDB. Vídeos y
 file:// no se guardan allí; originales siguen en teléfonos y remotos en Cloudinary.
 Auth Anonymous debe estar habilitado; Email/Password para el formulario Cuenta.

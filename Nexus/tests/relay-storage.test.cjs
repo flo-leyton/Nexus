@@ -478,7 +478,7 @@ test('H3.4b: RTDB adapter awaits atomic CAS, rejects permission errors, unknown 
   warm.close(); assert.equal(detached, true);
 });
 
-test('H3.4b regression: Auth-first Admin initialization uses the explicit RTDB URL on the same app', async (t) => {
+test('NX-01 RTDB paths: Auth-first startup preserves the default and isolates a second relay', async (t) => {
   const { initializeApp, deleteApp } = require('firebase-admin/app');
   const { getAuth } = require('firebase-admin/auth');
   const { getDatabaseWithUrl } = require('firebase-admin/database');
@@ -495,11 +495,53 @@ test('H3.4b regression: Auth-first Admin initialization uses the explicit RTDB U
   assert.equal(app.options.databaseURL, undefined); // Auth startup did not configure a default Database URL.
   const database = getDatabaseWithUrl(env.FIREBASE_DATABASE_URL, app);
   database.goOffline();
-  const store = createFirebaseStore(env); // Old getDatabase(app, url) fails here.
   assert.equal(getRelayAdminApp(env), app);
   // Admin intentionally rewrites the reference URL when the emulator is explicitly enabled.
   const expectedBase = process.env.FIREBASE_DATABASE_EMULATOR_HOST ? `http://${process.env.FIREBASE_DATABASE_EMULATOR_HOST}` : env.FIREBASE_DATABASE_URL;
   assert.equal(database.ref('nexusStudio/relayV1').toString(), `${expectedBase}/nexusStudio/relayV1`);
-  assert.equal(typeof store.load, 'function'); assert.equal(typeof store.commit, 'function');
-  store.close();
+  const documents = new Map();
+  const listeners = new Map();
+  const ref = t.mock.method(database, 'ref', (path) => ({
+    on(type, callback) {
+      assert.equal(type, 'value');
+      listeners.set(path, callback);
+      callback({ val: () => documents.get(path) });
+      return callback;
+    },
+    off(type, callback) {
+      assert.equal(type, 'value');
+      assert.equal(listeners.get(path), callback);
+      listeners.delete(path);
+    },
+    async transaction(update) {
+      const value = update(documents.get(path));
+      if (value === undefined) return { committed: false };
+      documents.set(path, value);
+      return { committed: true };
+    },
+  }));
+  const original = createFirebaseStore(env);
+  const customEnv = { ...env, NEXUS_RELAY_DB_PATH: 'nexusStudio/relayDevB' };
+  const devB = createFirebaseStore(customEnv);
+  for (const invalid of ['', 'nexusStudio', '/nexusStudio/relayDevB', 'nexusStudio/relayV1/sessions', 'nexusStudio/relay.devB']) {
+    assert.throws(() => createFirebaseStore({ ...env, NEXUS_RELAY_DB_PATH: invalid }), /NEXUS_RELAY_DB_PATH/);
+  }
+  assert.deepEqual(ref.mock.calls.map((call) => call.arguments[0]), ['nexusStudio/relayV1', 'nexusStudio/relayDevB']);
+  assert.equal((await original.load()).revision, 0);
+  assert.equal((await devB.load()).revision, 0);
+  const first = { schemaVersion: 1, revision: 1, devices: {}, sessions: { sameId: { code: 'ORIGIN' } } };
+  const second = { ...first, sessions: { sameId: { code: 'DEVB01' } } };
+  await original.commit(0, first);
+  await devB.commit(0, second);
+  devB.close();
+  assert.deepEqual([...listeners.keys()], ['nexusStudio/relayV1']);
+
+  const restarted = createFirebaseStore(customEnv);
+  assert.deepEqual(await restarted.load(), second);
+  await restarted.commit(1, { ...second, revision: 2, sessions: { sameId: { code: 'DEVB01', closedAt: 1 } } });
+  assert.deepEqual(documents.get('nexusStudio/relayV1'), first);
+  assert.equal(documents.get('nexusStudio/relayDevB').sessions.sameId.closedAt, 1);
+  restarted.close();
+  original.close();
+  assert.equal(listeners.size, 0);
 });

@@ -38,8 +38,13 @@ function createFirebaseStore(env = process.env) {
   try { url = new URL(env.FIREBASE_DATABASE_URL); } catch { throw new Error('FIREBASE_DATABASE_URL inválida.'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
       (url.protocol !== 'https:' && !env.FIREBASE_DATABASE_EMULATOR_HOST)) throw new Error('FIREBASE_DATABASE_URL debe ser HTTPS (HTTP sólo con emulador explícito).');
+  const path = env.NEXUS_RELAY_DB_PATH ?? ROOT;
+  // Allow sibling registries only, so a relay cannot overwrite their common parent.
+  if (!/^nexusStudio\/[A-Za-z0-9_-]{1,128}$/u.test(path) || path.trim() !== path) {
+    throw new Error('NEXUS_RELAY_DB_PATH debe tener el formato nexusStudio/<registro>.');
+  }
   const { getRelayAdminApp } = require('./firebaseAdmin');
   const { getDatabaseWithUrl } = require('firebase-admin/database');
-  return createRealtimeStore(getDatabaseWithUrl(env.FIREBASE_DATABASE_URL, getRelayAdminApp(env)).ref(ROOT));
+  return createRealtimeStore(getDatabaseWithUrl(env.FIREBASE_DATABASE_URL, getRelayAdminApp(env)).ref(path));
 }
 module.exports = { createFirebaseStore, createRealtimeStore, emptyDocument, ROOT };

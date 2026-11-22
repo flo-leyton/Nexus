@@ -12,6 +12,6 @@ try {
     .catch(() => console.error('RTDB inaccesible o recuperación inválida. Revisa FIREBASE_DATABASE_URL, proyecto, credenciales y permisos; /health no está ready.'));
   server.on('error', () => { console.error('No se pudo iniciar el puerto del relay.'); process.exitCode = 1; });
 } catch {
-  console.error('Relay no iniciado. Configura PORT válido, FIREBASE_DATABASE_URL, FIREBASE_PROJECT_ID y credenciales privadas Firebase Admin (ADC o FIREBASE_ADMIN_CREDENTIALS).');
+  console.error('Relay no iniciado. Revisa PORT, FIREBASE_DATABASE_URL, FIREBASE_PROJECT_ID, las credenciales privadas Firebase Admin y NEXUS_RELAY_DB_PATH si está definida.');
   process.exitCode = 1;
 }
