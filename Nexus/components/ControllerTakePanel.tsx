@@ -69,9 +69,9 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
     cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.recording,
-      photoControl: camera.nodeId && <RemotePhotoControl key={camera.nodeId} service={service} sessionId={session.sessionId}
+      photoControl: camera.nodeId && <RemotePhotoControl key={`photo:${camera.nodeId}`} service={service} sessionId={session.sessionId}
         nodeId={camera.nodeId} disabled={!enabled || !camera.ready} label={camera.label} />,
-      torchControl: camera.nodeId && <RemoteTorchControl key={camera.nodeId} service={service} sessionId={session.sessionId}
+      torchControl: camera.nodeId && <RemoteTorchControl key={`torch:${camera.nodeId}`} service={service} sessionId={session.sessionId}
         nodeId={camera.nodeId} online={camera.online} disabled={closingSession} label={camera.label} />,
     }))}
     closableTakeIds={pending ? [] : closableTakes.map((take) => take.takeId)}
