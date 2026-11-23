@@ -30,11 +30,19 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const [torchGeneration, setTorchGeneration] = useState<number | null>(null);
   const [zoom, setZoom] = useState(0);
   const [photoStatus, setPhotoStatus] = useState('');
-  const [photoView, setPhotoView] = useState<{ mode: 'video' | 'picture'; version: number }>({ mode: 'video', version: 0 });
+  const [photoView, setPhotoView] = useState<{ mode: 'video' | 'picture'; version: number; mounting: boolean }>({
+    mode: 'video', version: 0, mounting: true,
+  });
   const photoVersion = useRef(0);
   const photoBusy = useRef(false);
   const photoMounted = useRef(true);
   const transition = useRef<{ version: number; finish(error?: string): void } | null>(null);
+  useEffect(() => {
+    if (photoView.mounting) return;
+    // The old Expo view's destruction unbinds CameraX. Commit its removal
+    // before inserting another view that binds to the same camera provider.
+    setPhotoView((current) => current === photoView ? { ...current, mounting: true } : current);
+  }, [photoView]);
   const [engine] = useState(() => new CaptureEngine({
     getPermission: Camera.getCameraPermissionsAsync,
     requestPermission: Camera.requestCameraPermissionsAsync,
@@ -166,9 +174,9 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
         transition.current = null;
         if (error) reject(new Error(error)); else resolve();
       };
-      const timer = setTimeout(() => finish('La cámara no confirmó el cambio de modo.'), 6000);
+      const timer = setTimeout(() => finish(`La cámara no confirmó el modo ${mode === 'video' ? 'vídeo' : 'foto'} en seis segundos.`), 6000);
       transition.current = { version, finish };
-      setPhotoView({ mode, version });
+      setPhotoView({ mode, version, mounting: false });
     });
     reportReadiness();
     return capturePhoto({
@@ -187,13 +195,15 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
         onSaved();
         return saved.id;
       },
-      async restoreVideo() {
+      restoreVideo() {
         setPhotoStatus('Preparando vídeo…');
-        try { await switchMode('video'); }
-        catch (error) {
-          engine.cameraFailed(engine.getSnapshot().generation, 'No se pudo volver al modo vídeo. Vuelve a preparar la cámara.');
-          throw error;
-        }
+        return switchMode('video');
+      },
+      onRestoreError(error, saved) {
+        if (!photoMounted.current) return;
+        const detail = error instanceof Error ? error.message : String(error);
+        const message = `${saved ? 'Foto guardada. ' : ''}No se pudo volver al modo vídeo. ${detail} Vuelve a preparar la cámara.`;
+        engine.cameraFailed(engine.getSnapshot().generation, message);
       },
     }).catch((error: unknown) => {
       setControlError(error instanceof Error ? error.message : 'No se pudo tomar la foto.');
@@ -254,7 +264,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
       set: setZoom,
     } : undefined}
-    camera={canMount && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
+    camera={canMount && photoView.mounting && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
       style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
       zoom={zoom / 100}

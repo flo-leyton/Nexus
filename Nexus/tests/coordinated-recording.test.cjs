@@ -299,6 +299,24 @@ test('NX-07: local workflow waits for picture READY, saves, and restores video e
   assert.equal(restored, true);
 });
 
+test('NX-07: failure restoring video preserves a saved photo and does not retry the shutter', async () => {
+  let shots = 0, saves = 0;
+  const failures = [];
+  const operations = {
+    async preparePicture() {},
+    async takePicture() { shots++; return 'file:///cache/photo.jpg'; },
+    async save() { saves++; return 'photo-id'; },
+    async restoreVideo() { throw new Error('video mount failed'); },
+    onRestoreError(error, saved) { failures.push([error.message, saved]); },
+  };
+  assert.equal(await capturePhoto(operations), 'photo-id');
+  assert.equal(shots, 1);
+  assert.equal(saves, 1);
+  assert.deepEqual(failures, [['video mount failed', true]]);
+  await assert.rejects(capturePhoto({ ...operations, async save() { throw new Error('disk error'); } }), /disk error/);
+  assert.deepEqual(failures[1], ['video mount failed', false]);
+});
+
 test('NX-04: torch requests target one node, report receipt, and preserve REC/STOP', { timeout: 10000 }, async (t) => {
   const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
   const s = await create(c); await admit(c, a, s); await admit(c, b, s);
