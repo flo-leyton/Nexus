@@ -4,6 +4,7 @@ import { ControllerTakeView } from './session/ControllerTakeView';
 import { ScheduledRecordingPanel } from './session/ScheduledRecordingPanel';
 import { RemoteTorchControl } from './session/RemoteTorchControl';
 import { RemotePhotoControl } from './session/RemotePhotoControl';
+import { RemoteZoomControl } from './session/RemoteZoomControl';
 
 import type { getSessionService } from '@/services/session';
 import { activeTakeForDevice, activeTakes, readinessReasons, type Session } from '@/services/sessionProtocol';
@@ -69,6 +70,9 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
     cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.recording,
+      zoomControl: camera.nodeId && <RemoteZoomControl key={`${session.sessionId}:${camera.nodeId}`} service={service}
+        sessionId={session.sessionId} nodeId={camera.nodeId} deviceId={camera.deviceId} label={camera.label}
+        disabled={!focused || closingSession} />,
       photoControl: camera.nodeId && <RemotePhotoControl key={`photo:${camera.nodeId}`} service={service} sessionId={session.sessionId}
         nodeId={camera.nodeId} disabled={!enabled || !camera.ready} label={camera.label} />,
       torchControl: camera.nodeId && <RemoteTorchControl key={`torch:${camera.nodeId}`} service={service} sessionId={session.sessionId}

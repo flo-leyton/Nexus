@@ -7,7 +7,8 @@ import { TakeHistoryItem, TakeNodeStatus } from './TakeNodeStatus';
 
 export type ControllerTakeViewProps = {
   session: Session; nodeCount: number; canStart: boolean; canStop: boolean;
-  cameras: { deviceId: string; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean; torchControl?: ReactNode; photoControl?: ReactNode }[];
+  cameras: { deviceId: string; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean;
+    zoomControl?: ReactNode; torchControl?: ReactNode; photoControl?: ReactNode }[];
   closableTakeIds: string[];
   scheduling?: ReactNode;
   notice: string; pending: boolean; confirmingClose: boolean; focused: boolean;
@@ -46,6 +47,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
           accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
           onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
           contentStyle={sessionStyles.touch}>{camera.recording ? 'STOP' : 'REC'}</Button>
+        {camera.zoomControl}
         {camera.torchControl}
         {camera.photoControl}
       </View>)}

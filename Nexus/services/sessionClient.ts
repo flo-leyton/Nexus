@@ -2,7 +2,7 @@ import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
   type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
-  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake, type PhotoResult,
+  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake, type PhotoResult, type ZoomValue,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -40,6 +40,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const roleCommands = new Map<string, Map<string, string>>();
   const captureHandlers = new Map<string, (command: RecordingCommand) => void>();
   const torchHandlers = new Map<string, (enabled: boolean) => boolean>();
+  const zoomHandlers = new Map<string, (update?: ZoomValue) => ZoomValue | null>();
   const photoHandlers = new Map<string, (photoId: string) => Promise<string>>();
   const photoResults = new Map<string, PhotoResult>();
   const captureCommands = new Map<string, string>();
@@ -92,13 +93,18 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       } catch (error) { failed(error); }
       return;
     }
-    if (isSessionRequest(event) && event.type === 'TORCH_SET') {
+    if (isSessionRequest(event) && (event.type === 'TORCH_SET' || event.type === 'ZOOM_REQUEST')) {
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
       if (state.connection !== 'Connected' || !session || session.state === 'closed' ||
           event.senderId !== session.controllerId || member?.kind !== 'node' ||
           member.online === false || event.targetId !== member.nodeId) return;
       try {
+        if (event.type === 'ZOOM_REQUEST') {
+          const value = zoomHandlers.get(event.sessionId)?.(event.payload.update) ?? null;
+          reportZoom(event.sessionId, session.controllerId, value, event.messageId);
+          return;
+        }
         const available = torchHandlers.get(event.sessionId)?.(event.payload.enabled) ?? false;
         send({ ...envelope(event.sessionId), type: 'TORCH_ACK', targetId: session.controllerId,
           payload: { requestId: event.messageId, available } });
@@ -278,6 +284,11 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     return message.messageId;
   };
   transport.connect();
+  function reportZoom(sessionId: string, controllerId: string, value: ZoomValue | null, requestId?: string) {
+    const message = envelope(sessionId);
+    return send({ ...message, type: 'ZOOM_REPORT', targetId: controllerId,
+      payload: { requestId: requestId ?? message.messageId, value } });
+  }
   return {
     getSnapshot: () => state,
     subscribe(listener: (snapshot: SessionSnapshot) => void) {
@@ -326,6 +337,17 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       const target = Object.values(session.members).find((member) => member.kind === 'node' && member.nodeId === nodeId && member.online !== false);
       if (!target || session.state === 'closed') throw new Error('INVALID_TARGET');
       return send({ ...envelope(sessionId), type: 'PHOTO_CAPTURE', targetId: nodeId, payload: {} });
+    },
+    requestZoom(sessionId: string, nodeId: string, update?: ZoomValue) {
+      const session = controllerSession(sessionId);
+      if (session.state === 'closed' || !Object.values(session.members).some((member) =>
+          member.kind === 'node' && member.nodeId === nodeId && member.online !== false)) throw new Error('INVALID_TARGET');
+      return send({ ...envelope(sessionId), type: 'ZOOM_REQUEST', targetId: nodeId, payload: update ? { update } : {} });
+    },
+    reportZoom,
+    registerZoomHandler(sessionId: string, handler: (update?: ZoomValue) => ZoomValue | null) {
+      zoomHandlers.set(sessionId, handler);
+      return () => { if (zoomHandlers.get(sessionId) === handler) zoomHandlers.delete(sessionId); };
     },
     registerPhotoHandler(sessionId: string, handler: (photoId: string) => Promise<string>) {
       photoHandlers.set(sessionId, handler);
@@ -419,7 +441,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       return send({ ...envelope(sessionId), type: 'SESSION_CLOSE', payload: {} });
     },
     dispose() {
-      disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); torchHandlers.clear(); captureCommands.clear(); captureReports.clear();
+      disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); torchHandlers.clear(); zoomHandlers.clear(); captureCommands.clear(); captureReports.clear();
       photoHandlers.clear(); photoResults.clear();
       for (const id of scheduleTimers.keys()) cancelSchedule(id);
       schedules.clear();

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, useWindowDimensions } from 'react-native';
 
 import { NodeCaptureView } from './session/NodeCaptureView';
+import { useNodeZoom } from './session/useNodeZoom';
 import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture, persistLocalPhoto } from '@/services/localCaptures';
 import { capturePhoto } from '@/services/photoCapture';
@@ -28,7 +29,6 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const savedId = useRef<string | null>(null);
   const [controlError, setControlError] = useState('');
   const [torchGeneration, setTorchGeneration] = useState<number | null>(null);
-  const [zoom, setZoom] = useState(0);
   const [photoStatus, setPhotoStatus] = useState('');
   const [photoView, setPhotoView] = useState<{ mode: 'video' | 'picture'; version: number; mounting: boolean }>({
     mode: 'video', version: 0, mounting: true,
@@ -65,6 +65,15 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   }));
   const [preparation, setPreparation] = useState(engine.getSnapshot());
   const [reportError, setReportError] = useState('');
+  const canAdjustZoom = useCallback(() => {
+    const current = engine.getSnapshot();
+    return Platform.OS !== 'web' && focused && appState === 'active' && !!view.current &&
+      !photoBusy.current && current.readiness.enginePrepared && current.phase !== 'saving';
+  }, [appState, engine, focused]);
+  const zoomAvailable = Platform.OS !== 'web' && focused && appState === 'active' && preparation.readiness.enginePrepared &&
+    preparation.phase !== 'saving' && !photoStatus;
+  const zoom = useNodeZoom(service, sessionId, controllerId, deviceId, nodeId,
+    accepted && !sessionClosed && zoomAvailable, canAdjustZoom);
 
   useEffect(() => {
     const coordinator = coordinateCapture(engine, { sessionId, nodeId, deviceId }, (report) => {
@@ -260,14 +269,12 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     focused={focused} isWeb={Platform.OS === 'web'} reportError={reportError} controlError={controlError}
     takeId={takeNode ? coordinatedTake?.takeId : undefined}
     zoom={canMount && Platform.OS !== 'web' ? {
-      percent: zoom, disabled: !focused || appState !== 'active' || !readiness.enginePrepared || preparation.phase === 'saving',
-      adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
-      set: setZoom,
+      ...zoom, disabled: !zoomAvailable,
     } : undefined}
     camera={canMount && photoView.mounting && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
       style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
-      zoom={zoom / 100}
+      zoom={zoom.percent / 100}
       enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => {
         if (!view.current || generation !== engine.getSnapshot().generation || photoView.version !== photoVersion.current) return;

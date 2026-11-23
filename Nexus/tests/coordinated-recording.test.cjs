@@ -23,6 +23,7 @@ const { createSessionClient } = load('../services/sessionClient.ts', { './sessio
 const { CaptureEngine } = load('../services/captureEngine.ts', { './sessionProtocol': protocol });
 const { coordinateCapture } = load('../services/coordinatedCapture.ts', {});
 const { capturePhoto } = load('../services/photoCapture.ts', {});
+const { createNodeZoom } = load('../services/nodeZoom.ts', {});
 const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
 const uploadedFixture = (id) => ({ state: 'uploaded', publicId: `fixture/${id}`, url: `https://res.cloudinary.com/test/video/upload/v1/${id}.mp4` });
 
@@ -354,6 +355,64 @@ test('NX-04: torch requests target one node, report receipt, and preserve REC/ST
   assert.throws(() => c.service.setRemoteTorch(s.sessionId, nodeA, true), /INVALID_TARGET/);
   const offline = request('TORCH_SET', c.deviceId, s.sessionId, { enabled: true }, nodeA);
   c.send(offline); assert.equal((await c.wait(reply(offline.messageId))).payload.code, 'INVALID_TARGET');
+});
+
+test('NX-09: per-Node zoom accepts current revisions, resumes and preserves active recordings', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const camera = await attachCamera(t, a, s);
+  const nodeA = camera.identity.nodeId;
+  const nodeB = c.service.getSnapshot().sessions[s.sessionId].members.b.nodeId;
+  const zoomA = createNodeZoom(), zoomB = createNodeZoom();
+  t.after(a.service.registerZoomHandler(s.sessionId, zoomA.accept));
+  t.after(b.service.registerZoomHandler(s.sessionId, zoomB.accept));
+  const zoom = async (nodeId, update) => {
+    const id = c.service.requestZoom(s.sessionId, nodeId, update);
+    const result = await c.wait(reply(id));
+    assert.equal(result.type, 'ZOOM_STATE');
+    assert.equal(result.payload.nodeId, nodeId);
+    return result.payload.value;
+  };
+  const initial = await zoom(nodeA);
+  assert.equal(initial.percent, 0);
+  const local = zoomA.set(25);
+  const reportId = a.service.reportZoom(s.sessionId, c.deviceId, local);
+  assert.deepEqual((await c.wait(reply(reportId))).payload, { requestId: reportId, nodeId: nodeA, value: { ...local } });
+  assert.equal((await zoom(nodeA, { ...initial, percent: 60 })).percent, 25);
+  const applied = await zoom(nodeA, { ...local, percent: 60 });
+  assert.equal(applied.percent, 60);
+  assert.ok(applied.revision > local.revision);
+  assert.equal(b.inbox.some((message) => message.type === 'ZOOM_REQUEST'), false);
+  assert.equal((await zoom(nodeB)).percent, 0);
+
+  for (const [peer, message, code] of [
+    [b, request('ZOOM_REQUEST', b.deviceId, s.sessionId, {}, nodeA), 'CONTROLLER_REQUIRED'],
+    [a, request('ZOOM_REPORT', a.deviceId, s.sessionId, { requestId: randomUUID(), value: null }, b.deviceId), 'INVALID_TARGET'],
+    [c, request('ZOOM_REQUEST', c.deviceId, s.sessionId, { update: { ...applied, percent: 101 } }, nodeA), 'INVALID_MESSAGE'],
+  ]) {
+    peer.send(message);
+    assert.equal((await peer.wait(reply(message.messageId))).payload.code, code);
+  }
+
+  await waitReady(c, s, ['a']);
+  const take = c.service.startTake(s.sessionId, ['a']);
+  await c.wait(hasNode(take.takeId, 'a', 'recording'));
+  assert.equal((await zoom(nodeA, { ...applied, percent: 80 })).percent, 80);
+  assert.equal(camera.engine.getSnapshot().phase, 'recording');
+  c.service.stopActiveTakes(s.sessionId);
+  await c.wait(hasNode(take.takeId, 'a', 'saved'));
+  assert.equal(camera.counts().stops, 1);
+
+  a.ws.close(); await once(a.ws, 'close');
+  await c.wait((event) => event.type === 'SESSION_SNAPSHOT' && event.payload.session.members.a?.online === false);
+  assert.throws(() => c.service.requestZoom(s.sessionId, nodeA), /INVALID_TARGET/);
+  zoomA.set(75);
+  const resumed = await connect('a');
+  t.after(resumed.service.registerZoomHandler(s.sessionId, zoomA.accept));
+  const resumeId = resumed.service.resumeSession(s.sessionId);
+  await resumed.wait(reply(resumeId)); await c.wait(reply(resumeId));
+  assert.equal(c.service.getSnapshot().sessions[s.sessionId].members.a.nodeId, nodeA);
+  assert.equal((await zoom(nodeA)).percent, 75);
 });
 
 test('NX-03: individual recording ends locally without stopping an existing recording', { timeout: 10000 }, async (t) => {

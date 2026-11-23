@@ -149,6 +149,8 @@ export type SessionRequest =
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
   | (NexusMessage<{ enabled: boolean }> & { type: 'TORCH_SET'; targetId: string })
+  | (NexusMessage<{ update?: ZoomValue }> & { type: 'ZOOM_REQUEST'; targetId: string })
+  | (NexusMessage<ZoomReport> & { type: 'ZOOM_REPORT'; targetId: string })
   | (NexusMessage<Record<string, never>> & { type: 'PHOTO_CAPTURE'; targetId: string })
   | (NexusMessage<PhotoResult> & { type: 'PHOTO_REPORT'; targetId: string })
   | (NexusMessage<{ requestId: string; available: boolean }> & { type: 'TORCH_ACK'; targetId: string })
@@ -166,8 +168,18 @@ export type SessionEvent =
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_REJECTED' | 'SESSION_CLOSED' })
   | (NexusMessage<{ requestId: string; angle: TakeMediaAngle }> & { type: 'MEDIA_ACCEPTED' })
   | (NexusMessage<{ requestId: string; nodeId: string; enabled: boolean; available: boolean }> & { type: 'TORCH_RESULT' })
+  | (NexusMessage<ZoomReport & { nodeId: string }> & { type: 'ZOOM_STATE' })
   | (NexusMessage<PhotoResult & { nodeId: string }> & { type: 'PHOTO_RESULT' })
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
+
+export type ZoomValue = { percent: number; revision: number };
+type ZoomReport = { requestId: string; value: ZoomValue | null };
+
+function isZoomValue(value: unknown): value is ZoomValue {
+  return isRecord(value) && Object.keys(value).length === 2 && typeof value.percent === 'number' &&
+    Number.isInteger(value.percent) && value.percent >= 0 && value.percent <= 100 &&
+    typeof value.revision === 'number' && Number.isSafeInteger(value.revision) && value.revision > 0;
+}
 
 export type PhotoResult = { requestId: string } & (
   { status: 'received' } | { status: 'saved'; photoId: string } | { status: 'error'; error: string }
@@ -254,6 +266,12 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isNodeRole(value.payload.role);
     case 'TORCH_SET':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && typeof value.payload.enabled === 'boolean';
+    case 'ZOOM_REQUEST':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId &&
+        (keys.length === 0 || (keys.length === 1 && isZoomValue(value.payload.update)));
+    case 'ZOOM_REPORT':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 2 &&
+        isProtocolId(value.payload.requestId) && (value.payload.value === null || isZoomValue(value.payload.value));
     case 'PHOTO_CAPTURE':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 0;
     case 'PHOTO_REPORT':
@@ -294,6 +312,7 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
     case 'SESSION_LIST_RESULT': return Array.isArray(p.sessionIds) && p.sessionIds.every(isProtocolId);
     case 'MEDIA_ACCEPTED': return isTakeMediaAngle(p.angle);
     case 'TORCH_RESULT': return isProtocolId(p.nodeId) && typeof p.enabled === 'boolean' && typeof p.available === 'boolean';
+    case 'ZOOM_STATE': return isProtocolId(p.nodeId) && (p.value === null || isZoomValue(p.value));
     case 'PHOTO_RESULT': return isProtocolId(p.nodeId) && isPhotoResult(p, 1);
     case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId) &&
       (p.online === undefined || typeof p.online === 'boolean') && (p.controllerOnline === undefined || typeof p.controllerOnline === 'boolean');

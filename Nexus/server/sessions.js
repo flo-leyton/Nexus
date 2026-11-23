@@ -263,6 +263,16 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       if (s.members.get(m.senderId).kind === 'node' && !s.members.get(m.senderId).online && !['SESSION_GET'].includes(m.type)) return error('REJOIN_REQUIRED');
+      if (m.type === 'ZOOM_REPORT') {
+        const member = s.members.get(m.senderId);
+        if (member.kind !== 'node' || !member.nodeId || m.targetId !== s.controllerId) return error('INVALID_TARGET');
+        const controller = clients.get(s.controllerId);
+        const identity = controller?.studioIdentity;
+        if (identity && identity.uid === s.members.get(s.controllerId)?.uid && identity.expiresAt > Date.now()) {
+          send(controller, 'ZOOM_STATE', s.sessionId, { ...m.payload, nodeId: member.nodeId });
+        }
+        return true;
+      }
       if (m.type === 'PHOTO_REPORT') {
         const member = s.members.get(m.senderId);
         const request = s.photoCommands?.get(m.payload.requestId);
@@ -337,14 +347,16 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         emit(socket, JSON.stringify(m));
         return true;
       }
-      if (m.type === 'TORCH_SET') {
+      if (m.type === 'TORCH_SET' || m.type === 'ZOOM_REQUEST') {
         const target = [...s.members.values()].find((member) =>
           member.kind === 'node' && member.nodeId === m.targetId && member.online);
         const socket = target && clients.get(target.deviceId);
         if (!target || socket?.readyState !== 1 || socket.studioIdentity?.uid !== target.uid ||
             !(socket.studioIdentity.expiresAt > Date.now())) return error('INVALID_TARGET');
-        s.torchRequests ??= new Map();
-        s.torchRequests.set(target.nodeId, { messageId: m.messageId, enabled: m.payload.enabled, expiresAt: Date.now() + 5000 });
+        if (m.type === 'TORCH_SET') {
+          s.torchRequests ??= new Map();
+          s.torchRequests.set(target.nodeId, { messageId: m.messageId, enabled: m.payload.enabled, expiresAt: Date.now() + 5000 });
+        }
         emit(socket, JSON.stringify(m));
         return true;
       }
