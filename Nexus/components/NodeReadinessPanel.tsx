@@ -18,10 +18,10 @@ import type { CaptureIdentity } from '@/types/capture';
 type Service = Awaited<ReturnType<typeof getSessionService>>;
 const experimentalPreview = Platform.OS === 'android' && process.env.EXPO_PUBLIC_NEXUS_NX10_PREVIEW === '1' &&
   requireOptionalNativeModule<{ nx10PreviewSamplingAvailable?: boolean }>('ExpoCamera')?.nx10PreviewSamplingAvailable === true;
-export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false, streamPreview,
+export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false, streamPreview, onPreviewSampler,
   onBusyChange, onSaved, fullPreview, onPreviewChange }: CaptureIdentity & {
   service: Service; controllerId: string; accepted: boolean; sessionClosed?: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
-  fullPreview: boolean; onPreviewChange(expanded: boolean): void; streamPreview?: boolean;
+  fullPreview: boolean; onPreviewChange(expanded: boolean): void; streamPreview?: boolean; onPreviewSampler?(enabled: boolean): void;
 }) {
   const focused = useIsFocused();
   const window = useWindowDimensions();
@@ -243,6 +243,12 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const busy = engine.isBusy() || !!photoStatus;
   const canMount = engine.isBusy() || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
+  const samplerEnabled = (experimentalPreview || streamPreview === true) && focused && appState === 'active' && preparation.active &&
+    preparation.phase !== 'saving' && readiness.enginePrepared && !photoStatus && photoView.mode === 'video';
+  const samplerMounted = canMount && photoView.mounting && samplerEnabled;
+  useEffect(() => {
+    if (streamPreview !== undefined) onPreviewSampler?.(samplerMounted);
+  }, [onPreviewSampler, samplerMounted, streamPreview]);
   const reasons = readinessReasons(engine.getReadiness(), service.getSnapshot().connection === 'Connected');
   if (photoStatus) reasons.push(photoStatus);
   const self = service.getSnapshot().sessions[sessionId]?.members[deviceId];
@@ -275,9 +281,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       ...zoom, disabled: !zoomAvailable,
     } : undefined}
     camera={canMount && photoView.mounting && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
-      {...((experimentalPreview || streamPreview !== undefined) ? { nx10PreviewSampling: (experimentalPreview || streamPreview === true) &&
-        focused && appState === 'active' && preparation.active &&
-        preparation.phase !== 'saving' && readiness.enginePrepared && !photoStatus && photoView.mode === 'video' } : {})}
+      {...((experimentalPreview || streamPreview !== undefined) ? { nx10PreviewSampling: samplerEnabled } : {})}
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
       style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
       zoom={zoom.percent / 100}

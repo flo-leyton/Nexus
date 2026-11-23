@@ -60,6 +60,8 @@ La compilación EAS Android de `46105b5` terminó con éxito. La APK contiene `N
 
 En la primera prueba LAN, Controller y MAIN ingresaron a la misma sesión. El Controller llegó a montar la vista y falló porque `React.lazy()` resolvía directamente a `RTCVideoView`, el tipo nativo que exporta WebRTC 124.0.6. El cargador ahora devuelve una función React que monta ese tipo nativo. Pasaron TypeScript, lint y cinco pruebas puntuales, incluida una regresión que comprueba la carga diferida y el traspaso de propiedades. La repetición en el Controller queda pendiente de recargar el bundle.
 
+El intento siguiente alcanzó `ontrack` y mostró el visor negro. El Controller cerró la negociación tras unos 20 segundos sin dimensiones positivas del visor. Para aislar el punto de fallo, Metro puede activar `EXPO_PUBLIC_NEXUS_NX10_TRACE=1` en desarrollo. Las líneas `[NX10 WebRTC]` identifican rol y negociación, registran ICE, PeerConnection, pista y dimensiones, y muestrean estadísticas cada 2,5 s con un máximo de ocho intervalos. `pixelcopy-prop` registra la solicitud efectiva de muestreo en JavaScript. La extracción real se contrasta con `NexusNx10Preview` en Logcat. Pasaron TypeScript, lint y cinco pruebas dirigidas. Queda pendiente una sola ejecución física de la vista sin REC.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

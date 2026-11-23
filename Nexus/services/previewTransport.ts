@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { NativeModules, Platform } from 'react-native';
-import type { MediaStream, RTCPeerConnection } from 'react-native-webrtc';
+import type { MediaStream, MediaStreamTrack, RTCPeerConnection } from 'react-native-webrtc';
 import {
   isSessionRequest, SESSION_PROTOCOL_VERSION, type PreviewSignal, type Session,
 } from './sessionProtocol';
@@ -14,7 +14,8 @@ type NativeStream = ConstructorParameters<Rtc['MediaStream']>[0];
 // 124.0.6 implements EventTarget, but its declaration imports an untyped entry point.
 type PeerEvents = {
   connectionstatechange: unknown;
-  track: { track: { kind: string }; streams: MediaStream[] };
+  iceconnectionstatechange: unknown;
+  track: { track: MediaStreamTrack; streams: MediaStream[] };
   icecandidate: { candidate: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null } | null };
 };
 type PeerWithEvents = RTCPeerConnection & {
@@ -47,10 +48,31 @@ type Negotiation = {
   remoteIce: Ice[];
   sentDescription: boolean;
   timer: ReturnType<typeof setTimeout>;
+  statsTimer?: ReturnType<typeof setInterval>;
+  samplingStats?: boolean;
+  track?: MediaStreamTrack;
 };
+
+function videoStats(reports: Iterable<Record<string, unknown>>, controller: boolean) {
+  const type = controller ? 'inbound-rtp' : 'outbound-rtp';
+  const fields = controller ? ['framesReceived', 'framesDecoded', 'bytesReceived'] : ['framesEncoded', 'framesSent', 'bytesSent'];
+  const video = [...reports].filter((report) => report.type === type && (report.kind ?? report.mediaType) === 'video');
+  return Object.fromEntries(fields.map((field) => {
+    const values = video.map((report) => report[field]);
+    return [field, values.length && values.every((value) => typeof value === 'number' && Number.isFinite(value))
+      ? (values as number[]).reduce((sum, value) => sum + value, 0) : 'no disponible'];
+  }));
+}
 
 export function createPreviewTransport(pair: Pair, update: (state: PreviewState) => void) {
   const controller = pair.deviceId === pair.controllerId;
+  const diagnostics = typeof __DEV__ !== 'undefined' && __DEV__ && process.env.EXPO_PUBLIC_NEXUS_NX10_TRACE === '1';
+  const trace = (next: Negotiation, event: string, detail: Record<string, unknown> = {}) => {
+    if (diagnostics) console.info('[NX10 WebRTC]', JSON.stringify({
+      role: controller ? 'Controller' : 'Node', negotiation: next.id, event, ...detail,
+    }));
+  };
+  const trackState = (track: MediaStreamTrack) => ({ enabled: track.enabled, readyState: track.readyState, muted: track.muted });
   let current: Negotiation | undefined;
   let tasks = Promise.resolve();
   let newestOffer = 0;
@@ -64,11 +86,13 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
       payload: { ...body, nodeId: pair.nodeId, connectionId: id },
     })) throw new Error('Relay offline');
   };
-  const stop = (notify = true) => {
+  const stop = (notify = true, reason = 'stopped') => {
     const previous = current;
     current = undefined;
     if (!previous) return;
     clearTimeout(previous.timer);
+    clearInterval(previous.statsTimer);
+    trace(previous, 'closed', { reason, ice: previous.pc?.iceConnectionState, peer: previous.pc?.connectionState });
     if (notify) {
       try { send(previous.id, { kind: 'close' }); } catch { /* Peer is unreachable. */ }
     }
@@ -80,14 +104,14 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
     tasks = tasks.then(async () => {
       if (current !== negotiation) return;
       try { await work(); } catch {
-        if (current === negotiation) stop();
+        if (current === negotiation) stop(true, 'operation-failed');
       }
     });
   };
   const begin = (id: string) => {
     stop(false);
     const next: Negotiation = { id, localIce: [], remoteIce: [], sentDescription: false,
-      timer: setTimeout(() => { if (current === next) stop(); }, 20000) };
+      timer: setTimeout(() => { if (current === next) stop(true, 'timeout'); }, 20000) };
     current = next;
     update({ phase: 'connecting' });
     return next;
@@ -99,12 +123,14 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
     await pc.setLocalDescription(description);
     if (current !== next) return;
     send(next.id, { kind, sdp: pc.localDescription?.sdp ?? description.sdp });
+    trace(next, 'description-sent', { kind });
     next.sentDescription = true;
     for (const candidate of next.localIce.splice(0)) send(next.id, candidate);
   };
   const setRemote = async (next: Negotiation, kind: 'offer' | 'answer', sdp: string) => {
     const pc = next.pc!;
     await pc.setRemoteDescription({ type: kind, sdp });
+    trace(next, 'description-applied', { kind });
     for (const candidate of next.remoteIce.splice(0)) {
       if (current !== next) return;
       await pc.addIceCandidate(candidate);
@@ -116,6 +142,26 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
     // Host candidates are sufficient for the authorized LAN test.
     const pc = new rtc.RTCPeerConnection({ iceServers: [] }) as PeerWithEvents;
     next.pc = pc;
+    if (diagnostics) {
+      const states = () => trace(next, 'connection', { ice: pc.iceConnectionState, peer: pc.connectionState });
+      states();
+      pc.addEventListener('iceconnectionstatechange', states);
+      pc.addEventListener('connectionstatechange', states);
+      let samples = 0;
+      next.statsTimer = setInterval(async () => {
+        if (++samples >= 8) clearInterval(next.statsTimer);
+        if (current !== next || next.samplingStats) return;
+        next.samplingStats = true;
+        try {
+          const reports: Map<string, Record<string, unknown>> = await pc.getStats();
+          if (current === next) trace(next, 'stats', {
+            ...(next.track && { track: trackState(next.track) }), ...videoStats(reports.values(), controller),
+          });
+        } catch {
+          if (current === next) trace(next, 'stats-unavailable');
+        } finally { next.samplingStats = false; }
+      }, 2500);
+    }
     const report = () => {
       if (current !== next) return;
       if (controller && next.remoteURL && pc.connectionState === 'connected') {
@@ -123,11 +169,13 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
       } else if (!controller && pc.connectionState === 'connected') {
         clearTimeout(next.timer);
         update({ phase: 'streaming' });
-      } else if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) stop();
+      } else if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) stop(true, 'peer-lost');
     };
     pc.addEventListener('connectionstatechange', report);
     pc.addEventListener('track', ({ track, streams }) => {
       if (!controller || track.kind !== 'video' || !streams[0]) return;
+      next.track = track;
+      trace(next, 'ontrack', trackState(track));
       next.remoteURL = streams[0].toURL();
       report();
     });
@@ -159,18 +207,31 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
         if (!rtc || current !== next) return;
         await setRemote(next, 'offer', payload.sdp);
         if (current !== next) return;
-        const info: NativeStream = await NativeModules.Nx10WebRtc.createStream();
+        trace(next, 'local-track-requested');
+        let info: NativeStream;
+        try { info = await NativeModules.Nx10WebRtc.createStream(); } catch (error) {
+          trace(next, 'local-track-create-failed');
+          throw error;
+        }
         const stream = new rtc.MediaStream(info);
         if (current !== next) { stream.release(); return; }
         next.local = stream;
-        next.pc!.addTrack(stream.getVideoTracks()[0], stream);
+        const track = stream.getVideoTracks()[0];
+        next.track = track;
+        trace(next, 'local-track-created', track ? trackState(track) : { available: false });
+        if (diagnostics && track) {
+          const events = track as MediaStreamTrack & { addEventListener(name: 'ended', handler: () => void): void };
+          events.addEventListener('ended', () => trace(next, 'local-track-ended', trackState(track)));
+        }
+        next.pc!.addTrack(track, stream);
+        trace(next, 'local-track-attached');
         await describe(next, 'answer');
       }, next);
       return;
     }
     const next = current;
     if (!next || next.id !== payload.connectionId) return;
-    if (payload.kind === 'close') { stop(false); return; }
+    if (payload.kind === 'close') { stop(false, 'remote-close'); return; }
     enqueue(async () => {
       if (payload.kind === 'answer' && controller && !next.pc?.remoteDescription)
         await setRemote(next, 'answer', payload.sdp);
@@ -191,6 +252,12 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
       }, next);
     },
     stop,
+    samplerRequested(enabled: boolean) {
+      if (current && !controller) trace(current, 'pixelcopy-prop', { enabled });
+    },
+    dimensionsReported(streamURL: string, width: number, height: number) {
+      if (current?.remoteURL === streamURL) trace(current, 'rtcview-dimensions', { width, height });
+    },
     receivedFrame(streamURL: string) {
       if (!controller || !current || current.remoteURL !== streamURL) return;
       clearTimeout(current.timer);

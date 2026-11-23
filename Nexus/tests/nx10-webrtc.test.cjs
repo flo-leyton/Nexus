@@ -126,8 +126,8 @@ test('NX-10 authenticated relay isolates video, rejects stale signals and preser
 });
 
 test('NX-10 Node registers one video track and releases it on connection loss or late native completion', async () => {
-  const states = [], sent = [], peers = [], streams = [];
-  let receive, finishCreate;
+  const states = [], sent = [], peers = [], streams = [], trace = [];
+  let receive, finishCreate, sampleStats;
   class Peer {
     constructor() { this.events = {}; peers.push(this); }
     addEventListener(name, callback) { this.events[name] = callback; }
@@ -135,11 +135,12 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     async createAnswer() { return { type: 'answer', sdp }; }
     async setLocalDescription(description) { this.localDescription = description; }
     addTrack(track, stream) { this.track = track; this.stream = stream; }
+    async getStats() { return new Map([['video', { type: 'outbound-rtp', kind: 'video', framesEncoded: 0, bytesSent: 42 }]]); }
     close() { this.closed = true; }
   }
   class Stream {
     constructor() { streams.push(this); }
-    getVideoTracks() { return [{ kind: 'video' }]; }
+    getVideoTracks() { return [{ kind: 'video', enabled: true, readyState: 'live', addEventListener() {} }]; }
     release() { this.releases = (this.releases ?? 0) + 1; }
   }
   const deps = {
@@ -154,7 +155,12 @@ test('NX-10 Node registers one video track and releases it on connection loss or
   const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../services/previewTransport.ts'), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, setTimeout, clearTimeout, require: (name) => deps[name] });
+  vm.runInNewContext(code, { exports, setTimeout, clearTimeout, require: (name) => deps[name],
+    __DEV__: true, process: { env: { EXPO_PUBLIC_NEXUS_NX10_TRACE: '1' } },
+    console: { info: (_tag, json) => trace.push(JSON.parse(json)) },
+    setInterval: (callback, delay) => { assert.equal(delay, 2500); sampleStats = callback; return 1; },
+    clearInterval: () => { sampleStats = undefined; },
+  });
   const preview = exports.createPreviewTransport({
     sessionId: 'session', nodeId: 'node-public', nodeDeviceId: 'node', controllerId: 'controller', deviceId: 'node',
   }, (state) => states.push(state.phase));
@@ -169,6 +175,15 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     assert.equal(peers.length, 1);
     assert.equal(peers[0].track.kind, 'video');
     assert.equal(sent[0].payload.kind, 'answer');
+    preview.samplerRequested(true);
+    await sampleStats();
+    const stats = trace.find((entry) => entry.event === 'stats');
+    assert.equal(stats.role, 'Node');
+    assert.equal(stats.negotiation, 'peer1');
+    assert.equal(stats.framesEncoded, 0);
+    assert.equal(stats.framesSent, 'no disponible');
+    assert.equal(stats.bytesSent, 42);
+    assert.ok(trace.some((entry) => entry.event === 'pixelcopy-prop' && entry.enabled));
     peers[0].connectionState = 'connected';
     peers[0].events.connectionstatechange();
     peers[0].connectionState = 'disconnected';
@@ -176,6 +191,7 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     assert.deepEqual(states, ['connecting', 'streaming', 'disconnected']);
     assert.equal(peers[0].closed, true);
     assert.equal(streams[0].releases, 1);
+    assert.equal(sampleStats, undefined);
     receive(JSON.stringify({ ...offer, sentAt: offer.sentAt + 1,
       payload: { ...offer.payload, connectionId: 'peer2' } }));
     await turn();

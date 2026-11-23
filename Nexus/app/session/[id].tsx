@@ -281,6 +281,7 @@ export default function SessionScreen() {
       notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
     capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
       streamPreview={preview.sample}
+      onPreviewSampler={preview.samplerRequested}
       fullPreview={fullPreview} onPreviewChange={(expanded) => setFullPreviewNodeId(expanded ? localNode.nodeId : null)}
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
       sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}

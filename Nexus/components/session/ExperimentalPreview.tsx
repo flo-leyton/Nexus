@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { ActivityIndicator, Button, Text } from 'react-native-paper';
 import type { RTCVideoViewProps } from 'react-native-webrtc';
@@ -21,6 +21,7 @@ export function useExperimentalPreview(session: Session | undefined, deviceId: s
   const nodeDeviceId = pair?.nodeDeviceId;
   const controllerId = pair?.controllerId;
   const transport = useRef<ReturnType<typeof createPreviewTransport> | null>(null);
+  const samplerRequested = useCallback((enabled: boolean) => transport.current?.samplerRequested(enabled), []);
   const [state, setState] = useState(disconnected);
   useEffect(() => {
     if (!sessionId || !nodeId || !nodeDeviceId || !controllerId) return;
@@ -34,20 +35,23 @@ export function useExperimentalPreview(session: Session | undefined, deviceId: s
   return {
     visible: Boolean(pair && deviceId === controllerId),
     sample: enabled ? Boolean(pair && deviceId === nodeDeviceId && state.phase !== 'disconnected') : undefined,
+    samplerRequested,
     state,
     start: () => transport.current?.start(),
     stop: () => transport.current?.stop(),
     receivedFrame: (url: string) => transport.current?.receivedFrame(url),
+    dimensionsReported: (url: string, width: number, height: number) => transport.current?.dimensionsReported(url, width, height),
   };
 }
 
-export function ExperimentalPreview({ state, start, stop, receivedFrame }: ReturnType<typeof useExperimentalPreview>) {
+export function ExperimentalPreview({ state, start, stop, receivedFrame, dimensionsReported }: ReturnType<typeof useExperimentalPreview>) {
   const label = { disconnected: 'Desconectada', connecting: 'Conectando', streaming: 'Transmitiendo' }[state.phase];
   return <SessionSection title="Vista previa experimental">
     <Text accessibilityLiveRegion="polite">{label}</Text>
     {state.streamURL && <View style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
       <Suspense fallback={<ActivityIndicator />}>
         <Video streamURL={state.streamURL} objectFit="contain" style={{ flex: 1 }} onDimensionsChange={({ nativeEvent }) => {
+          if (state.streamURL) dimensionsReported(state.streamURL, nativeEvent.width, nativeEvent.height);
           if (nativeEvent.width > 0 && nativeEvent.height > 0 && state.streamURL) receivedFrame(state.streamURL);
         }} />
       </Suspense>
