@@ -15,6 +15,25 @@
 
 ## Registro de la jornada
 
+### NX-10 · Compilación de Expo Camera desde fuentes
+
+Expo Autolinking selecciona `expo-camera` desde fuentes en Android para que Gradle incorpore el Kotlin que Prebuild instala en el perfil `development-nx10`. El perfil conserva la activación explícita del muestreador. El hook comprueba la selección del proyecto fuente y la instalación del parche.
+
+Pasaron TypeScript, lint, Prebuild Android, el verificador del perfil y la prueba puntual de NX-10. Gradle 8.14.3 completó `:expo-camera:compileDebugKotlin` con JDK 17 y produjo `Nx10PreviewSampler.class`. La primera ejecución instaló Build Tools 35.0.0. La suite registró 134 aprobadas, 5 omitidas y un fallo en `media-upload.test.cjs`, cuyo mock de `localCaptures` carece de `hasLocalCaptureSidecar`. Queda pendiente la prueba física.
+
+Para repetir la comprobación desde una instalación limpia, ejecuta las pruebas antes de Prebuild. En PowerShell, configura `JAVA_HOME` con el JDK 17 y `ANDROID_HOME` con el SDK Android. Luego ejecuta:
+
+```powershell
+$env:EXPO_NO_DOTENV = '1'
+$env:NEXUS_NX10_NATIVE = '1'
+npx.cmd expo prebuild --platform android --no-install
+$env:EAS_BUILD_PROFILE = 'development-nx10'
+$env:EAS_BUILD_PLATFORM = 'android'
+node scripts/check-native.cjs
+$env:GRADLE_USER_HOME = Join-Path (Get-Location) 'android/.gradle-nx10'
+.\android\gradlew.bat -p android :expo-camera:compileDebugKotlin
+```
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

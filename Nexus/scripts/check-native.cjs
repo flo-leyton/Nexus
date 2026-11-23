@@ -26,8 +26,14 @@ function checkNative(root = path.resolve(__dirname, '..')) {
 }
 if (require.main === module && (!process.env.EAS_BUILD_PLATFORM || process.env.EAS_BUILD_PLATFORM === 'android')) {
   try {
-    checkNative();
+    const { expo } = checkNative();
     if (process.env.EAS_BUILD_PROFILE === 'development-nx10') {
+      const camera = expo.modules.find((module) => module.packageName === 'expo-camera');
+      const sourceProjects = expo.configuration?.buildFromSource ?? [];
+      if (!camera.projects.some((project) => sourceProjects.some((pattern) =>
+        new RegExp(`^(?:${pattern})$`).test(project.name)))) {
+        throw new Error('NX-10: Expo Autolinking debe compilar expo-camera desde fuentes en Android.');
+      }
       const cameraRoot = path.dirname(require.resolve('expo-camera/package.json'));
       try { require('../config/nx10/withPreviewSampling.cjs').assertPreviewSampling(cameraRoot); }
       catch { throw new Error('NX-10: falta el adaptador Android después de Prebuild.'); }
