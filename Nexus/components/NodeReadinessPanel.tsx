@@ -24,6 +24,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const savedId = useRef<string | null>(null);
   const [controlError, setControlError] = useState('');
   const [torchGeneration, setTorchGeneration] = useState<number | null>(null);
+  const [zoom, setZoom] = useState(0);
   const [engine] = useState(() => new CaptureEngine({
     getPermission: Camera.getCameraPermissionsAsync,
     requestPermission: Camera.requestCameraPermissionsAsync,
@@ -148,7 +149,12 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     canRecord={canRecord} prepareDisabled={sessionClosed || busy || !focused || appState !== 'active' || preparation.pendingSave}
     focused={focused} isWeb={Platform.OS === 'web'} reportError={reportError} controlError={controlError}
     takeId={takeNode ? coordinatedTake?.takeId : undefined}
+    zoom={canMount && Platform.OS !== 'web' ? {
+      percent: zoom, disabled: !focused || appState !== 'active' || !readiness.enginePrepared || preparation.phase === 'saving',
+      adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
+    } : undefined}
     camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={sessionStyles.preview}
+      zoom={zoom / 100}
       enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
       onMountError={(event) => engine.cameraFailed(generation, event.message)} />}

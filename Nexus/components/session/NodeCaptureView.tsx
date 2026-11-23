@@ -8,6 +8,7 @@ export type NodeCaptureViewProps = {
   preparation: CapturePreparation; phaseLabel: string; reasons: string[]; busy: boolean; accepted: boolean;
   requiresConfirmation: boolean; confirmDisabled: boolean; canRecord: boolean; prepareDisabled: boolean;
   focused: boolean; isWeb: boolean; reportError: string; controlError: string; takeId?: string;
+  zoom?: { percent: number; disabled: boolean; adjust(delta: number): void };
   camera: ReactNode; onConfirmReady(): void; onRecord(): void; onStop(): void; onRetrySave(): void; onPrepare(): void;
 };
 
@@ -15,6 +16,7 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
   const { colors } = useTheme();
   const p = props.preparation;
   const r = p.readiness;
+  const zoom = props.zoom;
   const prepareControl = <Button mode="outlined" icon="camera-outline" disabled={props.prepareDisabled} onPress={props.onPrepare}
     style={sessionStyles.control} contentStyle={sessionStyles.touch}>{r.cameraPermission === 'granted' ? 'Volver a preparar cámara' : 'Comprobar / conceder permiso'}</Button>;
   return <View style={sessionStyles.stack}>
@@ -37,6 +39,15 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
         <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>Cámara no disponible en este estado</Text>
       </View>}
     </View>
+    {zoom && <View style={sessionStyles.between}>
+      <Text variant="labelLarge" accessibilityLiveRegion="polite">Zoom · {zoom.percent} %</Text>
+      <View style={sessionStyles.row}>
+        <Button mode="outlined" accessibilityLabel="Reducir zoom" disabled={zoom.disabled || zoom.percent === 0}
+          contentStyle={sessionStyles.touch} onPress={() => zoom.adjust(-5)}>−</Button>
+        <Button mode="outlined" accessibilityLabel="Aumentar zoom" disabled={zoom.disabled || zoom.percent === 100}
+          contentStyle={sessionStyles.touch} onPress={() => zoom.adjust(5)}>+</Button>
+      </View>
+    </View>}
     <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Encuadre local · vídeo silenciado</Text>
     <Text variant="labelMedium" style={{ color: colors.onSurfaceVariant }}>PREPARACIÓN PARA NUEVA TOMA</Text>
     <SessionBadge label={props.reasons.length ? 'NO LISTO' : 'READY'} tone={props.reasons.length ? 'warning' : 'success'} />
