@@ -26,7 +26,7 @@ function checkNative(root = path.resolve(__dirname, '..')) {
 }
 if (require.main === module && (!process.env.EAS_BUILD_PLATFORM || process.env.EAS_BUILD_PLATFORM === 'android')) {
   try {
-    const { expo } = checkNative();
+    const { expo, reactNative } = checkNative();
     if (process.env.EAS_BUILD_PROFILE === 'development-nx10') {
       const camera = expo.modules.find((module) => module.packageName === 'expo-camera');
       const sourceProjects = expo.configuration?.buildFromSource ?? [];
@@ -37,6 +37,15 @@ if (require.main === module && (!process.env.EAS_BUILD_PLATFORM || process.env.E
       const cameraRoot = path.dirname(require.resolve('expo-camera/package.json'));
       try { require('../config/nx10/withPreviewSampling.cjs').assertPreviewSampling(cameraRoot); }
       catch { throw new Error('NX-10: falta el adaptador Android después de Prebuild.'); }
+      if (process.env.NEXUS_NX10_WEBRTC_NATIVE === '1') {
+        const root = path.resolve(__dirname, '..');
+        const bridge = 'Nx10WebRtcPackage.kt';
+        const generated = path.join(root, 'android/app/src/main/java/com/oney/WebRTCModule', bridge);
+        if (!reactNative.dependencies['react-native-webrtc']?.platforms?.android || !fs.existsSync(generated) ||
+            !fs.readFileSync(generated).equals(fs.readFileSync(path.join(root, 'config/nx10', bridge)))) {
+          throw new Error('NX-10: falta WebRTC Android o el puente de PixelCopy generado por Prebuild.');
+        }
+      }
       console.log('NX-10: adaptador Android verificado después de Prebuild.');
     }
     console.log('Android autolinking OK: ExpoVideo, cámara, archivos, persistencia Auth y módulos de la app. Falta comprobar el APK construido.');

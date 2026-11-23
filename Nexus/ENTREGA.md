@@ -40,6 +40,22 @@ La única compilación experimental autorizada terminó en EAS a partir de una c
 
 Ambas APK tienen paquete `com.floleyton.nexus`, `versionCode` 2 y firma v2 válida con certificado SHA-256 `1f67f463b7b125fff27e39530992b0b4d7925b5e19ff83252be8c683400c2702`. Android admite el reemplazo en ambos sentidos sobre esa versión estable. Falta confirmar en los teléfonos qué APK está instalada y realizar la prueba física autorizada.
 
+### NX-10 · Prueba física B y evaluación de WebRTC
+
+En el Node MAIN, CameraX registró REC entre las 11:34:08.952 y las 11:34:19.586. Una ventana enteramente dentro de REC registró 20 cuadros PixelCopy válidos a 3,9 fps, sin descartes. El operador confirmó que el original de 10,47 s se guardó y reprodujo.
+
+`MPEG4Writer` registró el cierre de pista con estado 0 y la escritura de `moov` antes de emitir `Stop() called but track is not started or stopped` durante la liberación. CameraX emitió `Finalize` a continuación. No hay señales de corrupción en el material observado. Quedan sin comprobar el código de resultado de `Finalize`, la decodificación completa del original y la implementación de Android del dispositivo. El mensaje por sí solo no establece la causa ni garantiza la integridad del archivo.
+
+WebRTC queda en propuesta. El muestreador reutiliza un bitmap de su propiedad y entrega sólo métricas. Incorporar una fuente de video requiere separar la propiedad del cuadro y acotar la conversión y la cola para proteger CameraView y REC. Se evaluará un puente Android externo hacia la API nativa de `react-native-webrtc` o un módulo Expo independiente sobre libwebrtc antes de cambiar el muestreador.
+
+### NX-10 · Prototipo Android PixelCopy → WebRTC
+
+El perfil `development-nx10` genera el puente para `react-native-webrtc` 124.0.6 con su plugin Expo 13.0.0. En ejecución se habilita con `EXPO_PUBLIC_NEXUS_NX10_WEBRTC=1`. Para probar únicamente WebRTC deja `EXPO_PUBLIC_NEXUS_NX10_PREVIEW=0`: la vista activa PixelCopy mientras negocia o transmite. El origen es el preview existente. La pista es de video sin audio, de hasta 640×360 o su equivalente vertical, a 4 fps. El puente toma una copia antes de liberar el bitmap de PixelCopy y descarta mientras el único cuadro disponible sigue en uso.
+
+Para la prueba LAN, ejecuta el relay DEV-B de este commit con su configuración de autenticación y RTDB existente y `NEXUS_NX10_WEBRTC_RELAY=1`. En ambos clientes de desarrollo establece `EXPO_PUBLIC_RELAY_URL=ws://<IP-LAN>:<PORT>` y conserva los valores públicos de Firebase locales. Conecta ambos teléfonos a la misma LAN, autoriza un único Node y confirma READY. En el Controller inicia la vista, inicia REC y detén sólo la vista. Confirma que REC continúa, pulsa STOP y reproduce el original. Repite tras volver a iniciar la vista y desconectar al Controller del Wi-Fi. En ese caso detén localmente desde el Node. Comprueba también zoom, linterna y fotografía en sus recorridos habituales.
+
+La vista previa y el relay requieren activación explícita. La negociación es temporal, reutiliza el socket autenticado y emplea candidatos ICE locales. Pasaron TypeScript, lint, la exportación del bundle Android y Gradle `:app:compileDebugKotlin` con la Nueva Arquitectura activa. La suite registró 138 aprobadas y 5 omitidas. La prueba del relay local comprobó que cerrar la vista conserva la toma activa y no envía STOP. La prueba del transporte con WebRTC simulado comprobó la liberación de la pista al desconectar y durante una creación tardía. El flujo físico WebRTC queda pendiente de APK autorizada y dos teléfonos.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

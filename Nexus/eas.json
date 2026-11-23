@@ -15,7 +15,8 @@
     "development-nx10": {
       "extends": "development",
       "env": {
-        "NEXUS_NX10_NATIVE": "1"
+        "NEXUS_NX10_NATIVE": "1",
+        "NEXUS_NX10_WEBRTC_NATIVE": "1"
       }
     },
     "preview": {

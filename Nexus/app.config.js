@@ -7,7 +7,9 @@ module.exports = ({ config }) => {
   // Keep the existing applicationId, permissions, plugins and EAS project. Never
   // spread process.env into extra: only EXPO_PUBLIC values are inlined by Metro.
   if (process.env.NEXUS_NX10_NATIVE === '1') {
-    return require('./config/nx10/withPreviewSampling.cjs')(config);
+    return require('./config/nx10/withPreviewSampling.cjs')(config, {
+      webRtc: process.env.NEXUS_NX10_WEBRTC_NATIVE === '1',
+    });
   }
   return config;
 };

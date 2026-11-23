@@ -1,7 +1,7 @@
 /* global __dirname */
 const fs = require('node:fs');
 const path = require('node:path');
-const { withDangerousMod } = require('expo/config-plugins');
+const { withAppBuildGradle, withDangerousMod, withMainApplication, withPlugins } = require('expo/config-plugins');
 
 function insert(source, anchor, addition) {
   const newline = source.includes('\r\n') ? '\r\n' : '\n';
@@ -39,11 +39,31 @@ function addPreviewSampling(cameraRoot) {
   if (cameraModule !== originalModule) fs.writeFileSync(moduleFile, cameraModule);
 }
 
-module.exports = (config) => withDangerousMod(config, ['android', (mod) => {
-  const cameraPackage = require.resolve('expo-camera/package.json', { paths: [mod.modRequest.projectRoot] });
-  addPreviewSampling(path.dirname(cameraPackage));
-  return mod;
-}]);
+module.exports = (config, { webRtc = false } = {}) => {
+  if (webRtc) {
+    config = withPlugins(config, ['@config-plugins/react-native-webrtc']);
+    config = withMainApplication(config, (mod) => {
+      mod.modResults.contents = insert(mod.modResults.contents, '            PackageList(this).packages.apply {',
+        '              add(com.oney.WebRTCModule.Nx10WebRtcPackage())');
+      return mod;
+    });
+    config = withAppBuildGradle(config, (mod) => {
+      mod.modResults.contents = insert(mod.modResults.contents, '\ndependencies {',
+        "    implementation project(':expo-camera')\n    implementation project(':react-native-webrtc')");
+      return mod;
+    });
+  }
+  return withDangerousMod(config, ['android', (mod) => {
+    const cameraPackage = require.resolve('expo-camera/package.json', { paths: [mod.modRequest.projectRoot] });
+    addPreviewSampling(path.dirname(cameraPackage));
+    if (webRtc) {
+      const bridge = path.join(mod.modRequest.platformProjectRoot, 'app/src/main/java/com/oney/WebRTCModule');
+      fs.mkdirSync(bridge, { recursive: true });
+      fs.copyFileSync(path.join(__dirname, 'Nx10WebRtcPackage.kt'), path.join(bridge, 'Nx10WebRtcPackage.kt'));
+    }
+    return mod;
+  }]);
+};
 module.exports.addPreviewSampling = addPreviewSampling;
 module.exports.assertPreviewSampling = (cameraRoot) => {
   const kotlin = path.join(cameraRoot, 'android/src/main/java/expo/modules/camera');

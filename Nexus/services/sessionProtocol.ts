@@ -153,6 +153,7 @@ export type SessionRequest =
   | (NexusMessage<ZoomReport> & { type: 'ZOOM_REPORT'; targetId: string })
   | (NexusMessage<Record<string, never>> & { type: 'PHOTO_CAPTURE'; targetId: string })
   | (NexusMessage<PhotoResult> & { type: 'PHOTO_REPORT'; targetId: string })
+  | PreviewSignalMessage
   | (NexusMessage<{ requestId: string; available: boolean }> & { type: 'TORCH_ACK'; targetId: string })
   | (NexusMessage<{ readiness: NodeReadiness; readyEpoch?: string; confirmReady?: true }> & { type: 'NODE_STATE'; targetId: string })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[]; durationSeconds?: number }> & { type: 'START_RECORDING' })
@@ -173,6 +174,32 @@ export type SessionEvent =
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
 
 export type ZoomValue = { percent: number; revision: number };
+export type PreviewSignal = { nodeId: string; connectionId: string } & (
+  { kind: 'offer' | 'answer'; sdp: string } |
+  { kind: 'ice'; candidate: string; sdpMid: string | null; sdpMLineIndex: number } |
+  { kind: 'close' }
+);
+export type PreviewSignalMessage = NexusMessage<PreviewSignal> & { type: 'PREVIEW_SIGNAL'; targetId: string };
+
+function isPreviewSignal(payload: Record<string, unknown>, count: number): boolean {
+  if (!isProtocolId(payload.nodeId) || !isProtocolId(payload.connectionId)) return false;
+  switch (payload.kind) {
+    case 'offer':
+    case 'answer':
+      return count === 4 && typeof payload.sdp === 'string' && payload.sdp.length <= 16384 &&
+        /^v=0\r?\n/.test(payload.sdp) &&
+        (payload.sdp.match(/^m=.+$/gm) ?? []).length === 1 && /^m=video /m.test(payload.sdp);
+    case 'ice':
+      return count === 6 && typeof payload.candidate === 'string' && payload.candidate.length <= 2048 &&
+        payload.candidate.startsWith('candidate:') &&
+        (payload.sdpMid === null || (typeof payload.sdpMid === 'string' && payload.sdpMid.length <= 64)) &&
+        typeof payload.sdpMLineIndex === 'number' && Number.isInteger(payload.sdpMLineIndex) && payload.sdpMLineIndex === 0;
+    case 'close':
+      return count === 3;
+    default:
+      return false;
+  }
+}
 type ZoomReport = { requestId: string; value: ZoomValue | null };
 
 function isZoomValue(value: unknown): value is ZoomValue {
@@ -276,6 +303,8 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 0;
     case 'PHOTO_REPORT':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && isPhotoResult(value.payload);
+    case 'PREVIEW_SIGNAL':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && isPreviewSignal(value.payload, keys.length);
     case 'TORCH_ACK':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 2 &&
         isProtocolId(value.payload.requestId) && typeof value.payload.available === 'boolean';

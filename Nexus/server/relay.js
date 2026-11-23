@@ -12,7 +12,8 @@ function resolvePort(value, fallback) {
 
 // verifyToken is an explicit dependency for tests. Production supplies Firebase Admin;
 // there is no environment flag that bypasses authentication, even on LAN.
-function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerator, authTimeoutMs = 15000 }) {
+function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerator, authTimeoutMs = 15000,
+  previewEnabled = process.env.NEXUS_NX10_WEBRTC_RELAY === '1' }) {
   let draining = false;
   if (typeof verifyToken !== 'function') throw new Error('El relay necesita un verificador de Firebase ID tokens.');
   if (!storage) throw new Error('El relay necesita almacenamiento durable RTDB.');
@@ -28,7 +29,7 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
   const connections = new Map(); // only active sockets; ownership is durable
   const authenticated = (client) => client.readyState === OPEN && client.studioIdentity?.expiresAt > Date.now();
   const presence = attachDevicePresence(relay, authenticated);
-  const sessions = attachSessions(relay, { storage, codeGenerator });
+  const sessions = attachSessions(relay, { storage, codeGenerator, previewEnabled });
   relay.on('connection', (client) => {
     let verifying = false;
     const reject = (code) => {

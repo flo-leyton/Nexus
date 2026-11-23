@@ -8,6 +8,7 @@ import { Button, Text } from 'react-native-paper';
 
 import { formatBytes } from '@/components/MediaAssetCard';
 import { SessionPage } from '@/components/session/SessionPage';
+import { ExperimentalPreview, useExperimentalPreview } from '@/components/session/ExperimentalPreview';
 import { SessionSection, SessionDetails, sessionStyles, sessionStateLabel } from '@/components/session/SessionUI';
 import { SessionAdmissionView, SessionCloseView } from '@/components/session/SessionAdmissionView';
 import { SessionImportView } from '@/components/session/SessionImportView';
@@ -125,6 +126,7 @@ export default function SessionScreen() {
   });
   const connected = snapshot?.connection === 'Connected';
   const session = verified ? snapshot?.sessions[sessionId] : undefined;
+  const preview = useExperimentalPreview(session, deviceId, focused && connected);
   const isController = session?.controllerId === deviceId;
   const sessionClosed = closedSessionId === sessionId;
   useEffect(() => {
@@ -278,6 +280,7 @@ export default function SessionScreen() {
       connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
       notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
     capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
+      streamPreview={preview.sample}
       fullPreview={fullPreview} onPreviewChange={(expanded) => setFullPreviewNodeId(expanded ? localNode.nodeId : null)}
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
       sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
@@ -307,6 +310,7 @@ export default function SessionScreen() {
       </>}
     </SessionSection>}
     console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession} />}
+    experimentalPreview={preview.visible && <ExperimentalPreview {...preview} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}

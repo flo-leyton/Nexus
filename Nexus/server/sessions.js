@@ -1,9 +1,11 @@
 const { randomUUID, randomInt } = require('node:crypto');
 const { attachRecording } = require('./recording');
+const { createPreviewSignalRouter } = require('./previewSignal');
 const { sharedSession, encodeRegistry, decodeRegistry } = require('./sessionSchema');
 const { isSessionRequest, isRecord, isProtocolId, activeTakes, sessionTakes, activeTakeForDevice, readinessReasons, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
-function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
+function attachSessions(relay, { storage, previewEnabled = false,
+  codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
   const sessions = new Map();
   const codes = new Map();
   const identities = new Map();
@@ -23,6 +25,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     await storage.commit(revision, encodeRegistry(sessions, owners, revision + 1));
     revision++; recovered = true;
   })();
+  const preview = previewEnabled ? createPreviewSignalRouter(clients, emit) : null;
   void ready.catch(() => {});
   const enqueue = (operation) => {
     const task = queue.catch(() => {}).then(async () => {
@@ -134,7 +137,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
   };
   const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
-      if (s.closedAt) continue;
+      if (s.closedAt) { preview?.forget(s.sessionId); continue; }
       for (const [requestId, request] of s.photoCommands ?? []) {
         if (request.expiresAt <= Date.now() && (!request.result || request.result.status === 'received')) {
           request.result = { requestId, status: 'error', error: 'Guardado sin confirmar. Comprueba el original en el Node.' };
@@ -230,6 +233,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
       if (!s) return error('SESSION_NOT_FOUND');
       if (s.members.get(m.senderId)?.uid !== client.studioIdentity.uid) return error('NOT_MEMBER');
       if (s.closedAt && !['SESSION_GET', 'SESSION_CLOSE', 'MEDIA_STATE'].includes(m.type)) return error('SESSION_IS_CLOSED');
+      if (m.type === 'PREVIEW_SIGNAL') return preview ? preview.route(s, m, client, error) : error('PREVIEW_DISABLED');
       if (m.type === 'SESSION_RESUME') {
         const member = s.members.get(m.senderId);
         if (!member.online) {

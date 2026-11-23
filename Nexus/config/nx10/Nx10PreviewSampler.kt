@@ -14,13 +14,22 @@ import android.view.ViewGroup
 import androidx.camera.view.PreviewView
 import kotlin.math.roundToInt
 
+fun interface Nx10FrameSink {
+  // Called on the PixelCopy worker. The bitmap is borrowed only for this call.
+  fun onFrame(bitmap: Bitmap, timestampNs: Long)
+}
+
+object Nx10PixelCopyFrames {
+  @JvmField @Volatile var sink: Nx10FrameSink? = null
+}
+
 /** Reads only the attached preview surface. CameraX retains ownership of that surface. */
 internal class Nx10PreviewSampler(private val preview: PreviewView) {
   private val main = Handler(Looper.getMainLooper())
-  private var enabled = false
+  @Volatile private var enabled = false
   private var aborted = false
   private var inFlight = false
-  private var generation = 0
+  @Volatile private var generation = 0
   // The worker owns the bitmap. Stop only releases it after any copy completes.
   private var buffer: Bitmap? = null
   private var windowStart = 0L
@@ -78,16 +87,26 @@ internal class Nx10PreviewSampler(private val preview: PreviewView) {
     val height = (frame.height() * scale).roundToInt().coerceAtLeast(1)
     size = "${width}x$height"
     val started = SystemClock.elapsedRealtime()
+    val timestampNs = System.nanoTime()
     val requestGeneration = generation
+    val sink = Nx10PixelCopyFrames.sink
     inFlight = true
     main.postDelayed(watchdog, COPY_BUDGET_MS)
     worker.post {
       // Some Android versions perform work before PixelCopy.request returns.
       // Allocate and submit on the worker, and never wait for it on the UI thread.
       try {
-        copy(surface, width, height) { result ->
+        copy(surface, width, height) { result, bitmap ->
           val elapsed = SystemClock.elapsedRealtime() - started
           main.post { complete(requestGeneration, result, elapsed) }
+          if (result == PixelCopy.SUCCESS && elapsed < COPY_BUDGET_MS && enabled &&
+              requestGeneration == generation && sink === Nx10PixelCopyFrames.sink) {
+            try {
+              sink?.onFrame(bitmap, timestampNs)
+            } catch (error: RuntimeException) {
+              Log.w(TAG, "preview_sink_failed", error)
+            }
+          }
         }
       } catch (_: RuntimeException) {
         main.post { complete(requestGeneration, PixelCopy.ERROR_SOURCE_INVALID, SystemClock.elapsedRealtime() - started) }
@@ -95,14 +114,14 @@ internal class Nx10PreviewSampler(private val preview: PreviewView) {
     }
   }
 
-  private fun copy(surface: Surface, width: Int, height: Int, done: (Int) -> Unit) {
+  private fun copy(surface: Surface, width: Int, height: Int, done: (Int, Bitmap) -> Unit) {
     val previous = buffer
     val target = if (previous != null && previous.width == width && previous.height == height) previous else {
       previous?.recycle()
       buffer = null
       Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { buffer = it }
     }
-    PixelCopy.request(surface, target, { result -> done(result) }, worker)
+    PixelCopy.request(surface, target, { result -> done(result, target) }, worker)
   }
 
   private fun complete(requestGeneration: Int, result: Int, elapsed: Long) {
