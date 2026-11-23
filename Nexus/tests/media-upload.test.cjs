@@ -251,6 +251,8 @@ test('H3 real ID regression: timeout, retry, persisted success before publicatio
     setItem: async (key, value) => { await new Promise(setImmediate); data.set(key, value); }, getAllKeys: async () => [...data.keys()] };
   const storageDep = { '@react-native-async-storage/async-storage': { default: storage }, './sessionProtocol': protocol };
   const reloadCatalog = () => load('../services/mediaCatalog.ts', { ...storageDep, './localCaptures': {
+    hasLocalCaptureSidecar: async ({ id, sessionId, deviceId }) =>
+      id === original.id && sessionId === original.sessionId && deviceId === original.deviceId,
     scanLocalCaptures: async () => ({ entries: [{ capture: { ...original } }], problems: [] }), verifyLocalCapture: async (clip) => clip,
   } });
   const reloadAngles = () => load('../services/takeMedia.ts', storageDep);
