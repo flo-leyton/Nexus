@@ -1,0 +1,47 @@
+/* global __dirname */
+const fs = require('node:fs');
+const path = require('node:path');
+const { withDangerousMod } = require('expo/config-plugins');
+
+function insert(source, anchor, addition) {
+  const newline = source.includes('\r\n') ? '\r\n' : '\n';
+  const patch = addition.replaceAll('\n', newline);
+  const position = source.indexOf(anchor);
+  if (position === -1 || source.indexOf(anchor, position + anchor.length) !== -1) {
+    throw new Error(`NX-10: expected one Expo Camera anchor: ${anchor}`);
+  }
+  if (source.startsWith(anchor + newline + patch, position)) return source;
+  return source.slice(0, position) + anchor + newline + patch + source.slice(position + anchor.length);
+}
+
+function addPreviewSampling(cameraRoot) {
+  const { version } = JSON.parse(fs.readFileSync(path.join(cameraRoot, 'package.json'), 'utf8'));
+  if (version !== '17.0.10') throw new Error(`NX-10: review the Android adapter for expo-camera ${version}`);
+  const kotlin = path.join(cameraRoot, 'android/src/main/java/expo/modules/camera');
+  const viewFile = path.join(kotlin, 'ExpoCameraView.kt');
+  const moduleFile = path.join(kotlin, 'CameraViewModule.kt');
+  const originalView = fs.readFileSync(viewFile, 'utf8');
+  const originalModule = fs.readFileSync(moduleFile, 'utf8');
+  const view = insert(insert(originalView, '  private var previewPaused = false', `
+  private var nx10Sampler: Nx10PreviewSampler? = null
+
+  fun setNx10PreviewSampling(enabled: Boolean) {
+    if (enabled && nx10Sampler == null) nx10Sampler = Nx10PreviewSampler(previewView)
+    nx10Sampler?.setEnabled(enabled)
+  }`), '  fun cleanupCamera() {', '    nx10Sampler?.setEnabled(false)');
+  const cameraModule = insert(insert(originalModule, '    Name("ExpoCamera")',
+    '    Constant("nx10PreviewSamplingAvailable") { true }'), '    View(ExpoCameraView::class) {', `
+      Prop("nx10PreviewSampling") { view, enabled: Boolean? ->
+        view.setNx10PreviewSampling(enabled == true)
+      }`);
+  fs.copyFileSync(path.join(__dirname, 'Nx10PreviewSampler.kt'), path.join(kotlin, 'Nx10PreviewSampler.kt'));
+  if (view !== originalView) fs.writeFileSync(viewFile, view);
+  if (cameraModule !== originalModule) fs.writeFileSync(moduleFile, cameraModule);
+}
+
+module.exports = (config) => withDangerousMod(config, ['android', (mod) => {
+  const cameraPackage = require.resolve('expo-camera/package.json', { paths: [mod.modRequest.projectRoot] });
+  addPreviewSampling(path.dirname(cameraPackage));
+  return mod;
+}]);
+module.exports.addPreviewSampling = addPreviewSampling;
