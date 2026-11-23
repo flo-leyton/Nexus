@@ -22,6 +22,7 @@ function load(file, dependencies) {
 const { createSessionClient } = load('../services/sessionClient.ts', { './sessionProtocol': protocol });
 const { CaptureEngine } = load('../services/captureEngine.ts', { './sessionProtocol': protocol });
 const { coordinateCapture } = load('../services/coordinatedCapture.ts', {});
+const { capturePhoto } = load('../services/photoCapture.ts', {});
 const ready = { cameraPermission: 'granted', cameraAvailable: true, enginePrepared: true, error: null };
 const uploadedFixture = (id) => ({ state: 'uploaded', publicId: `fixture/${id}`, url: `https://res.cloudinary.com/test/video/upload/v1/${id}.mp4` });
 
@@ -241,6 +242,61 @@ test('H2: Controller REC/STOP, shared take, independent originals, ACK != saved,
   const closed = await c.wait((m) => m.type === 'SESSION_SNAPSHOT' && reply(close)(m));
   assert.equal(closed.payload.session.take.nodes['node-a'].phase, 'saved');
   assert.equal(closed.payload.session.takeHistory[0].takeId, start.takeId);
+});
+
+test('NX-07: targeted photo is deduplicated and blocks REC and close until saved', { timeout: 10000 }, async (t) => {
+  const connect = await harness(t), c = await connect('controller'), a = await connect('a'), b = await connect('b');
+  const s = await create(c); await admit(c, a, s); await admit(c, b, s);
+  const camera = await attachCamera(t, a, s); await attachCamera(t, b, s);
+  await waitReady(c, s, ['a', 'b']);
+  const save = Promise.withResolvers();
+  let shots = 0;
+  t.after(a.service.registerPhotoHandler(s.sessionId, async (id) => { shots++; await save.promise; return id; }));
+  const requestId = c.service.requestPhoto(s.sessionId, camera.identity.nodeId);
+  const receipt = await c.wait((m) => reply(requestId)(m) && m.payload.status === 'received');
+  assert.equal(receipt.type, 'PHOTO_RESULT');
+  assert.equal(b.inbox.some((m) => m.type === 'PHOTO_CAPTURE'), false);
+  c.send(c.sent.find((m) => m.messageId === requestId));
+  const duplicate = c.service.requestPhoto(s.sessionId, camera.identity.nodeId);
+  assert.equal((await c.wait(reply(duplicate))).payload.code, 'PHOTO_BUSY');
+  const video = c.service.startTake(s.sessionId, ['a']);
+  assert.equal((await c.wait(reply(video.messageId))).payload.code, 'PHOTO_BUSY');
+  const close = c.service.closeSession(s.sessionId);
+  assert.equal((await c.wait(reply(close))).payload.code, 'PHOTO_BUSY');
+  assert.equal(shots, 1);
+  assert.equal(c.inbox.some((m) => reply(requestId)(m) && m.payload.status === 'saved'), false);
+  save.resolve();
+  const saved = await c.wait((m) => reply(requestId)(m) && m.payload.status === 'saved');
+  assert.equal(saved.payload.photoId, requestId);
+  const take = c.service.startTake(s.sessionId, ['a']);
+  await c.wait(hasNode(take.takeId, 'a', 'recording'));
+  c.service.stopActiveTakes(s.sessionId);
+  await c.wait(hasNode(take.takeId, 'a', 'saved'));
+});
+
+test('NX-07: local workflow waits for picture READY, saves, and restores video even on failure', async () => {
+  const pictureReady = Promise.withResolvers(), videoReady = Promise.withResolvers();
+  const events = [];
+  const result = capturePhoto({
+    preparePicture() { events.push('picture'); return pictureReady.promise; },
+    async takePicture() { events.push('shoot'); return 'file:///cache/photo.jpg'; },
+    async save(uri) { events.push(uri); return 'photo-id'; },
+    restoreVideo() { events.push('video'); return videoReady.promise; },
+  });
+  assert.deepEqual(events, ['picture']);
+  pictureReady.resolve();
+  await new Promise(setImmediate);
+  assert.deepEqual(events, ['picture', 'shoot', 'file:///cache/photo.jpg', 'video']);
+  videoReady.resolve();
+  assert.equal(await result, 'photo-id');
+  let restored = false;
+  await assert.rejects(capturePhoto({
+    async preparePicture() { throw new Error('Camera did not become ready'); },
+    async takePicture() { assert.fail('Shot without readiness'); },
+    async save() { assert.fail('Saved without a shot'); },
+    async restoreVideo() { restored = true; },
+  }), /did not become ready/);
+  assert.equal(restored, true);
 });
 
 test('NX-04: torch requests target one node, report receipt, and preserve REC/STOP', { timeout: 10000 }, async (t) => {

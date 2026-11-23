@@ -39,9 +39,11 @@ function readCapture(text: string | null): LocalCaptureMediaAsset | null {
   if (!text) return null;
   try {
     const r: unknown = JSON.parse(text);
-    if (!isRecord(r) || r.storage !== 'local' || r.source !== 'capture' || r.resourceType !== 'video' ||
+    if (!isRecord(r) || r.storage !== 'local' || r.source !== 'capture' ||
+        (r.resourceType === 'image' ? r.fileName !== 'photo.jpg' || r.photoId !== r.localId || r.takeId !== null
+          : r.resourceType !== 'video' || !['video.mp4', 'video.mov'].includes(String(r.fileName)) || r.photoId !== undefined) ||
         !isProtocolId(r.sessionId) || !isProtocolId(r.deviceId) || !isProtocolId(r.nodeId) || !isProtocolId(r.localId) ||
-        !(r.takeId === null || isProtocolId(r.takeId)) || !['video.mp4', 'video.mov'].includes(String(r.fileName)) ||
+        !(r.takeId === null || isProtocolId(r.takeId)) ||
         typeof r.localUri !== 'string' || typeof r.bytes !== 'number' || !Number.isFinite(r.bytes) || r.bytes <= 0 ||
         r.audio !== false || typeof r.createdAt !== 'string' || !validUpload(r.upload) || 'publicId' in r || 'url' in r ||
         (r.uploadRevision !== undefined && (!Number.isSafeInteger(r.uploadRevision) || (r.uploadRevision as number) < 0)) ||
@@ -51,7 +53,8 @@ function readCapture(text: string | null): LocalCaptureMediaAsset | null {
 }
 function toCapture(asset: LocalCaptureMediaAsset): LocalCapture {
   return { id: asset.localId, sessionId: asset.sessionId, deviceId: asset.deviceId, nodeId: asset.nodeId,
-    takeId: asset.takeId, localUri: asset.localUri, fileName: asset.fileName, bytes: asset.bytes, createdAt: asset.createdAt, audio: false };
+    takeId: asset.takeId, localUri: asset.localUri, fileName: asset.fileName, bytes: asset.bytes, createdAt: asset.createdAt, audio: false,
+    resourceType: asset.resourceType, ...(asset.photoId ? { photoId: asset.photoId } : {}) };
 }
 async function upsertCapture(capture: LocalCapture) {
   const id = captureCatalogId(capture);
@@ -61,7 +64,8 @@ async function upsertCapture(capture: LocalCapture) {
     const current = readCapture(text);
     const record = { id, localId: capture.id, sessionId: capture.sessionId, takeId: capture.takeId,
       deviceId: capture.deviceId, nodeId: capture.nodeId, localUri: capture.localUri, bytes: capture.bytes,
-      fileName: capture.fileName, audio: false, createdAt: capture.createdAt, storage: 'local', source: 'capture', resourceType: 'video',
+      fileName: capture.fileName, audio: false, createdAt: capture.createdAt, storage: 'local', source: 'capture',
+      resourceType: capture.resourceType ?? 'video', ...(capture.photoId ? { photoId: capture.photoId } : {}),
       upload: current?.upload ?? { state: 'local' } };
     const encoded = JSON.stringify({ ...record, uploadRevision: current?.uploadRevision ?? 0 });
     if (text !== encoded) await AsyncStorage.setItem(key, encoded);

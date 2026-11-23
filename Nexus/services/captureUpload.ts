@@ -39,7 +39,9 @@ export function createCaptureUploader(deps: UploadDependencies) {
       await set(id, { state: 'uploading' });
       try { await notify(id); } catch { /* Offline relay does not prevent uploading an owned original. */ }
       confirmed = await deps.upload(asset, uri, publicId);
-      if (confirmed.resourceType !== 'video' || !isCaptureUpload({ state: 'uploaded', publicId: confirmed.publicId, url: confirmed.url })) throw Object.assign(new Error('Respuesta de subida incompleta o inválida.'), { code: 'UPLOAD_UNCERTAIN' });
+      const resourceType = asset.resourceType ?? 'video';
+      if (confirmed.resourceType !== resourceType ||
+          !isCaptureUpload({ state: 'uploaded', publicId: confirmed.publicId, url: confirmed.url }, resourceType)) throw Object.assign(new Error('Respuesta de subida incompleta o inválida.'), { code: 'UPLOAD_UNCERTAIN' });
       await set(id, { state: 'uploaded', publicId: confirmed.publicId, url: confirmed.url });
     } catch (error) {
       const uncertain = !!confirmed || (error && typeof error === 'object' && 'code' in error && error.code === 'UPLOAD_UNCERTAIN');
@@ -99,7 +101,8 @@ export const captureUploader = createCaptureUploader({
   async getAssets() { return (await getMediaCatalog()).assets.filter((asset): asset is LocalCaptureMediaAsset => asset.storage === 'local'); },
   setState: setCaptureUpload, verify: getMediaPlaybackUri, owner: getOrCreateDeviceId,
   publicId: async (asset) => `nexus/${await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, asset.id)}`,
-  upload: (asset, uri, publicId) => uploadMediaAsset({ uri, fileName: asset.fileName, mimeType: asset.fileName.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
-    sessionId: asset.sessionId, source: 'capture', assetId: asset.id, expectedBytes: asset.bytes, publicId }),
+  upload: (asset, uri, publicId) => uploadMediaAsset({ uri, fileName: asset.fileName,
+    mimeType: asset.resourceType === 'image' ? 'image/jpeg' : asset.fileName.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
+    sessionId: asset.sessionId, source: 'capture', resourceType: asset.resourceType, assetId: asset.id, expectedBytes: asset.bytes, publicId }),
   notify: notifyController,
 });

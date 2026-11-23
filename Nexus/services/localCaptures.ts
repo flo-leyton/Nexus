@@ -11,21 +11,35 @@ function folder(sessionId: string, deviceId: string, id?: string) {
 function hasBytes(info: FileSystem.FileInfo): info is FileSystem.FileInfo & { exists: true; size: number } {
   return info.exists && !info.isDirectory && Number.isFinite(info.size) && info.size > 0;
 }
+function validCaptureFile(capture: { fileName?: unknown; resourceType?: unknown; id?: unknown; photoId?: unknown; takeId?: unknown }) {
+  if (capture.fileName === 'photo.jpg') return capture.resourceType === 'image' && isProtocolId(capture.photoId) &&
+    capture.photoId === capture.id && capture.takeId === null;
+  return ['video.mp4', 'video.mov'].includes(String(capture.fileName)) &&
+    (capture.resourceType === undefined || capture.resourceType === 'video') && capture.photoId === undefined;
+}
 export async function verifyLocalCapture(capture: LocalCapture) {
-  if (!['video.mp4', 'video.mov'].includes(capture.fileName)) throw new Error('Formato local no válido.');
+  if (!validCaptureFile(capture)) throw new Error('Formato local no válido.');
   const uri = `${folder(capture.sessionId, capture.deviceId, capture.id)}${capture.fileName}`;
   const info = await FileSystem.getInfoAsync(uri);
-  if (!hasBytes(info) || info.size !== capture.bytes) throw new Error('El vídeo local falta, está vacío o quedó incompleto.');
+  if (!hasBytes(info) || info.size !== capture.bytes) throw new Error('El archivo local falta, está vacío o quedó incompleto.');
   // Resolve from the current documentDirectory: iOS can change the container path on reinstall/update.
   return { ...capture, localUri: uri };
 }
 export async function persistLocalCapture(draft: LocalCaptureDraft, temporaryUri: string): Promise<LocalCapture> {
-  const directory = folder(draft.sessionId, draft.deviceId, draft.id);
-  if (!isProtocolId(draft.nodeId) || !temporaryUri.startsWith('file://')) throw Object.assign(new Error('La cámara no devolvió un vídeo local válido.'), { code: 'CAPTURE_SOURCE_INVALID' });
-  const source = await FileSystem.getInfoAsync(temporaryUri);
-  if (!hasBytes(source)) throw Object.assign(new Error('El vídeo temporal no existe o está vacío. Graba otro clip.'), { code: 'CAPTURE_SOURCE_INVALID' });
   const fileName = /\.mov(?:[?#]|$)/i.test(temporaryUri) ? 'video.mov' : 'video.mp4';
-  const capture: LocalCapture = { ...draft, fileName, localUri: `${directory}${fileName}`, bytes: source.size };
+  return persistCapture(draft, temporaryUri, fileName);
+}
+export async function persistLocalPhoto(draft: LocalCaptureDraft, temporaryUri: string): Promise<LocalCapture> {
+  if (draft.takeId !== null) throw new Error('Una foto requiere un identificador propio.');
+  return persistCapture(draft, temporaryUri, 'photo.jpg');
+}
+async function persistCapture(draft: LocalCaptureDraft, temporaryUri: string, fileName: LocalCapture['fileName']): Promise<LocalCapture> {
+  const directory = folder(draft.sessionId, draft.deviceId, draft.id);
+  if (!isProtocolId(draft.nodeId) || !temporaryUri.startsWith('file://')) throw Object.assign(new Error('La cámara no devolvió un archivo local válido.'), { code: 'CAPTURE_SOURCE_INVALID' });
+  const source = await FileSystem.getInfoAsync(temporaryUri);
+  if (!hasBytes(source)) throw Object.assign(new Error('El archivo temporal no existe o está vacío.'), { code: 'CAPTURE_SOURCE_INVALID' });
+  const capture: LocalCapture = { ...draft, fileName, localUri: `${directory}${fileName}`, bytes: source.size,
+    ...(fileName === 'photo.jpg' ? { resourceType: 'image', photoId: draft.id } as const : {}) };
   await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
   // Identity and expected length are durable before copying. A restart can discover a
   // completed copy without a shared read/modify/write index or a final metadata write.
@@ -53,7 +67,7 @@ export async function getLocalCaptures(sessionId: string, deviceId: string): Pro
       const raw: unknown = JSON.parse(await FileSystem.readAsStringAsync(`${directory}${id}/capture.json`));
       if (!isRecord(raw) || raw.id !== id || raw.sessionId !== sessionId || raw.deviceId !== deviceId ||
           !isProtocolId(raw.nodeId) || !(raw.takeId === null || isProtocolId(raw.takeId)) || raw.audio !== false || typeof raw.createdAt !== 'string' ||
-          typeof raw.bytes !== 'number' || raw.bytes <= 0 || !['video.mp4', 'video.mov'].includes(String(raw.fileName))) throw new Error('Metadatos incompletos');
+          typeof raw.bytes !== 'number' || raw.bytes <= 0 || !validCaptureFile(raw)) throw new Error('Metadatos incompletos');
       captures.push(await verifyLocalCapture(raw as unknown as LocalCapture));
     } catch (error) { problems.push(`Clip ${id}: ${error instanceof Error ? error.message : 'no se pudo verificar'}`); }
   }
@@ -89,7 +103,7 @@ export async function scanLocalCaptures(): Promise<{ entries: PersistedCaptureEn
                 if (!isRecord(raw) || raw.id !== id || raw.sessionId !== sessionId || raw.deviceId !== deviceId ||
                     !isProtocolId(raw.nodeId) || !(raw.takeId === null || isProtocolId(raw.takeId)) || raw.audio !== false ||
                     typeof raw.createdAt !== 'string' || typeof raw.bytes !== 'number' || !Number.isFinite(raw.bytes) || raw.bytes <= 0 ||
-                    !['video.mp4', 'video.mov'].includes(String(raw.fileName))) throw new Error('Metadatos incompletos');
+                    !validCaptureFile(raw)) throw new Error('Metadatos incompletos');
                 const capture = { ...raw, localUri: `${directory}${id}/${raw.fileName}` } as unknown as LocalCapture;
                 try { entries.push({ capture: await verifyLocalCapture(capture), available: true, error: null }); }
                 catch (error) { entries.push({ capture, available: false, error: error instanceof Error ? error.message : 'Archivo no disponible' }); }

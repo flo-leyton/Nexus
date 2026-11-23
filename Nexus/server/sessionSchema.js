@@ -34,6 +34,7 @@ function encodeRegistry(sessions, owners, revision) {
     ...sharedSession(s), pending: Object.fromEntries([...s.pending].map(([key, p]) => [key, { requestId: p.requestId, deviceId: p.deviceId, uid: p.uid }])),
     roles: Object.fromEntries([...s.roles].map(([key, r]) => [key, { targetId: r.targetId, role: r.role, acked: r.acked, expired: r.expired, expiresAt: r.expiresAt }])),
     usedTakes: [...(s.usedTakes || [])], closeCommands: Object.fromEntries(s.closeCommands || []),
+    ...(s.photoCommands?.size ? { photoCommands: Object.fromEntries(s.photoCommands) } : {}),
     recordingCommands: Object.fromEntries([...(s.recordingCommands || [])].map(([key, cmd]) => [key, {
       signature: cmd.signature, type: cmd.type, takeId: cmd.takeId, targetNodeIds: cmd.targetNodeIds, expiresAt: cmd.expiresAt,
       responded: [...cmd.responded], executed: [...cmd.executed], notified: [...cmd.notified], expiredTargets: [...(cmd.expiredTargets || [])] }])),
@@ -69,6 +70,18 @@ function decodeRegistry(doc) {
     const takeIds = sessionTakes(s).map((take) => take.takeId);
     if (new Set(takeIds).size !== takeIds.length) throw new Error('Take duplicada en RTDB.');
     s.usedTakes = new Set([...(raw.usedTakes || []), ...takeIds]); s.closeCommands = new Map(entries(raw.closeCommands));
+    s.photoCommands = new Map(entries(raw.photoCommands).map(([requestId, command]) => {
+      if (!isProtocolId(requestId) || !isProtocolId(command?.nodeId) || !isProtocolId(command?.deviceId) ||
+          !Number.isSafeInteger(command.expiresAt) || (command.result && (command.result.requestId !== requestId ||
+          !isSessionEvent({ protocolVersion: 1, messageId: 'storage', type: 'PHOTO_RESULT', sessionId: id,
+            senderId: 'nexus-relay', targetId: s.controllerId, sentAt: 1, payload: { ...command.result, nodeId: command.nodeId } })))) {
+        throw new Error('Diario de fotos durable inválido.');
+      }
+      if (!command.result || command.result.status === 'received') {
+        return [requestId, { ...command, result: { requestId, status: 'error', error: 'Relay reiniciado. Comprueba el original en el Node.' } }];
+      }
+      return [requestId, command];
+    }));
     s.recordingCommands = new Map(entries(raw.recordingCommands).map(([key, cmd]) => [key, { ...cmd,
       responded: new Set(cmd.responded || []), executed: new Set(cmd.executed || []), notified: new Set(cmd.notified || []), expiredTargets: new Set(cmd.targetNodeIds), recovered: true }]));
     for (const m of s.members.values()) { m.online = false; if (m.kind === 'node') { m.readiness = { ...INITIAL_READINESS }; m.readyEpoch = randomUUID(); m.requiresReadyConfirmation = true; } }

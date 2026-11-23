@@ -34,13 +34,14 @@ export type RemoteMediaAsset = MediaAssetBase & {
 export type LocalCaptureMediaAsset = MediaAssetBase & {
   storage: 'local';
   source: 'capture';
-  resourceType: 'video';
+  resourceType: NexusMediaResourceType;
+  photoId?: string;
   localId: string;
   takeId: string | null;
   deviceId: string;
   nodeId: string;
   localUri: string;
-  fileName: 'video.mp4' | 'video.mov';
+  fileName: 'video.mp4' | 'video.mov' | 'photo.jpg';
   bytes: number;
   audio: false;
   upload: CaptureUpload;

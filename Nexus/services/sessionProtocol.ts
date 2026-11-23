@@ -61,12 +61,16 @@ export interface TakeMediaAngle {
 export function isCloudinaryVideoUrl(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 4096 && /^https:\/\/res\.cloudinary\.com\/[A-Za-z0-9_-]+\/video\/upload\/[^\s]+$/.test(value);
 }
-export function isCaptureUpload(value: unknown): value is CaptureUpload {
+export function isCloudinaryImageUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 4096 && /^https:\/\/res\.cloudinary\.com\/[A-Za-z0-9_-]+\/image\/upload\/[^\s]+$/.test(value);
+}
+export function isCaptureUpload(value: unknown, resourceType: 'image' | 'video' = 'video'): value is CaptureUpload {
   if (!isRecord(value)) return false;
   if (['local', 'queued', 'uploading'].includes(String(value.state))) return Object.keys(value).length === 1;
   if (value.state === 'failed' || value.state === 'uncertain') return Object.keys(value).length === 2 && typeof value.error === 'string' && value.error.length <= 512;
   return value.state === 'uploaded' && Object.keys(value).length === 3 && typeof value.publicId === 'string' &&
-    value.publicId.trim().length > 0 && value.publicId.length <= 512 && isCloudinaryVideoUrl(value.url);
+    value.publicId.trim().length > 0 && value.publicId.length <= 512 &&
+    (resourceType === 'image' ? isCloudinaryImageUrl(value.url) : isCloudinaryVideoUrl(value.url));
 }
 export function isTakeMediaAngle(value: unknown): value is TakeMediaAngle {
   return isRecord(value) && Object.keys(value).every((key) => ['clipId', 'takeId', 'deviceId', 'nodeId', 'bytes', 'revision', 'upload', 'role'].includes(key)) &&
@@ -145,6 +149,8 @@ export type SessionRequest =
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
   | (NexusMessage<{ enabled: boolean }> & { type: 'TORCH_SET'; targetId: string })
+  | (NexusMessage<Record<string, never>> & { type: 'PHOTO_CAPTURE'; targetId: string })
+  | (NexusMessage<PhotoResult> & { type: 'PHOTO_REPORT'; targetId: string })
   | (NexusMessage<{ requestId: string; available: boolean }> & { type: 'TORCH_ACK'; targetId: string })
   | (NexusMessage<{ readiness: NodeReadiness; readyEpoch?: string; confirmReady?: true }> & { type: 'NODE_STATE'; targetId: string })
   | (NexusMessage<{ takeId: string; targetNodeIds: string[]; durationSeconds?: number }> & { type: 'START_RECORDING' })
@@ -160,7 +166,18 @@ export type SessionEvent =
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_REJECTED' | 'SESSION_CLOSED' })
   | (NexusMessage<{ requestId: string; angle: TakeMediaAngle }> & { type: 'MEDIA_ACCEPTED' })
   | (NexusMessage<{ requestId: string; nodeId: string; enabled: boolean; available: boolean }> & { type: 'TORCH_RESULT' })
+  | (NexusMessage<PhotoResult & { nodeId: string }> & { type: 'PHOTO_RESULT' })
   | (NexusMessage<{ requestId: string; code: string }> & { type: 'SESSION_ERROR' });
+
+export type PhotoResult = { requestId: string } & (
+  { status: 'received' } | { status: 'saved'; photoId: string } | { status: 'error'; error: string }
+);
+function isPhotoResult(value: Record<string, unknown>, extraKeys = 0): boolean {
+  const keys = Object.keys(value).length - extraKeys;
+  return isProtocolId(value.requestId) && ((value.status === 'received' && keys === 2) ||
+    (value.status === 'saved' && keys === 3 && isProtocolId(value.photoId)) ||
+    (value.status === 'error' && keys === 3 && typeof value.error === 'string' && value.error.length <= 256));
+}
 
 export function isNodeRole(value: unknown): value is string {
   return typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= 64 && !/[\x00-\x1f\x7f]/.test(value);
@@ -237,6 +254,10 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && isNodeRole(value.payload.role);
     case 'TORCH_SET':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 1 && typeof value.payload.enabled === 'boolean';
+    case 'PHOTO_CAPTURE':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 0;
+    case 'PHOTO_REPORT':
+      return value.sessionId !== JOIN_BY_CODE && !!value.targetId && isPhotoResult(value.payload);
     case 'TORCH_ACK':
       return value.sessionId !== JOIN_BY_CODE && !!value.targetId && keys.length === 2 &&
         isProtocolId(value.payload.requestId) && typeof value.payload.available === 'boolean';
@@ -273,6 +294,7 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
     case 'SESSION_LIST_RESULT': return Array.isArray(p.sessionIds) && p.sessionIds.every(isProtocolId);
     case 'MEDIA_ACCEPTED': return isTakeMediaAngle(p.angle);
     case 'TORCH_RESULT': return isProtocolId(p.nodeId) && typeof p.enabled === 'boolean' && typeof p.available === 'boolean';
+    case 'PHOTO_RESULT': return isProtocolId(p.nodeId) && isPhotoResult(p, 1);
     case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId) &&
       (p.online === undefined || typeof p.online === 'boolean') && (p.controllerOnline === undefined || typeof p.controllerOnline === 'boolean');
     case 'SESSION_JOIN_REJECTED':

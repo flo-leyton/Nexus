@@ -54,15 +54,32 @@ async function harness(t) {
   });
   let sequence = 0;
   return { local, disk, data, reload,
-    async capture(overrides = {}) {
+    async capture(overrides = {}, photo = false) {
       const id = `clip-${++sequence}`;
-      const source = pathToFileURL(path.join(cache, `${id}.mp4`)).href;
+      const source = pathToFileURL(path.join(cache, `${id}.${photo ? 'jpg' : 'mp4'}`)).href;
       await fsp.writeFile(fileURLToPath(source), Buffer.alloc(256, sequence));
-      return local.persistLocalCapture({ sessionId: 'session', deviceId: 'device', nodeId: 'node', id,
-        takeId: 'take', createdAt: new Date().toISOString(), audio: false, ...overrides }, source);
+      const draft = { sessionId: 'session', deviceId: 'device', nodeId: 'node', id,
+        takeId: photo ? null : 'take', createdAt: new Date().toISOString(), audio: false, ...overrides };
+      return photo ? local.persistLocalPhoto(draft, source) : local.persistLocalCapture(draft, source);
     },
   };
 }
+
+test('NX-07: JPEG original and sidecar recover into the catalog alongside legacy videos', async (t) => {
+  const h = await harness(t);
+  const video = await h.capture();
+  const photo = await h.capture({}, true);
+  assert.equal(photo.fileName, 'photo.jpg');
+  assert.equal(photo.photoId, photo.id);
+  const recovered = await h.reload().getMediaCatalog();
+  const asset = recovered.assets.find((item) => item.localId === photo.id);
+  assert.equal(asset.resourceType, 'image');
+  assert.equal(asset.photoId, photo.id);
+  assert.equal(asset.sessionId, photo.sessionId);
+  assert.equal(asset.nodeId, photo.nodeId);
+  assert.equal(await h.reload().getMediaPlaybackUri(asset), photo.localUri);
+  assert.equal(recovered.assets.find((item) => item.localId === video.id).resourceType, 'video');
+});
 
 test('H3.1: legacy imports and H1 null-take sidecars load without remote placeholders or legacy migration writes', async (t) => {
   const h = await harness(t), catalog = h.reload();

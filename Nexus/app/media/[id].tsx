@@ -42,7 +42,9 @@ export default function MediaDetailScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
         <Pressable onPress={() => router.back()}><ThemedText type="link">← Volver</ThemedText></Pressable>
         <ThemedText type="title">Detalle del medio</ThemedText>
-        {asset.storage === 'remote' && asset.resourceType === 'image' && <Image source={{ uri: asset.url }} style={styles.preview} />}
+        {asset.resourceType === 'image' && (asset.storage === 'remote' || asset.localAvailable) &&
+          <Image source={{ uri: asset.storage === 'remote' ? asset.url : asset.localUri }}
+            resizeMode={asset.storage === 'local' ? 'contain' : undefined} style={styles.preview} />}
         <ThemedView style={styles.metadata}>
           <ThemedText type="subtitle">{asset.storage === 'local' ? asset.fileName : asset.fileName ?? asset.publicId}</ThemedText>
           <ThemedText>Tipo: {asset.resourceType}</ThemedText>
@@ -51,15 +53,15 @@ export default function MediaDetailScreen() {
           <ThemedText>Origen: {asset.source}</ThemedText>
           <ThemedText>{mediaUploadLabel(asset)}</ThemedText>
           {asset.storage === 'remote' ? <ThemedText>Public ID: {asset.publicId}</ThemedText> : <>
-            <ThemedText selectable>Clip local: {asset.localId}</ThemedText>
-            <ThemedText selectable>takeId: {asset.takeId ?? 'Manual H1 (sin toma coordinada)'}</ThemedText>
+            <ThemedText selectable>{asset.photoId ? 'photoId' : 'Clip local'}: {asset.localId}</ThemedText>
+            {!asset.photoId && <ThemedText selectable>takeId: {asset.takeId ?? 'Manual H1 (sin toma coordinada)'}</ThemedText>}
             <ThemedText selectable>deviceId: {asset.deviceId}</ThemedText>
             <ThemedText selectable>nodeId: {asset.nodeId}</ThemedText>
             <ThemedText>Archivo: {asset.localAvailable ? 'Local verificado' : 'No disponible'}</ThemedText>
             {asset.localError && <ThemedText>{asset.localError}</ThemedText>}
             {(asset.upload.state === 'failed' || asset.upload.state === 'uncertain') && <ThemedText>{asset.upload.error}</ThemedText>}
             {asset.upload.state === 'uploaded' && <ThemedText selectable>Recurso remoto: {asset.upload.url}</ThemedText>}
-            <ThemedText>Este catálogo no indica ACK ni confirmación del relay. Consulta la toma en el Controller.</ThemedText>
+            {!asset.photoId && <ThemedText>Este catálogo no indica ACK ni confirmación del relay. Consulta la toma en el Controller.</ThemedText>}
           </>}
           {asset.width !== undefined && asset.height !== undefined && <ThemedText>Dimensiones: {asset.width} × {asset.height}</ThemedText>}
           {asset.duration !== undefined && <ThemedText>Duración: {asset.duration} s</ThemedText>}
@@ -68,7 +70,8 @@ export default function MediaDetailScreen() {
         </ThemedView>
         {!!error && <ThemedText>{error}</ThemedText>}
         {asset.storage === 'local' && <CaptureUploadControls id={asset.id} />}
-        {asset.storage === 'local' && !asset.localAvailable ? <ThemedText>Reproducción no disponible: el archivo local no se pudo verificar.</ThemedText> : <Pressable accessibilityRole="button" onPress={() => {
+        {asset.storage === 'local' && !asset.localAvailable ? <ThemedText>El archivo local no se pudo verificar.</ThemedText> :
+          !(asset.storage === 'local' && asset.resourceType === 'image') && <Pressable accessibilityRole="button" onPress={() => {
           setError(''); setPlaybackUri(null);
           void getMediaPlaybackUri(asset).then((uri) => {
             if (asset.storage === 'local') setPlaybackUri(uri);

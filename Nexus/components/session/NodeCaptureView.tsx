@@ -12,6 +12,7 @@ export type NodeCaptureViewProps = {
   focused: boolean; isWeb: boolean; reportError: string; controlError: string; takeId?: string;
   zoom?: { percent: number; disabled: boolean; adjust(delta: number): void; set?(percent: number): void };
   fullPreview?: boolean; onPreviewChange?(expanded: boolean): void; onPreviewLayout?(event: LayoutChangeEvent): void;
+  photoStatus?: string; onPhoto?(): void;
   camera: ReactNode; onConfirmReady(): void; onRecord(): void; onStop(): void; onRetrySave(): void; onPrepare(): void;
 };
 
@@ -91,6 +92,8 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
             style={sessionStyles.control} contentStyle={sessionStyles.touch}>Prueba local · sin audio</Button>}
       {props.requiresConfirmation && <Button mode="contained" icon="check" disabled={props.confirmDisabled} onPress={props.onConfirmReady}
         style={sessionStyles.control} contentStyle={sessionStyles.touch}>Confirmar READY para nueva toma</Button>}
+      {props.onPhoto && <Button mode="outlined" icon="camera-outline" disabled={!props.canRecord || !!props.photoStatus}
+        onPress={props.onPhoto} contentStyle={sessionStyles.touch}>Tomar foto</Button>}
     </View>}
     {!full && <SessionDetails title="Detalles de cámara y toma">
       {!!props.reasons.length && <Text variant="bodyMedium">{props.reasons.join(' · ')}</Text>}

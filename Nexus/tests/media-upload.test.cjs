@@ -95,6 +95,28 @@ function adapterFixture() {
   return { state, calls, input, adapter, upload: () => adapter.uploadMediaAsset(input) };
 }
 
+test('NX-07: Cloudinary accepts the image result only for a photo upload', async () => {
+  const h = adapterFixture();
+  h.state.response.body = JSON.stringify({ public_id: 'nexus/photo', secure_url: 'https://res.cloudinary.com/test/image/upload/nexus/photo.jpg',
+    resource_type: 'image', bytes: 256 });
+  const input = { ...h.input, fileName: 'photo.jpg', mimeType: 'image/jpeg', resourceType: 'image' };
+  assert.equal((await h.adapter.uploadMediaAsset(input)).resourceType, 'image');
+  await assert.rejects(h.upload(), /resource_type esperado video/);
+  let attempts = 0;
+  const worker = uploaderFixture({ async upload(_asset, uri, publicId) {
+    assert.equal(uri, 'file:///photo.jpg');
+    if (++attempts === 1) throw new Error('offline');
+    return { resourceType: 'image', publicId, url: 'https://res.cloudinary.com/test/image/upload/photo.jpg' };
+  } });
+  Object.assign(worker.asset, { resourceType: 'image', takeId: null, localUri: 'file:///photo.jpg' });
+  await assert.rejects(worker.uploader.upload(worker.asset.id), /offline/);
+  assert.equal(worker.asset.upload.state, 'failed');
+  await worker.uploader.upload(worker.asset.id);
+  assert.equal(worker.asset.upload.state, 'uploaded');
+  assert.equal(worker.asset.localUri, 'file:///photo.jpg');
+  assert.equal(worker.notifications.length, 0);
+});
+
 test('H3 regression: preset folder prefix preserves clip identity through adapter, worker and retry', async () => {
   const h = adapterFixture();
   const payload = JSON.parse(h.state.response.body);

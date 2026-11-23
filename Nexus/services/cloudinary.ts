@@ -4,7 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
 import type { RemoteMediaAsset, NexusMediaResourceType, NexusMediaSource } from '@/types/media';
-import { isCloudinaryVideoUrl } from './sessionProtocol';
+import { isCloudinaryImageUrl, isCloudinaryVideoUrl } from './sessionProtocol';
 
 export type UploadMediaAssetInput = {
   uri: string;
@@ -16,6 +16,7 @@ export type UploadMediaAssetInput = {
   assetId?: string;
   publicId?: string;
   expectedBytes?: number;
+  resourceType?: NexusMediaResourceType;
 };
 
 type CloudinaryUploadResponse = {
@@ -175,10 +176,13 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput): Promise<Re
   }
   if (input.source === 'capture') {
     const problems: string[] = [];
+    const expected = input.resourceType ?? 'video';
     // The requested ID is a naming hint. Only the provider response defines the
     // remote identity; catalogId and original participation remain local identities.
-    if (payload.resource_type !== 'video') problems.push(`resource_type esperado video, recibido ${payload.resource_type}`);
-    if (!isCloudinaryVideoUrl(payload.secure_url)) problems.push('secure_url no es una URL HTTPS de vídeo de Cloudinary compatible');
+    if (payload.resource_type !== expected) problems.push(`resource_type esperado ${expected}, recibido ${payload.resource_type}`);
+    if (!(expected === 'image' ? isCloudinaryImageUrl(payload.secure_url) : isCloudinaryVideoUrl(payload.secure_url))) {
+      problems.push(`secure_url no es una URL HTTPS de ${expected} de Cloudinary compatible`);
+    }
     if (typeof payload.bytes !== 'number' || !Number.isFinite(payload.bytes) || payload.bytes <= 0) problems.push('bytes ausentes o no positivos en la respuesta');
     if (problems.length) throw Object.assign(new Error(`CLOUDINARY RESPONSE ERROR: ${problems.join('; ')}. Subida sin confirmar.`), { code: 'UPLOAD_UNCERTAIN' });
   }

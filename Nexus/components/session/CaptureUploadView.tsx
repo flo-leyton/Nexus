@@ -18,7 +18,9 @@ export function CaptureUploadView({ asset, busy, disabled, notice, onUpload, onO
       {busy ? 'Procesando…' : uploaded ? 'Comunicar resultado al Controller' : asset.upload.state === 'failed' || asset.upload.state === 'uncertain' ? 'Reintentar subida' : 'Subir a Cloudinary'}
     </Button>
     {uploaded && <Button mode="text" icon="open-in-new" onPress={onOpenRemote} contentStyle={sessionStyles.touch}>Abrir vídeo remoto</Button>}
-    {!asset.takeId && <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Clip manual sin Take: la subida se conserva en este teléfono; no se agrega a una toma del Controller.</Text>}
+    {!asset.takeId && <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>{asset.resourceType === 'image'
+      ? 'La referencia de la foto subida se conserva en este teléfono.'
+      : 'Clip manual sin Take: la subida se conserva en este teléfono; no se agrega a una toma del Controller.'}</Text>}
     {!!notice && !((asset.upload.state === 'failed' || asset.upload.state === 'uncertain') && notice === asset.upload.error) && <SessionNotice title={notice} />}
   </View>;
 }

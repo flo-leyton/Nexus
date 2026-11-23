@@ -1,12 +1,13 @@
 import { useIsFocused } from '@react-navigation/native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, useWindowDimensions } from 'react-native';
 
 import { NodeCaptureView } from './session/NodeCaptureView';
 import { CaptureEngine } from '@/services/captureEngine';
-import { persistLocalCapture } from '@/services/localCaptures';
+import { persistLocalCapture, persistLocalPhoto } from '@/services/localCaptures';
+import { capturePhoto } from '@/services/photoCapture';
 import { coordinateCapture } from '@/services/coordinatedCapture';
 import type { getSessionService } from '@/services/session';
 import { activeTakeForDevice, readinessReasons } from '@/services/sessionProtocol';
@@ -28,6 +29,12 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   const [controlError, setControlError] = useState('');
   const [torchGeneration, setTorchGeneration] = useState<number | null>(null);
   const [zoom, setZoom] = useState(0);
+  const [photoStatus, setPhotoStatus] = useState('');
+  const [photoView, setPhotoView] = useState<{ mode: 'video' | 'picture'; version: number }>({ mode: 'video', version: 0 });
+  const photoVersion = useRef(0);
+  const photoBusy = useRef(false);
+  const photoMounted = useRef(true);
+  const transition = useRef<{ version: number; finish(error?: string): void } | null>(null);
   const [engine] = useState(() => new CaptureEngine({
     getPermission: Camera.getCameraPermissionsAsync,
     requestPermission: Camera.requestCameraPermissionsAsync,
@@ -55,7 +62,10 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     const coordinator = coordinateCapture(engine, { sessionId, nodeId, deviceId }, (report) => {
       service.reportCapture(sessionId, controllerId, report);
     });
-    const unregister = service.registerCaptureHandler(sessionId, coordinator.handle);
+    const unregister = service.registerCaptureHandler(sessionId, (command) => {
+      if (command.type === 'START_RECORDING' && photoBusy.current) throw new Error('La cámara está ocupada tomando o guardando una foto.');
+      coordinator.handle(command);
+    });
     return () => { unregister(); coordinator.dispose(); };
   }, [engine, service, sessionId, nodeId, deviceId, controllerId]);
 
@@ -88,7 +98,8 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       if (current.connection !== 'Connected' || current.sessions[sessionId]?.state === 'closed' ||
           current.sessions[sessionId]?.members[deviceId]?.online === false || current.sessions[sessionId]?.members[deviceId]?.nodeId !== nodeId) return;
       try {
-        service.reportNodeState(sessionId, controllerId, engine.getReadiness());
+        service.reportNodeState(sessionId, controllerId, photoBusy.current
+          ? { ...engine.getReadiness(), enginePrepared: false, error: 'Fotografía en curso' } : engine.getReadiness());
         if (mounted) setReportError('');
       } catch { if (mounted) setReportError('No se pudo informar el estado al Controller.'); }
     };
@@ -99,7 +110,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
         return;
       }
       setPreparation(state);
-      onBusyChange(engine.isBusy() || state.pendingSave);
+      onBusyChange(photoBusy.current || engine.isBusy() || state.pendingSave);
       if (state.lastCapture && state.lastCapture.id !== savedId.current) {
         savedId.current = state.lastCapture.id;
         onSaved();
@@ -117,22 +128,101 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     };
   }, [engine, service, sessionId, controllerId, deviceId, nodeId, onBusyChange, onSaved]);
   useEffect(() => {
-    if (sessionClosed) { engine.deactivate(); return; }
-    if (focused && appState === 'active') { if (!engine.isBusy() && !engine.getSnapshot().pendingSave) void engine.prepare(); }
+    if (sessionClosed) { if (!photoBusy.current) engine.deactivate(); return; }
+    if (focused && appState === 'active') { if (!photoBusy.current && !engine.isBusy() && !engine.getSnapshot().pendingSave) void engine.prepare(); }
     else engine.deactivate();
-    return () => engine.deactivate();
+    return () => { if (!photoBusy.current) engine.deactivate(); };
   }, [engine, focused, appState, sessionClosed]);
   useEffect(() => {
-    if (!sessionClosed && focused && appState === 'active' && !engine.isBusy() && !engine.getSnapshot().active && !preparation.pendingSave) void engine.prepare();
-  }, [engine, focused, appState, sessionClosed, preparation.phase, preparation.pendingSave]);
+    if (!sessionClosed && focused && appState === 'active' && !photoBusy.current && !engine.isBusy() && !engine.getSnapshot().active && !preparation.pendingSave) void engine.prepare();
+  }, [engine, focused, appState, sessionClosed, preparation.phase, preparation.pendingSave, photoStatus]);
+
+  const takePhoto = useCallback((photoId: string) => {
+    const snapshot = service.getSnapshot();
+    const current = snapshot.sessions[sessionId];
+    const member = current?.members[deviceId];
+    if (photoBusy.current || engine.isBusy() || engine.getSnapshot().pendingSave) throw new Error('La cámara está ocupada.');
+    if (Platform.OS === 'web' || !focused || AppState.currentState !== 'active' || !accepted || sessionClosed ||
+        snapshot.connection !== 'Connected' || !current || current.state === 'closed' || member?.nodeId !== nodeId ||
+        member.online === false || member.requiresReadyConfirmation || activeTakeForDevice(current, deviceId) ||
+        !view.current || readinessReasons(engine.getReadiness()).length) throw new Error('La cámara debe estar READY para tomar una foto.');
+    photoBusy.current = true;
+    onBusyChange(true);
+    setControlError('');
+    setPhotoStatus('Preparando foto…');
+    const reportReadiness = () => {
+      try {
+        if (service.getSnapshot().sessions[sessionId]?.members[deviceId]?.nodeId !== nodeId) return;
+        const readiness = engine.getReadiness();
+        service.reportNodeState(sessionId, controllerId, photoBusy.current
+          ? { ...readiness, enginePrepared: false, error: 'Fotografía en curso' } : readiness);
+      } catch { /* The local operation remains protected while offline. */ }
+    };
+    const switchMode = (mode: 'picture' | 'video') => new Promise<void>((resolve, reject) => {
+      if (!photoMounted.current) { reject(new Error('La vista de cámara se cerró.')); return; }
+      const version = ++photoVersion.current;
+      const finish = (error?: string) => {
+        clearTimeout(timer);
+        transition.current = null;
+        if (error) reject(new Error(error)); else resolve();
+      };
+      const timer = setTimeout(() => finish('La cámara no confirmó el cambio de modo.'), 6000);
+      transition.current = { version, finish };
+      setPhotoView({ mode, version });
+    });
+    reportReadiness();
+    return capturePhoto({
+      preparePicture: () => switchMode('picture'),
+      async takePicture() {
+        if (AppState.currentState !== 'active') throw new Error('Vuelve a la cámara para tomar una foto.');
+        setPhotoStatus('Tomando foto…');
+        const picture = await view.current?.takePictureAsync();
+        if (!picture?.uri) throw new Error('La cámara no devolvió una foto.');
+        return picture.uri;
+      },
+      async save(uri) {
+        setPhotoStatus('Guardando foto…');
+        const saved = await persistLocalPhoto({ id: photoId, sessionId, nodeId, deviceId,
+          takeId: null, audio: false, createdAt: new Date().toISOString() }, uri);
+        onSaved();
+        return saved.id;
+      },
+      async restoreVideo() {
+        setPhotoStatus('Preparando vídeo…');
+        try { await switchMode('video'); }
+        catch (error) {
+          engine.cameraFailed(engine.getSnapshot().generation, 'No se pudo volver al modo vídeo. Vuelve a preparar la cámara.');
+          throw error;
+        }
+      },
+    }).catch((error: unknown) => {
+      setControlError(error instanceof Error ? error.message : 'No se pudo tomar la foto.');
+      throw error;
+    }).finally(() => {
+      photoBusy.current = false;
+      if (!photoMounted.current) return;
+      onBusyChange(false);
+      setPhotoStatus('');
+      reportReadiness();
+    });
+  }, [accepted, controllerId, deviceId, engine, focused, nodeId, onBusyChange, onSaved, service, sessionClosed, sessionId]);
+  useEffect(() => service.registerPhotoHandler(sessionId, takePhoto), [service, sessionId, takePhoto]);
+  useEffect(() => {
+    photoMounted.current = true;
+    return () => {
+      photoMounted.current = false;
+      transition.current?.finish('La vista de cámara se cerró.');
+    };
+  }, []);
 
   const { readiness, generation } = preparation;
   const bounds = previewBounds ?? window;
   const previewWidth = Math.min(bounds.width, bounds.height * 9 / 16);
-  const busy = engine.isBusy();
-  const canMount = busy || (focused && appState === 'active' && preparation.active &&
+  const busy = engine.isBusy() || !!photoStatus;
+  const canMount = engine.isBusy() || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
   const reasons = readinessReasons(engine.getReadiness(), service.getSnapshot().connection === 'Connected');
+  if (photoStatus) reasons.push(photoStatus);
   const self = service.getSnapshot().sessions[sessionId]?.members[deviceId];
   if (!accepted || self?.online === false) reasons.push('Reanuda tu participación autorizada');
   if (self?.requiresReadyConfirmation) reasons.push('Confirma preparación para una nueva grabación');
@@ -148,7 +238,8 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     try { void Promise.resolve(action()).catch((error: unknown) => setControlError(error instanceof Error ? error.message : String(error))); }
     catch (error) { setControlError(error instanceof Error ? error.message : String(error)); }
   };
-  return <NodeCaptureView preparation={preparation} phaseLabel={phaseLabels[preparation.phase]} reasons={reasons} busy={busy}
+  return <NodeCaptureView preparation={preparation} phaseLabel={photoStatus || phaseLabels[preparation.phase]} reasons={reasons} busy={busy}
+    photoStatus={photoStatus} onPhoto={() => run(async () => { await takePhoto(Crypto.randomUUID()); })}
     fullPreview={fullPreview} onPreviewChange={onPreviewChange}
     onPreviewLayout={({ nativeEvent: { layout: { width, height } } }) => {
       if (fullPreview && width > 0 && height > 0) setPreviewBounds({ width, height });
@@ -163,15 +254,29 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
       set: setZoom,
     } : undefined}
-    camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute
+    camera={canMount && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
       style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
       zoom={zoom / 100}
       enableTorch={accepted && torchGeneration === generation}
-      onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
-      onMountError={(event) => engine.cameraFailed(generation, event.message)} />}
+      onCameraReady={() => {
+        if (!view.current || generation !== engine.getSnapshot().generation || photoView.version !== photoVersion.current) return;
+        if (transition.current?.version === photoView.version) {
+          if (photoView.mode === 'video') engine.cameraReady(generation);
+          transition.current.finish();
+        }
+        else if (!photoBusy.current && photoView.mode === 'video') engine.cameraReady(generation);
+      }}
+      onMountError={(event) => {
+        if (generation !== engine.getSnapshot().generation || photoView.version !== photoVersion.current) return;
+        if (transition.current?.version === photoView.version) transition.current.finish(event.message);
+        else engine.cameraFailed(generation, event.message);
+      }} />}
     onConfirmReady={() => run(() => { service.confirmNodeReady(sessionId, controllerId, engine.getReadiness()); })}
-    onRecord={() => run(() => engine.start({ sessionId, deviceId, nodeId }))}
+    onRecord={() => run(() => {
+      if (photoBusy.current) throw new Error('La cámara está ocupada tomando o guardando una foto.');
+      return engine.start({ sessionId, deviceId, nodeId });
+    })}
     onStop={() => run(() => engine.stop())} onRetrySave={() => run(() => engine.retrySave())}
     onPrepare={() => run(() => engine.prepare(readiness.cameraPermission !== 'granted' && preparation.canAskAgain))} />;
 }

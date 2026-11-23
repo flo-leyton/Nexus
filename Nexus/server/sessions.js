@@ -1,7 +1,7 @@
 const { randomUUID, randomInt } = require('node:crypto');
 const { attachRecording } = require('./recording');
 const { sharedSession, encodeRegistry, decodeRegistry } = require('./sessionSchema');
-const { isSessionRequest, isRecord, isProtocolId, activeTakes, sessionTakes, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
+const { isSessionRequest, isRecord, isProtocolId, activeTakes, sessionTakes, activeTakeForDevice, readinessReasons, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
 function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
   const sessions = new Map();
@@ -82,6 +82,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
     }
   };
   const recording = attachRecording({ clients, stateTimes, snapshot, emit });
+  const photoPending = (request) => request.expiresAt > Date.now() && (!request.result || request.result.status === 'received');
   const resetReady = (member) => {
     member.readiness = { ...INITIAL_READINESS };
     member.readyEpoch = randomUUID(); member.requiresReadyConfirmation = true;
@@ -134,6 +135,12 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
   const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
       if (s.closedAt) continue;
+      for (const [requestId, request] of s.photoCommands ?? []) {
+        if (request.expiresAt <= Date.now() && (!request.result || request.result.status === 'received')) {
+          request.result = { requestId, status: 'error', error: 'Guardado sin confirmar. Comprueba el original en el Node.' };
+          send(clients.get(s.controllerId), 'PHOTO_RESULT', s.sessionId, { ...request.result, nodeId: request.nodeId });
+        }
+      }
       for (const [nodeId, request] of s.torchRequests ?? []) {
         if (request.expiresAt <= Date.now()) s.torchRequests.delete(nodeId);
       }
@@ -256,6 +263,18 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       if (s.members.get(m.senderId).kind === 'node' && !s.members.get(m.senderId).online && !['SESSION_GET'].includes(m.type)) return error('REJOIN_REQUIRED');
+      if (m.type === 'PHOTO_REPORT') {
+        const member = s.members.get(m.senderId);
+        const request = s.photoCommands?.get(m.payload.requestId);
+        if (m.targetId !== s.controllerId || member.kind !== 'node' || request?.deviceId !== m.senderId || request.nodeId !== member.nodeId) return error('INVALID_TARGET');
+        if (m.payload.status === 'saved' && m.payload.photoId !== m.payload.requestId) return error('INVALID_MESSAGE');
+        if (!photoPending(request) || (request.result && m.payload.status === 'received')) return true;
+        request.result = m.payload;
+        send(clients.get(s.controllerId), 'PHOTO_RESULT', s.sessionId, { ...m.payload, nodeId: request.nodeId });
+        return true;
+      }
+      if (m.type === 'START_RECORDING' && m.senderId === s.controllerId && [...(s.photoCommands?.values() ?? [])]
+        .some((request) => photoPending(request) && m.payload.targetNodeIds.includes(request.nodeId))) return error('PHOTO_BUSY');
       if (m.type === 'TORCH_ACK') {
         const member = s.members.get(m.senderId);
         const request = s.torchRequests?.get(member.nodeId);
@@ -299,6 +318,25 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+      if (m.type === 'PHOTO_CAPTURE') {
+        s.photoCommands ??= new Map();
+        const previous = s.photoCommands.get(m.messageId);
+        if (previous) {
+          if (previous.nodeId !== m.targetId) return error('MESSAGE_ID_CONFLICT');
+          if (previous.result) send(client, 'PHOTO_RESULT', s.sessionId, { ...previous.result, nodeId: previous.nodeId });
+          return true;
+        }
+        const target = [...s.members.values()].find((member) => member.kind === 'node' && member.nodeId === m.targetId && member.online);
+        const socket = target && clients.get(target.deviceId);
+        if (!target || socket?.readyState !== 1 || socket.studioIdentity?.uid !== target.uid ||
+            !(socket.studioIdentity.expiresAt > Date.now())) return error('INVALID_TARGET');
+        if (target.requiresReadyConfirmation || readinessReasons(target.readiness).length ||
+            Date.now() - (stateTimes.get(target) ?? 0) >= NODE_STATE_TTL_MS || activeTakeForDevice(s, target.deviceId)) return error('NODE_NOT_READY');
+        if ([...s.photoCommands.values()].some((request) => request.nodeId === target.nodeId && photoPending(request))) return error('PHOTO_BUSY');
+        s.photoCommands.set(m.messageId, { nodeId: target.nodeId, deviceId: target.deviceId, expiresAt: Date.now() + 30000 });
+        emit(socket, JSON.stringify(m));
+        return true;
+      }
       if (m.type === 'TORCH_SET') {
         const target = [...s.members.values()].find((member) =>
           member.kind === 'node' && member.nodeId === m.targetId && member.online);
@@ -316,6 +354,7 @@ function attachSessions(relay, { storage, codeGenerator = () => randomInt(0, 36 
           return true;
         }
         if (activeTakes(s).length) return error('TAKE_ACTIVE');
+        if ([...(s.photoCommands?.values() ?? [])].some(photoPending)) return error('PHOTO_BUSY');
         const recipients = new Map([...s.pending, ...s.members]);
         s.closedAt = Date.now();
         s.torchRequests?.clear();

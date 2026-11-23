@@ -8,6 +8,7 @@ import { getSocketError, subscribeToSocketStatus } from '@/services/socket';
 export function sessionErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
   const messages: Record<string, string> = {
+    PHOTO_BUSY: 'La cámara está tomando o guardando una foto. Espera antes de enviar otra orden.',
     INVALID_RECORDING_TIMER: 'Introduce segundos enteros entre 1 y 3600.',
     RECORDING_TIMER_EXPIRED: 'La cuenta regresiva venció mientras la aplicación estaba suspendida.',
     RECORDING_SCHEDULE_ACTIVE: 'Ya hay una grabación programada en curso.',

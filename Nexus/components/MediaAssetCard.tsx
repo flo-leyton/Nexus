@@ -11,13 +11,14 @@ export function formatBytes(bytes?: number) {
 }
 
 export function MediaAssetCard({ asset, onPress }: { asset: NexusMediaAsset; onPress?: () => void }) {
+  const imageUri = asset.resourceType === 'image' ? asset.storage === 'remote' ? asset.url : asset.localAvailable ? asset.localUri : undefined : undefined;
   const content = (
     <ThemedView style={styles.card}>
-      {asset.storage === 'remote' && asset.resourceType === 'image' ? (
-        <Image source={{ uri: asset.url }} style={styles.preview} />
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} resizeMode={asset.storage === 'local' ? 'contain' : undefined} style={styles.preview} />
       ) : (
         <View style={styles.videoPreview}>
-          <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.videoLabel}>VIDEO</ThemedText>
+          <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.videoLabel}>{asset.resourceType === 'image' ? 'FOTO' : 'VIDEO'}</ThemedText>
         </View>
       )}
       <View style={styles.body}>
@@ -26,8 +27,8 @@ export function MediaAssetCard({ asset, onPress }: { asset: NexusMediaAsset; onP
         <ThemedText style={styles.meta}>Sesión: {asset.sessionId}</ThemedText>
         <ThemedText style={styles.meta}>Origen: {asset.source} · {mediaUploadLabel(asset)}</ThemedText>
         {asset.storage === 'local' && <>
-          <ThemedText style={styles.meta}>Toma: {asset.takeId ?? 'Manual H1'} · Node: {asset.nodeId}</ThemedText>
-          <ThemedText style={styles.meta}>Archivo: {asset.localAvailable ? 'Local verificado' : 'No disponible'} · Clip: {asset.localId}</ThemedText>
+          <ThemedText style={styles.meta}>{asset.photoId ? `Foto: ${asset.photoId}` : `Toma: ${asset.takeId ?? 'Manual H1'}`} · Node: {asset.nodeId}</ThemedText>
+          <ThemedText style={styles.meta}>Archivo: {asset.localAvailable ? 'Local verificado' : 'No disponible'}{!asset.photoId && ` · Clip: ${asset.localId}`}</ThemedText>
           {asset.localError && <ThemedText style={styles.meta}>{asset.localError}</ThemedText>}
         </>}
         <ThemedText style={styles.meta}>{new Date(asset.createdAt).toLocaleString()}</ThemedText>

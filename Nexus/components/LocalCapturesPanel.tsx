@@ -1,6 +1,7 @@
 import { useIsFocused } from '@react-navigation/native';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import { Image } from 'react-native';
 import { Button } from 'react-native-paper';
 import { LocalCapturesView } from './session/LocalCapturesView';
 import { sessionStyles } from './session/SessionUI';
@@ -30,7 +31,8 @@ export function LocalCapturesPanel({ sessionId, deviceId, busy }: { sessionId: s
     }}
     renderUpload={(capture) => <CaptureUploadControls id={captureCatalogId(capture)} disabled={busy} />}
     player={selected && focused && !busy && <>
-      <LocalVideoPlayer key={selected.id} uri={selected.localUri} />
-      <Button mode="text" onPress={() => setSelected(null)} contentStyle={sessionStyles.touch}>Cerrar reproductor</Button>
+      {selected.photoId ? <Image source={{ uri: selected.localUri }} resizeMode="contain" style={{ width: '100%', height: 320 }} />
+        : <LocalVideoPlayer key={selected.id} uri={selected.localUri} />}
+      <Button mode="text" onPress={() => setSelected(null)} contentStyle={sessionStyles.touch}>{selected.photoId ? 'Cerrar foto' : 'Cerrar reproductor'}</Button>
     </>} />;
 }

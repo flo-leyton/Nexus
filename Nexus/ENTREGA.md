@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-07 · Captura de fotografías
+
+El Node puede disparar localmente o recibir una orden dirigida a su `nodeId`. La cámara queda reservada hasta guardar el JPEG y volver a confirmar el modo vídeo. El relay conserva la solicitud para deduplicar y distingue recepción, guardado y error. El historial local muestra la miniatura y el `photoId`. La subida de imágenes admite reintentos desde el Node y conserva el original.
+
+Pasaron diez pruebas puntuales de captura, enrutamiento, bloqueo de REC y de cierre, recuperación de originales, subida simulada y regresiones de vídeo. También pasaron TypeScript, ESLint dirigido y `git diff --check`. Pendiente de prueba física con el relay DevB y las APK actuales cargando NX-07 por Metro. Toma una foto local y otra desde el Controller. Confirma el destino, la miniatura tras reabrir la aplicación y el regreso a READY. Graba un vídeo a continuación y prueba la subida de la foto. El relay DEV-A no participa en esta prueba.
+
 ### NX-04 · Linterna remota por cámara
 
 El Controller envía solicitudes por `nodeId` al Node aceptado en la sesión. El Node usa `enableTorch` en la vista de cámara que ya está montada. La respuesta indica recepción y si había una vista disponible. El estado físico del flash queda por probar en los teléfonos. Al desconectarse la cámara se descarta la solicitud visible y se deshabilitan sus botones.

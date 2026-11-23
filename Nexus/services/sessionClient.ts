@@ -2,7 +2,7 @@ import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
   type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
   type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
-  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake,
+  activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake, type PhotoResult,
 } from './sessionProtocol';
 import type { LastNodeSession } from './lastNodeSession';
 
@@ -40,6 +40,8 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const roleCommands = new Map<string, Map<string, string>>();
   const captureHandlers = new Map<string, (command: RecordingCommand) => void>();
   const torchHandlers = new Map<string, (enabled: boolean) => boolean>();
+  const photoHandlers = new Map<string, (photoId: string) => Promise<string>>();
+  const photoResults = new Map<string, PhotoResult>();
   const captureCommands = new Map<string, string>();
   const captureReports = new Map<string, RecordingReport>();
   const schedules = new Map<string, Schedule>();
@@ -64,6 +66,32 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
   const unsubscribeMessages = transport.subscribeMessages((raw) => {
     let event: unknown;
     try { event = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
+    if (isSessionRequest(event) && event.type === 'PHOTO_CAPTURE') {
+      const { sessionId, messageId } = event;
+      const session = state.sessions[sessionId];
+      const member = session?.members[deviceId];
+      if (state.connection !== 'Connected' || !session || session.state === 'closed' ||
+          session.controllerId !== event.senderId || member?.kind !== 'node' ||
+          member.online === false || member.nodeId !== event.targetId) return;
+      const key = `${sessionId}:${messageId}`;
+      const report = (payload: PhotoResult) => {
+        if (disposed) return;
+        photoResults.set(key, payload);
+        try { send({ ...envelope(sessionId), type: 'PHOTO_REPORT', targetId: session.controllerId, payload }); }
+        catch { /* A loss of connection cannot undo a saved original. */ }
+      };
+      const previous = photoResults.get(key);
+      if (previous) { report(previous); return; }
+      const failed = (error: unknown) => report({ requestId: messageId, status: 'error', error: String(error).slice(0, 256) });
+      try {
+        const handler = photoHandlers.get(sessionId);
+        if (!handler) throw new Error('Abre la cámara en el Node.');
+        const capture = handler(messageId);
+        report({ requestId: messageId, status: 'received' });
+        void capture.then((photoId) => report({ requestId: messageId, status: 'saved', photoId }), failed);
+      } catch (error) { failed(error); }
+      return;
+    }
     if (isSessionRequest(event) && event.type === 'TORCH_SET') {
       const session = state.sessions[event.sessionId];
       const member = session?.members[deviceId];
@@ -293,6 +321,16 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
           member.kind === 'node' && member.nodeId === nodeId && member.online !== false)) throw new Error('INVALID_TARGET');
       return send({ ...envelope(sessionId), type: 'TORCH_SET', targetId: nodeId, payload: { enabled } });
     },
+    requestPhoto(sessionId: string, nodeId: string) {
+      const session = controllerSession(sessionId);
+      const target = Object.values(session.members).find((member) => member.kind === 'node' && member.nodeId === nodeId && member.online !== false);
+      if (!target || session.state === 'closed') throw new Error('INVALID_TARGET');
+      return send({ ...envelope(sessionId), type: 'PHOTO_CAPTURE', targetId: nodeId, payload: {} });
+    },
+    registerPhotoHandler(sessionId: string, handler: (photoId: string) => Promise<string>) {
+      photoHandlers.set(sessionId, handler);
+      return () => { if (photoHandlers.get(sessionId) === handler) photoHandlers.delete(sessionId); };
+    },
     registerTorchHandler(sessionId: string, handler: (enabled: boolean) => boolean) {
       torchHandlers.set(sessionId, handler);
       return () => { if (torchHandlers.get(sessionId) === handler) torchHandlers.delete(sessionId); };
@@ -382,6 +420,7 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
     },
     dispose() {
       disposed = true; unsubscribeMessages(); unsubscribeStatus(); listeners.clear(); captureHandlers.clear(); torchHandlers.clear(); captureCommands.clear(); captureReports.clear();
+      photoHandlers.clear(); photoResults.clear();
       for (const id of scheduleTimers.keys()) cancelSchedule(id);
       schedules.clear();
     },

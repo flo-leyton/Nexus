@@ -11,7 +11,9 @@ export interface LocalCaptureDraft extends CaptureIdentity {
   audio: false;
 }
 export interface LocalCapture extends LocalCaptureDraft {
-  fileName: 'video.mp4' | 'video.mov';
+  fileName: 'video.mp4' | 'video.mov' | 'photo.jpg';
+  photoId?: string;
+  resourceType?: 'image' | 'video';
   localUri: string;
   bytes: number;
 }
