@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useIsFocused, usePreventRemove } from '@react-navigation/native';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, BackHandler, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Text } from 'react-native-paper';
 
@@ -56,6 +56,16 @@ export default function SessionScreen() {
   const decisions = useRef<Record<string, string>>({});
   const refreshId = useRef<string | null>(null);
   const [localNode, setLocalNode] = useState<(CaptureIdentity & { controllerId: string }) | null>(null);
+  const [fullPreviewNodeId, setFullPreviewNodeId] = useState<string | null>(null);
+  const fullPreview = !!localNode && localNode.sessionId === sessionId && fullPreviewNodeId === localNode.nodeId;
+  useEffect(() => {
+    if (!fullPreview || !focused) return;
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      setFullPreviewNodeId(null);
+      return true;
+    });
+    return () => back.remove();
+  }, [focused, fullPreview]);
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureRevision, setCaptureRevision] = useState(0);
   const captureSaved = useCallback(() => setCaptureRevision((revision) => revision + 1), []);
@@ -262,12 +272,13 @@ export default function SessionScreen() {
 
   if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
-  return <SessionPage topInset={insets.top} onBack={() => router.back()}
+  return <SessionPage topInset={insets.top} fullPreview={fullPreview} onBack={() => router.back()}
     header={<SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
       role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
       connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
       notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
     capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
+      fullPreview={fullPreview} onPreviewChange={(expanded) => setFullPreviewNodeId(expanded ? localNode.nodeId : null)}
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
       sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
     members={session && <SessionSection title={isController ? 'Dispositivos de la sesión' : 'Participación'}>

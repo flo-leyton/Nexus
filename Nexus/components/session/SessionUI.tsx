@@ -1,5 +1,5 @@
 import { retainedVisibility } from '@/components/retainedVisibility';
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Icon, Portal, Surface, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,14 +22,22 @@ export const sessionStyles = StyleSheet.create({
 const DockContext = createContext({ height: 0, setHeight: (_height: number) => {} });
 
 /** Only layout state. Children keep stable owners while the dock changes height. */
-export function SessionCanvas({ children, topInset = 0, maxWidth = 760 }: { children: ReactNode; topInset?: number; maxWidth?: number }) {
+export function SessionCanvas({ children, topInset = 0, maxWidth = 760, fullPreview = false }: {
+  children: ReactNode; topInset?: number; maxWidth?: number; fullPreview?: boolean;
+}) {
   const { colors } = useTheme();
   const [height, setHeight] = useState(0);
   const value = useMemo(() => ({ height, setHeight }), [height]);
+  const scroll = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (fullPreview) scroll.current?.scrollTo({ y: 0, animated: false });
+  }, [fullPreview]);
   return <DockContext.Provider value={value}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignSelf: 'center', width: '100%', maxWidth,
-        padding: 20, paddingTop: topInset + 12, paddingBottom: height + 32, gap: 24 }}>
+      <ScrollView ref={scroll} removeClippedSubviews={false} scrollEnabled={!fullPreview}
+        keyboardShouldPersistTaps="handled" contentContainerStyle={fullPreview
+          ? { flexGrow: 1 }
+          : { alignSelf: 'center', width: '100%', maxWidth, padding: 20, paddingTop: topInset + 12, paddingBottom: height + 32, gap: 24 }}>
         {children}
       </ScrollView>
     </View>

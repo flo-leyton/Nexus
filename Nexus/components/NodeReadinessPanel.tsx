@@ -13,11 +13,14 @@ import { activeTakeForDevice, readinessReasons } from '@/services/sessionProtoco
 import type { CaptureIdentity } from '@/types/capture';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false, onBusyChange, onSaved }: CaptureIdentity & {
+export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false,
+  onBusyChange, onSaved, fullPreview, onPreviewChange }: CaptureIdentity & {
   service: Service; controllerId: string; accepted: boolean; sessionClosed?: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
+  fullPreview: boolean; onPreviewChange(expanded: boolean): void;
 }) {
   const focused = useIsFocused();
-  const { height } = useWindowDimensions();
+  const window = useWindowDimensions();
+  const [previewBounds, setPreviewBounds] = useState<{ width: number; height: number } | null>(null);
   const [appState, setAppState] = useState(AppState.currentState);
   const view = useRef<CameraView>(null);
   const resetTimedCamera = useRef(false);
@@ -124,6 +127,8 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   }, [engine, focused, appState, sessionClosed, preparation.phase, preparation.pendingSave]);
 
   const { readiness, generation } = preparation;
+  const bounds = previewBounds ?? window;
+  const previewWidth = Math.min(bounds.width, bounds.height * 9 / 16);
   const busy = engine.isBusy();
   const canMount = busy || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
@@ -144,6 +149,10 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     catch (error) { setControlError(error instanceof Error ? error.message : String(error)); }
   };
   return <NodeCaptureView preparation={preparation} phaseLabel={phaseLabels[preparation.phase]} reasons={reasons} busy={busy}
+    fullPreview={fullPreview} onPreviewChange={onPreviewChange}
+    onPreviewLayout={({ nativeEvent: { layout: { width, height } } }) => {
+      if (fullPreview && width > 0 && height > 0) setPreviewBounds({ width, height });
+    }}
     accepted={accepted} requiresConfirmation={!!self?.requiresReadyConfirmation}
     confirmDisabled={!accepted || busy || readinessReasons(engine.getReadiness()).length > 0}
     canRecord={canRecord} prepareDisabled={sessionClosed || busy || !focused || appState !== 'active' || preparation.pendingSave}
@@ -152,10 +161,11 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     zoom={canMount && Platform.OS !== 'web' ? {
       percent: zoom, disabled: !focused || appState !== 'active' || !readiness.enginePrepared || preparation.phase === 'saving',
       adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
+      set: setZoom,
     } : undefined}
     camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
-      style={{ width: '100%', maxWidth: Math.max(700, height * 0.8) * 9 / 16, aspectRatio: 9 / 16, alignSelf: 'center' }}
+      style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
       zoom={zoom / 100}
       enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
