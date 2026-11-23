@@ -1,11 +1,16 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { ActivityIndicator, Button, Text } from 'react-native-paper';
+import type { RTCVideoViewProps } from 'react-native-webrtc';
 import { createPreviewTransport, previewAvailable, previewPair, type PreviewState } from '@/services/previewTransport';
 import type { Session } from '@/services/sessionProtocol';
 import { SessionSection, sessionStyles } from './SessionUI';
 
-const Video = lazy(async () => ({ default: (await import('react-native-webrtc')).RTCView }));
+const Video = lazy(async () => {
+  const { RTCView } = await import('react-native-webrtc');
+  // React.lazy requires a React component as its resolved default, not a native host type.
+  return { default: function PreviewVideo(props: RTCVideoViewProps) { return <RTCView {...props} />; } };
+});
 const disconnected: PreviewState = { phase: 'disconnected' };
 
 export function useExperimentalPreview(session: Session | undefined, deviceId: string, available: boolean) {

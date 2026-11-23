@@ -18,6 +18,40 @@ const request = (senderId, sessionId, type, payload, targetId) => ({
 const signal = (sender, session, target, nodeId, connectionId, details) =>
   request(sender, session, 'PREVIEW_SIGNAL', { nodeId, connectionId, ...details }, target);
 
+test('NX-10 lazy preview resolves to a React wrapper that renders the native host view', async () => {
+  let loadVideo;
+  let rtcImports = 0;
+  const nativeView = 'RTCVideoView';
+  const dependencies = {
+    react: { lazy: (load) => { loadVideo = load; return {}; } },
+    'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
+    'react-native': {},
+    'react-native-paper': {},
+    'react-native-webrtc': { RTCView: nativeView },
+    '@/services/previewTransport': {},
+    './SessionUI': {},
+  };
+  const source = fs.readFileSync(path.join(__dirname, '../components/session/ExperimentalPreview.tsx'), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  vm.runInNewContext(code, { exports: {}, require(name) {
+    assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
+    if (name === 'react-native-webrtc') rtcImports++;
+    return dependencies[name];
+  } });
+  assert.equal(rtcImports, 0);
+  const { default: PreviewVideo } = await loadVideo();
+  assert.equal(typeof PreviewVideo, 'function');
+  assert.equal(rtcImports, 1);
+  const props = { streamURL: 'remote-stream', objectFit: 'contain', onDimensionsChange() {} };
+  const element = PreviewVideo(props);
+  assert.equal(element.type, nativeView);
+  assert.equal(element.props.streamURL, props.streamURL);
+  assert.equal(element.props.objectFit, props.objectFit);
+  assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
+});
+
 test('NX-10 signaling schema only accepts bounded targeted video negotiation', () => {
   const offer = signal('controller', 'session', 'node', 'node', 'peer', { kind: 'offer', sdp });
   assert.ok(protocol.isSessionRequest(offer));
