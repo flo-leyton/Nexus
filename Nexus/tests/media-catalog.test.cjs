@@ -40,12 +40,18 @@ async function harness(t) {
     readAsStringAsync: (uri) => fsp.readFile(fileURLToPath(uri), 'utf8'),
     readDirectoryAsync: (uri) => fsp.readdir(fileURLToPath(uri)),
     copyAsync: ({ from, to }) => fsp.copyFile(fileURLToPath(from), fileURLToPath(to)),
-    deleteAsync: (uri) => fsp.unlink(fileURLToPath(uri)),
+    async deleteAsync(uri) {
+      const target = fileURLToPath(uri);
+      const relative = path.relative(root, target);
+      assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+      await fsp.rm(target, { recursive: true, force: true });
+    },
   };
   const data = new Map([[legacyKey, JSON.stringify([oldImport])]]);
   const storage = {
     async getItem(key) { await new Promise(setImmediate); return data.get(key) ?? null; },
     async setItem(key, value) { await new Promise(setImmediate); data.set(key, value); },
+    async removeItem(key) { data.delete(key); },
     async getAllKeys() { return [...data.keys()]; },
   };
   const local = load('../services/localCaptures.ts', { './sessionProtocol': protocol, 'expo-file-system/legacy': disk });
@@ -64,6 +70,27 @@ async function harness(t) {
     },
   };
 }
+
+test('NX-08: delete an owned original and its upload metadata without touching other captures', async (t) => {
+  const h = await harness(t), c = h.reload();
+  const video = await h.capture();
+  const photo = await h.capture({}, true);
+  const other = await h.capture({ sessionId: 'other-session', deviceId: 'other-phone' });
+  const id = c.captureCatalogId(photo);
+  await c.getMediaCatalog();
+  await c.setCaptureUpload(id, { state: 'uploaded', publicId: 'photo', url: 'https://res.cloudinary.com/test/image/upload/photo.jpg' });
+  await assert.rejects(c.removeOwnedLocalCapture(id, 'other-phone'), /dueño/);
+  assert.equal((await h.disk.getInfoAsync(photo.localUri)).exists, true);
+  await c.removeOwnedLocalCapture(id, photo.deviceId);
+  assert.equal((await h.disk.getInfoAsync(photo.localUri)).exists, false);
+  assert.equal(h.data.has(c.CAPTURE_CATALOG_PREFIX + id), false);
+  assert.equal(await h.reload().getMediaAssetById(id), null);
+  assert.equal((await h.disk.getInfoAsync(other.localUri)).exists, true);
+  const videoId = c.captureCatalogId(video);
+  await c.removeOwnedLocalCapture(videoId, video.deviceId);
+  assert.equal(await h.reload().getMediaAssetById(videoId), null);
+  assert.ok((await c.getMediaCatalog()).assets.some((item) => item.id === oldImport.id));
+});
 
 test('NX-07: JPEG original and sidecar recover into the catalog alongside legacy videos', async (t) => {
   const h = await harness(t);

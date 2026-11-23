@@ -33,6 +33,20 @@ function uploaderFixture(overrides = {}) {
   return { uploader: module.createCaptureUploader(deps), asset, uploads, notifications, states, deps };
 }
 
+test('NX-08: an upload and an exclusive original operation cannot overlap', async () => {
+  const hold = Promise.withResolvers();
+  const h = uploaderFixture({ upload: () => hold.promise });
+  const uploading = h.uploader.upload(h.asset.id);
+  assert.equal(h.uploader.isBusy(h.asset.id), true);
+  await assert.rejects(h.uploader.withIdleOriginal(h.asset.id, async () => assert.fail('While uploading')), /ocupado/);
+  hold.resolve({ resourceType: 'video', publicId: 'clip', url: 'https://res.cloudinary.com/test/video/upload/clip.mp4' });
+  await uploading;
+  const exclusive = h.uploader.withIdleOriginal(h.asset.id, async (asset) => assert.equal(asset.deviceId, 'device'));
+  await assert.rejects(h.uploader.upload(h.asset.id), /ocupado/);
+  await exclusive;
+  assert.equal(h.uploader.isBusy(h.asset.id), false);
+});
+
 test('H3.2: concurrent presses share one upload; confirmed publication failure never downgrades upload', async () => {
   const h = uploaderFixture({ notify: async () => { throw new Error('relay offline'); } });
   const first = h.uploader.upload(h.asset.id);

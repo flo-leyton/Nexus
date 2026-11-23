@@ -25,6 +25,17 @@ export async function verifyLocalCapture(capture: LocalCapture) {
   // Resolve from the current documentDirectory: iOS can change the container path on reinstall/update.
   return { ...capture, localUri: uri };
 }
+export async function hasLocalCaptureSidecar(capture: Pick<LocalCapture, 'sessionId' | 'deviceId' | 'id'>) {
+  return (await FileSystem.getInfoAsync(`${folder(capture.sessionId, capture.deviceId, capture.id)}capture.json`)).exists;
+}
+export async function deleteLocalCapture(capture: Pick<LocalCapture, 'sessionId' | 'deviceId' | 'nodeId' | 'id'>) {
+  const directory = folder(capture.sessionId, capture.deviceId, capture.id);
+  if (!(await FileSystem.getInfoAsync(directory)).exists) return;
+  const raw: unknown = JSON.parse(await FileSystem.readAsStringAsync(`${directory}capture.json`));
+  if (!isRecord(raw) || raw.id !== capture.id || raw.sessionId !== capture.sessionId ||
+      raw.deviceId !== capture.deviceId || raw.nodeId !== capture.nodeId) throw new Error('No se pudo verificar la identidad del archivo.');
+  await FileSystem.deleteAsync(directory, { idempotent: true });
+}
 export async function persistLocalCapture(draft: LocalCaptureDraft, temporaryUri: string): Promise<LocalCapture> {
   const fileName = /\.mov(?:[?#]|$)/i.test(temporaryUri) ? 'video.mov' : 'video.mp4';
   return persistCapture(draft, temporaryUri, fileName);

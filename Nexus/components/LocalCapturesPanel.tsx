@@ -8,6 +8,7 @@ import { sessionStyles } from './session/SessionUI';
 
 import { LocalVideoPlayer } from '@/components/LocalVideoPlayer';
 import { CaptureUploadControls } from '@/components/CaptureUploadControls';
+import { LocalMediaActions } from '@/components/LocalMediaActions';
 import { captureCatalogId } from '@/services/mediaCatalog';
 import { getLocalCaptures, verifyLocalCapture } from '@/services/localCaptures';
 import type { LocalCapture } from '@/types/capture';
@@ -29,7 +30,13 @@ export function LocalCapturesPanel({ sessionId, deviceId, busy }: { sessionId: s
     onPlay={(capture) => {
       void verifyLocalCapture(capture).then(setSelected).catch((error: unknown) => setProblems([error instanceof Error ? error.message : 'Archivo no disponible.']));
     }}
-    renderUpload={(capture) => <CaptureUploadControls id={captureCatalogId(capture)} disabled={busy} />}
+    renderUpload={(capture) => <>
+      <CaptureUploadControls id={captureCatalogId(capture)} disabled={busy} />
+      <LocalMediaActions id={captureCatalogId(capture)} disabled={busy} onDeleted={() => {
+        setSelected((current) => current?.id === capture.id ? null : current);
+        setCaptures((current) => current.filter((item) => item.id !== capture.id));
+      }} />
+    </>}
     player={selected && focused && !busy && <>
       {selected.photoId ? <Image source={{ uri: selected.localUri }} resizeMode="contain" style={{ width: '100%', height: 320 }} />
         : <LocalVideoPlayer key={selected.id} uri={selected.localUri} />}

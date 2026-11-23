@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatBytes } from '@/components/MediaAssetCard';
 import { LocalVideoPlayer } from '@/components/LocalVideoPlayer';
 import { CaptureUploadControls } from '@/components/CaptureUploadControls';
+import { LocalMediaActions } from '@/components/LocalMediaActions';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getMediaAssetById, getMediaPlaybackUri } from '@/services/mediaCatalog';
@@ -69,7 +70,14 @@ export default function MediaDetailScreen() {
           <ThemedText selectable style={styles.url}>{asset.storage === 'remote' ? asset.url : asset.localUri}</ThemedText>
         </ThemedView>
         {!!error && <ThemedText>{error}</ThemedText>}
-        {asset.storage === 'local' && <CaptureUploadControls id={asset.id} />}
+        {asset.storage === 'local' && <>
+          <CaptureUploadControls id={asset.id} />
+          <LocalMediaActions id={asset.id} onDeleted={() => {
+            setPlaybackUri(null);
+            setAsset(null);
+            router.back();
+          }} />
+        </>}
         {asset.storage === 'local' && !asset.localAvailable ? <ThemedText>El archivo local no se pudo verificar.</ThemedText> :
           !(asset.storage === 'local' && asset.resourceType === 'image') && <Pressable accessibilityRole="button" onPress={() => {
           setError(''); setPlaybackUri(null);

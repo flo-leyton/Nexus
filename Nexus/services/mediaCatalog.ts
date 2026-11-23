@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { scanLocalCaptures, verifyLocalCapture } from './localCaptures';
+import { deleteLocalCapture, hasLocalCaptureSidecar, scanLocalCaptures, verifyLocalCapture } from './localCaptures';
 import { isProtocolId, isRecord } from './sessionProtocol';
 import type { LocalCapture } from '../types/capture';
 import type { CaptureUpload, LocalCaptureMediaAsset, NexusMediaAsset, RemoteMediaAsset } from '../types/media';
@@ -60,6 +60,8 @@ async function upsertCapture(capture: LocalCapture) {
   const id = captureCatalogId(capture);
   const key = `${CAPTURE_CATALOG_PREFIX}${id}`;
   await serializeWrite(key, async () => {
+    // A scan started before deletion may still hold the old sidecar in memory.
+    if (!await hasLocalCaptureSidecar(capture)) return;
     const text = await AsyncStorage.getItem(key);
     const current = readCapture(text);
     const record = { id, localId: capture.id, sessionId: capture.sessionId, takeId: capture.takeId,
@@ -74,6 +76,21 @@ async function upsertCapture(capture: LocalCapture) {
 }
 export async function incorporateLocalCapture(capture: LocalCapture) {
   return upsertCapture(await verifyLocalCapture(capture));
+}
+
+export async function removeOwnedLocalCapture(id: string, owner: string) {
+  const key = `${CAPTURE_CATALOG_PREFIX}${id}`;
+  await serializeWrite(key, async () => {
+    const text = await AsyncStorage.getItem(key);
+    const asset = readCapture(text);
+    if (!asset || asset.id !== id || asset.deviceId !== owner) throw new Error('Sólo el dispositivo dueño puede eliminar este original.');
+    await AsyncStorage.removeItem(key);
+    try { await deleteLocalCapture(toCapture(asset)); }
+    catch (error) {
+      if (text) await AsyncStorage.setItem(key, text);
+      throw error;
+    }
+  });
 }
 
 // Persistence contract for H3.2. Nothing here starts or simulates an upload.

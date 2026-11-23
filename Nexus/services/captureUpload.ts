@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { getOrCreateDeviceId } from './deviceIdentity';
-import { getMediaAssetById, getMediaCatalog, getMediaPlaybackUri, setCaptureUpload } from './mediaCatalog';
+import { getMediaAssetById, getMediaCatalog, getMediaPlaybackUri, removeOwnedLocalCapture, setCaptureUpload } from './mediaCatalog';
 import { uploadMediaAsset } from './cloudinary';
 import { getSessionService } from './session';
 import type { CaptureUpload, LocalCaptureMediaAsset, RemoteMediaAsset } from '../types/media';
@@ -18,6 +18,7 @@ export interface UploadDependencies {
 }
 export function createCaptureUploader(deps: UploadDependencies) {
   const active = new Map<string, Promise<void>>();
+  const exclusive = new Set<string>();
   let recovering: Promise<void> | null = null;
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
@@ -55,7 +56,16 @@ export function createCaptureUploader(deps: UploadDependencies) {
   };
   return {
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    isBusy(id: string) { return active.has(id) || exclusive.has(id); },
+    async withIdleOriginal<T>(id: string, action: (asset: LocalCaptureMediaAsset) => Promise<T>) {
+      if (active.has(id) || exclusive.has(id)) throw new Error('El archivo está ocupado. Espera a que termine la operación.');
+      exclusive.add(id);
+      emit();
+      try { return await action(await requireAsset(id)); }
+      finally { exclusive.delete(id); emit(); }
+    },
     upload(id: string) {
+      if (exclusive.has(id)) return Promise.reject(new Error('El archivo está ocupado. Espera a que termine la operación.'));
       const existing = active.get(id); if (existing) return existing;
       const task = run(id).finally(() => { active.delete(id); emit(); });
       active.set(id, task); emit(); return task;
@@ -106,3 +116,7 @@ export const captureUploader = createCaptureUploader({
     sessionId: asset.sessionId, source: 'capture', resourceType: asset.resourceType, assetId: asset.id, expectedBytes: asset.bytes, publicId }),
   notify: notifyController,
 });
+
+export function removeCaptureFromNexus(id: string) {
+  return captureUploader.withIdleOriginal(id, (asset) => removeOwnedLocalCapture(asset.id, asset.deviceId));
+}
