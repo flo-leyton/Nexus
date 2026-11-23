@@ -34,6 +34,12 @@ $env:GRADLE_USER_HOME = Join-Path (Get-Location) 'android/.gradle-nx10'
 .\android\gradlew.bat -p android :expo-camera:compileDebugKotlin
 ```
 
+La validación final corrigió sólo el mock de medios en `b9d4afb`. TypeScript y lint pasaron. La suite registró 135 aprobadas, 5 omitidas y 0 fallos.
+
+La única compilación experimental autorizada terminó en EAS a partir de una copia aislada de `591aacb`. La APK contiene la definición de `Nx10PreviewSampler` en `classes2.dex`. La estable de referencia, compilada desde `194c969`, carece de esa clase. Los SHA-256 son `1dde705ea8b1462b9e488a3d704707cc6d882ac5509597b4f0156230801c302d` (experimental) y `84a79efaea6945d1f41ee7185354d606713a4532e5cd60838890ffe3fb00385d` (estable). [Build experimental 29a75b5d](https://expo.dev/accounts/flo-leytons-team/projects/Nexus/builds/29a75b5d-bf86-4eb2-bc22-61caf7af5ebc) · [APK experimental](https://expo.dev/artifacts/eas/U23UukI-TqgZNUzxJnm7R-Lp0SQxL-ANFjP53CNunvo.apk) · [APK estable](https://expo.dev/artifacts/eas/RNjx88iBiAyY5Jc3RE_dhQsUQCy2A8NhKLG5xfTTpKo.apk).
+
+Ambas APK tienen paquete `com.floleyton.nexus`, `versionCode` 2 y firma v2 válida con certificado SHA-256 `1f67f463b7b125fff27e39530992b0b4d7925b5e19ff83252be8c683400c2702`. Android admite el reemplazo en ambos sentidos sobre esa versión estable. Falta confirmar en los teléfonos qué APK está instalada y realizar la prueba física autorizada.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.
