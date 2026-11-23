@@ -15,6 +15,12 @@
 
 ## Registro de la jornada
 
+### NX-08 · Gestión de originales locales
+
+**Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.
+
+Pasaron las pruebas puntuales de borrado, compatibilidad del catálogo, bloqueo de subida y exportación simulada. Pendiente de prueba física. Con la APK actual y Metro, borra una foto y un vídeo de prueba y verifica que desaparecen del historial. En una futura APK de desarrollo compatible, guarda una foto y un vídeo en galería, ábrelos allí y comprueba que se conservan tras eliminar los originales de Nexus.
+
 ### NX-07 · Captura de fotografías
 
 El Node puede disparar localmente o recibir una orden dirigida a su `nodeId`. La cámara queda reservada hasta guardar el JPEG y volver a confirmar el modo vídeo. El relay conserva la solicitud para deduplicar y distingue recepción, guardado y error. El historial local muestra la miniatura y el `photoId`. La subida de imágenes admite reintentos desde el Node y conserva el original.

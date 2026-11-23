@@ -47,6 +47,7 @@ function readCapture(text: string | null): LocalCaptureMediaAsset | null {
         typeof r.localUri !== 'string' || typeof r.bytes !== 'number' || !Number.isFinite(r.bytes) || r.bytes <= 0 ||
         r.audio !== false || typeof r.createdAt !== 'string' || !validUpload(r.upload) || 'publicId' in r || 'url' in r ||
         (r.uploadRevision !== undefined && (!Number.isSafeInteger(r.uploadRevision) || (r.uploadRevision as number) < 0)) ||
+        (r.galleryExportedAt !== undefined && typeof r.galleryExportedAt !== 'string') ||
         r.id !== captureCatalogId({ sessionId: r.sessionId, deviceId: r.deviceId, id: r.localId })) return null;
     return { ...r, localAvailable: false, localError: 'Archivo sin comprobar' } as LocalCaptureMediaAsset;
   } catch { return null; }
@@ -69,7 +70,8 @@ async function upsertCapture(capture: LocalCapture) {
       fileName: capture.fileName, audio: false, createdAt: capture.createdAt, storage: 'local', source: 'capture',
       resourceType: capture.resourceType ?? 'video', ...(capture.photoId ? { photoId: capture.photoId } : {}),
       upload: current?.upload ?? { state: 'local' } };
-    const encoded = JSON.stringify({ ...record, uploadRevision: current?.uploadRevision ?? 0 });
+    const encoded = JSON.stringify({ ...record, uploadRevision: current?.uploadRevision ?? 0,
+      ...(current?.galleryExportedAt ? { galleryExportedAt: current.galleryExportedAt } : {}) });
     if (text !== encoded) await AsyncStorage.setItem(key, encoded);
   });
   return id;
@@ -90,6 +92,20 @@ export async function removeOwnedLocalCapture(id: string, owner: string) {
       if (text) await AsyncStorage.setItem(key, text);
       throw error;
     }
+  });
+}
+
+export async function captureWasExported(id: string) {
+  return !!readCapture(await AsyncStorage.getItem(`${CAPTURE_CATALOG_PREFIX}${id}`))?.galleryExportedAt;
+}
+
+export async function markCaptureExported(id: string) {
+  const key = `${CAPTURE_CATALOG_PREFIX}${id}`;
+  await serializeWrite(key, async () => {
+    const current = readCapture(await AsyncStorage.getItem(key));
+    if (!current || current.id !== id) throw new Error('El original ya no está en el catálogo.');
+    const { localAvailable: _available, localError: _error, ...stored } = current;
+    await AsyncStorage.setItem(key, JSON.stringify({ ...stored, galleryExportedAt: new Date().toISOString() }));
   });
 }
 

@@ -41,6 +41,13 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "granularPermissions": [],
+          "savePhotosPermission": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Permite que Nexus seleccione imágenes y videos para importarlos a Studio.",

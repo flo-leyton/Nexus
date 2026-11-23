@@ -46,6 +46,7 @@ export type LocalCaptureMediaAsset = MediaAssetBase & {
   audio: false;
   upload: CaptureUpload;
   uploadRevision?: number;
+  galleryExportedAt?: string;
   // Recomputed on read, never accepted as proof of a file or relay confirmation.
   localAvailable: boolean;
   localError: string | null;

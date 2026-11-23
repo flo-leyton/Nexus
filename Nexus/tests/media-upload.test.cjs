@@ -47,6 +47,42 @@ test('NX-08: an upload and an exclusive original operation cannot overlap', asyn
   assert.equal(h.uploader.isBusy(h.asset.id), false);
 });
 
+test('NX-08: gallery export skips an old APK and copies originals with write-only permission where needed', async () => {
+  const calls = [];
+  const platform = { OS: 'android', Version: 29 };
+  let nativeAvailable = false, granted = true;
+  let asset = { localUri: 'file:///original.jpg' };
+  const gallery = load('../services/galleryExport.ts', {
+    expo: { requireOptionalNativeModule(name) { assert.equal(name, 'ExpoMediaLibrary'); return nativeAvailable ? {} : null; } },
+    'react-native': { Platform: platform },
+    './captureUpload': { captureUploader: { withIdleOriginal: (_id, action) => action(asset) } },
+    './mediaCatalog': { getMediaPlaybackUri: async (item) => item.localUri, markCaptureExported: async (id) => calls.push(['mark', id]) },
+    'expo-media-library': {
+      requestPermissionsAsync: async (writeOnly, granular) => { calls.push(['permission', writeOnly, Array.from(granular)]); return { granted }; },
+      saveToLibraryAsync: async (uri) => calls.push(['copy', uri]),
+    },
+  });
+  assert.equal(gallery.canExportToGallery(), false);
+  await assert.rejects(gallery.exportCaptureToGallery('photo'), /APK compatible/);
+  assert.deepEqual(calls, []);
+  nativeAvailable = true;
+  granted = false;
+  await assert.rejects(gallery.exportCaptureToGallery('photo'), /permiso/);
+  assert.deepEqual(calls.splice(0), [['permission', true, []]]);
+  granted = true;
+  assert.equal(await gallery.exportCaptureToGallery('photo'), 'exported');
+  assert.deepEqual(calls.splice(0), [['permission', true, []], ['copy', asset.localUri], ['mark', 'photo']]);
+  assert.equal(await gallery.exportCaptureToGallery('photo'), 'already-exported');
+  assert.deepEqual(calls, []);
+  platform.Version = 33;
+  asset = { localUri: 'file:///original.mp4' };
+  assert.equal(await gallery.exportCaptureToGallery('video'), 'exported');
+  assert.deepEqual(calls.splice(0), [['copy', asset.localUri], ['mark', 'video']]);
+  asset.galleryExportedAt = '2026-11-22T12:00:00Z';
+  assert.equal(await gallery.exportCaptureToGallery('previous'), 'already-exported');
+  assert.deepEqual(calls, []);
+});
+
 test('H3.2: concurrent presses share one upload; confirmed publication failure never downgrades upload', async () => {
   const h = uploaderFixture({ notify: async () => { throw new Error('relay offline'); } });
   const first = h.uploader.upload(h.asset.id);

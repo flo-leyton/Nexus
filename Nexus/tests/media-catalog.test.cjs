@@ -92,6 +92,20 @@ test('NX-08: delete an owned original and its upload metadata without touching o
   assert.ok((await c.getMediaCatalog()).assets.some((item) => item.id === oldImport.id));
 });
 
+test('NX-08: gallery confirmation survives catalog rebuild and upload state updates', async (t) => {
+  const h = await harness(t), c = h.reload();
+  const photo = await h.capture({}, true);
+  const id = await c.incorporateLocalCapture(photo);
+  assert.equal(await c.captureWasExported(id), false);
+  await c.markCaptureExported(id);
+  await c.setCaptureUpload(id, { state: 'failed', error: 'offline' });
+  assert.equal(await h.reload().captureWasExported(id), true);
+  const restored = await h.reload().getMediaAssetById(id);
+  assert.ok(restored.galleryExportedAt);
+  assert.equal(restored.upload.state, 'failed');
+  assert.equal(restored.localAvailable, true);
+});
+
 test('NX-07: JPEG original and sidecar recover into the catalog alongside legacy videos', async (t) => {
   const h = await harness(t);
   const video = await h.capture();
