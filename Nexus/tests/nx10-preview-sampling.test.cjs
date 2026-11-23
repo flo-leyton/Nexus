@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { addPreviewSampling } = require('../config/nx10/withPreviewSampling.cjs');
+const { addPreviewSampling, assertPreviewSampling } = require('../config/nx10/withPreviewSampling.cjs');
 
 test('NX-10 Android patch is opt-in, reproducible and leaves CameraX binding and recorder untouched', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-nx10-'));
@@ -22,7 +22,9 @@ test('NX-10 Android patch is opt-in, reproducible and leaves CameraX binding and
     fs.copyFileSync(path.join(source, file), path.join(target, file));
   }
   assert.ok([...originals.values()].every((source) => !source.includes('nx10PreviewSampling')));
+  assert.throws(() => assertPreviewSampling(root), /NX-10/);
   addPreviewSampling(root);
+  assert.doesNotThrow(() => assertPreviewSampling(root));
   const view = read(target, 'ExpoCameraView.kt');
   const module = read(target, 'CameraViewModule.kt');
   const sampler = read(target, 'Nx10PreviewSampler.kt');

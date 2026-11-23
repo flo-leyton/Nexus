@@ -25,7 +25,20 @@ function checkNative(root = path.resolve(__dirname, '..')) {
   return { expo, reactNative, app };
 }
 if (require.main === module && (!process.env.EAS_BUILD_PLATFORM || process.env.EAS_BUILD_PLATFORM === 'android')) {
-  try { checkNative(); console.log('Android autolinking OK: ExpoVideo, cámara, archivos, persistencia Auth y módulos de la app. Falta comprobar el APK construido.'); }
-  catch { console.error('Falló la verificación nativa Android. Ejecuta npm ci y node scripts/check-native.cjs; no instales un APK incompleto.'); process.exitCode = 1; }
+  try {
+    checkNative();
+    if (process.env.EAS_BUILD_PROFILE === 'development-nx10') {
+      const cameraRoot = path.dirname(require.resolve('expo-camera/package.json'));
+      try { require('../config/nx10/withPreviewSampling.cjs').assertPreviewSampling(cameraRoot); }
+      catch { throw new Error('NX-10: falta el adaptador Android después de Prebuild.'); }
+      console.log('NX-10: adaptador Android verificado después de Prebuild.');
+    }
+    console.log('Android autolinking OK: ExpoVideo, cámara, archivos, persistencia Auth y módulos de la app. Falta comprobar el APK construido.');
+  }
+  catch (error) {
+    console.error(error.message.startsWith('NX-10:') ? error.message :
+      'Falló la verificación nativa Android. Ejecuta npm ci y node scripts/check-native.cjs; no instales un APK incompleto.');
+    process.exitCode = 1;
+  }
 }
 module.exports = { checkNative, assertNativeModules };

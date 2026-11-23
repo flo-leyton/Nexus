@@ -45,3 +45,12 @@ module.exports = (config) => withDangerousMod(config, ['android', (mod) => {
   return mod;
 }]);
 module.exports.addPreviewSampling = addPreviewSampling;
+module.exports.assertPreviewSampling = (cameraRoot) => {
+  const kotlin = path.join(cameraRoot, 'android/src/main/java/expo/modules/camera');
+  const read = (file) => fs.readFileSync(path.join(kotlin, file), 'utf8');
+  if (!read('ExpoCameraView.kt').includes('Nx10PreviewSampler(previewView)') ||
+      !read('CameraViewModule.kt').includes('Prop("nx10PreviewSampling")') ||
+      read('Nx10PreviewSampler.kt') !== fs.readFileSync(path.join(__dirname, 'Nx10PreviewSampler.kt'), 'utf8')) {
+    throw new Error('NX-10: Android prebuild did not install the preview sampler.');
+  }
+};

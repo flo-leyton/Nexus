@@ -12,6 +12,12 @@
         "credentialsSource": "remote"
       }
     },
+    "development-nx10": {
+      "extends": "development",
+      "env": {
+        "NEXUS_NX10_NATIVE": "1"
+      }
+    },
     "preview": {
       "environment": "preview",
       "developmentClient": false,
