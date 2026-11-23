@@ -2,10 +2,9 @@ import { useIsFocused } from '@react-navigation/native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, useWindowDimensions } from 'react-native';
 
 import { NodeCaptureView } from './session/NodeCaptureView';
-import { sessionStyles } from './session/SessionUI';
 import { CaptureEngine } from '@/services/captureEngine';
 import { persistLocalCapture } from '@/services/localCaptures';
 import { coordinateCapture } from '@/services/coordinatedCapture';
@@ -18,6 +17,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
   service: Service; controllerId: string; accepted: boolean; sessionClosed?: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
 }) {
   const focused = useIsFocused();
+  const { height } = useWindowDimensions();
   const [appState, setAppState] = useState(AppState.currentState);
   const view = useRef<CameraView>(null);
   const resetTimedCamera = useRef(false);
@@ -153,7 +153,9 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
       percent: zoom, disabled: !focused || appState !== 'active' || !readiness.enginePrepared || preparation.phase === 'saving',
       adjust: (delta) => setZoom((previous) => Math.min(100, Math.max(0, previous + delta))),
     } : undefined}
-    camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute style={sessionStyles.preview}
+    camera={canMount && <CameraView key={generation} ref={view} facing="back" mode="video" mute
+      ratio={Platform.OS === 'android' ? '16:9' : undefined}
+      style={{ width: '100%', maxWidth: Math.max(700, height * 0.8) * 9 / 16, aspectRatio: 9 / 16, alignSelf: 'center' }}
       zoom={zoom / 100}
       enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => { if (view.current) engine.cameraReady(generation); }}
