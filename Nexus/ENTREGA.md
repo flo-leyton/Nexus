@@ -76,7 +76,15 @@ El puente experimental separa la reserva del trabajador de los búferes I420 ret
 
 **Evidencia de registros.** En la negociación `8248c505-902f-4f5b-acb4-2b5cd2dccc28`, ambos clientes confirmaron VP8. PixelCopy capturó 75 cuadros de 639 × 360 con 0 descartes. El puente recibió, convirtió, entregó y liberó 72 cuadros a 638 × 360. Cerró con `in_flight=0`, `worker_busy=false` y todos sus contadores de descarte y error en cero. La última muestra RTP de MAIN registró 67 cuadros codificados y 67 enviados. La del Controller registró 64 recibidos y 64 decodificados. Son muestras previas al cierre tomadas en instantes distintos. RTCView informó 318 × 180 y luego 474 × 270.
 
-El Controller cerró con `stopped` y MAIN con `remote-close`. Ambos peers llegaron a `closed`. La revisión de la ventana de cierre en MAIN no mostró errores relevantes. **Verificada la transmisión VP8 sin REC.** Falta la prueba de grabación local con la vista activa, que debe comprobar el guardado y la reproducción del original.
+El Controller cerró con `stopped` y MAIN con `remote-close`. Ambos peers llegaron a `closed`. La revisión de la ventana de cierre en MAIN no mostró errores relevantes. **Verificada la transmisión VP8 sin REC.**
+
+### NX-10 · Vista previa VP8 y grabación local simultáneas en MAIN
+
+**Observación del operador.** Con la APK de `0f3f877`, la vista previa de MAIN siguió funcionando durante REC. El operador detuvo la grabación normalmente desde el Controller y confirmó que el original se guardó y se reprodujo correctamente desde MAIN. **Prueba funcional superada para MAIN.**
+
+**Evidencia de registros.** En la negociación `7e2080c8-c511-4dae-b9bd-b95fa014c4c1`, Metro confirmó VP8 y registró hasta 77 cuadros codificados y enviados en MAIN y 76 recibidos y decodificados en el Controller. Las ocho muestras RTP no cubren exactamente todo el intervalo de REC. RTCView informó 638 × 360 después del primer cambio de estado de PixelCopy. El Controller cerró con `stopped`, MAIN con `remote-close` y ambos peers llegaron a `closed`. El reproductor local registró `readyToPlay` sin error.
+
+No se recuperó Logcat nativo de MAIN para este intento. Quedaron sin verificar por registros los contadores nativos durante REC, la liberación de búferes al cerrar y el evento de finalización de CameraX.
 
 ### NX-08 · Gestión de originales locales
 
