@@ -2,6 +2,7 @@ package com.oney.WebRTCModule
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.NativeModule
@@ -20,6 +21,8 @@ import org.webrtc.VideoFrame
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLongArray
+import java.util.concurrent.atomic.AtomicInteger
 
 class Nx10WebRtcPackage : ReactPackage {
   override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
@@ -91,6 +94,23 @@ class Nx10WebRtcModule(private val context: ReactApplicationContext) :
 }
 
 private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
+  private enum class Counter { INPUT, BUSY, STALE, INVALID_SIZE, COPY_OR_QUEUE_ERROR, CONVERSION_ERROR, DELIVERED, OBSERVER_ERROR, RELEASED }
+
+  private val diagnosticId = nextDiagnosticId.incrementAndGet()
+  private val counters = AtomicLongArray(Counter.entries.size)
+  @Volatile private var dimensions = "-"
+
+  private fun count(counter: Counter) = counters.incrementAndGet(counter.ordinal)
+
+  private fun report(reason: String) {
+    val totals = Counter.entries.joinToString(" ") { "${it.name.lowercase()}=${counters.get(it.ordinal)}" }
+    Log.i("NexusNx10Bridge", "capture=$diagnosticId reason=$reason size=$dimensions occupied=${occupied.get()} $totals")
+  }
+
+  private companion object {
+    val nextDiagnosticId = AtomicInteger()
+  }
+
   private val worker = Executors.newSingleThreadExecutor()
   private val occupied = AtomicBoolean()
   private val gate = Any()
@@ -109,6 +129,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
       active = true
       observer.onCapturerStarted(true)
       Nx10PixelCopyFrames.sink = this
+      report("started")
     }
   }
 
@@ -118,6 +139,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
       generation++
       if (Nx10PixelCopyFrames.sink === this) Nx10PixelCopyFrames.sink = null
       observer.onCapturerStopped()
+      report("stopped")
     }
   }
 
@@ -132,38 +154,65 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
   override fun changeCaptureFormat(width: Int, height: Int, framerate: Int) = Unit
 
   override fun onFrame(bitmap: Bitmap, timestampNs: Long) {
+    val input = count(Counter.INPUT)
     val epoch = generation
-    if (!active || !occupied.compareAndSet(false, true)) return
+    if (!active) {
+      count(Counter.STALE)
+      return
+    }
+    if (!occupied.compareAndSet(false, true)) {
+      count(Counter.BUSY)
+      if (input % 20L == 0L) report("sampling")
+      return
+    }
     // Crop a possible odd edge for the encoder. Portrait stays in portrait.
     val width = bitmap.width and -2
     val height = bitmap.height and -2
     try {
       if (width < 2 || height < 2) {
+        count(Counter.INVALID_SIZE)
         occupied.set(false)
         return
       }
       val pixels = IntArray(width * height)
+      dimensions = "${bitmap.width}x${bitmap.height}->${width}x$height"
       bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
       worker.execute {
         if (!active || epoch != generation) {
+          count(Counter.STALE)
           occupied.set(false)
           return@execute
         }
         val frame = try {
-          VideoFrame(toI420(pixels, width, height) { occupied.set(false) }, 0, timestampNs)
+          VideoFrame(toI420(pixels, width, height) {
+            count(Counter.RELEASED)
+            occupied.set(false)
+            if (!active) report("released-after-stop")
+          }, 0, timestampNs)
         } catch (_: RuntimeException) {
+          count(Counter.CONVERSION_ERROR)
           occupied.set(false)
           return@execute
         }
         try {
           synchronized(gate) {
-            if (active && epoch == generation) observer.onFrameCaptured(frame)
+            if (active && epoch == generation) {
+              observer.onFrameCaptured(frame)
+              count(Counter.DELIVERED)
+            } else {
+              count(Counter.STALE)
+            }
           }
+        } catch (error: RuntimeException) {
+          count(Counter.OBSERVER_ERROR)
+          throw error
         } finally {
           frame.release()
+          if (input % 20L == 0L) report("sampling")
         }
       }
     } catch (_: RuntimeException) {
+      count(Counter.COPY_OR_QUEUE_ERROR)
       occupied.set(false)
     }
   }
