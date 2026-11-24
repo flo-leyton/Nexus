@@ -70,6 +70,14 @@ El diagnóstico nativo registra totales por capturador con `NexusNx10Bridge` al 
 
 El puente experimental separa la reserva del trabajador de los búferes I420 retenidos por WebRTC. Admite como máximo una tarea de copia/conversión y tres búferes I420 en vuelo. Cada búfer conserva su reserva hasta la liberación final. El trabajador vuelve a admitir cuadros al terminar su tarea. Los contadores `busy`, `retention_limit`, `converted`, `delivered` y `released` permiten distinguir los descartes, las entregas y las liberaciones tardías. La próxima prueba conservará VP8 y deberá comprobar imagen, avance de los contadores y retorno de `in_flight` a cero tras detener la vista.
 
+### NX-10 · Primera transmisión VP8 en LAN, 24 de noviembre de 2026
+
+**Observación del operador.** Con la APK de `0f3f877`, la imagen del Samsung MAIN (SM-A566E) apareció en el Controller (SM-X520). La interfaz pasó de **Conectando** a **Transmitiendo** y la vista se detuvo al pulsar **Dejar de transmitir**. No se usó REC.
+
+**Evidencia de registros.** En la negociación `8248c505-902f-4f5b-acb4-2b5cd2dccc28`, ambos clientes confirmaron VP8. PixelCopy capturó 75 cuadros de 639 × 360 con 0 descartes. El puente recibió, convirtió, entregó y liberó 72 cuadros a 638 × 360. Cerró con `in_flight=0`, `worker_busy=false` y todos sus contadores de descarte y error en cero. La última muestra RTP de MAIN registró 67 cuadros codificados y 67 enviados. La del Controller registró 64 recibidos y 64 decodificados. Son muestras previas al cierre tomadas en instantes distintos. RTCView informó 318 × 180 y luego 474 × 270.
+
+El Controller cerró con `stopped` y MAIN con `remote-close`. Ambos peers llegaron a `closed`. La revisión de la ventana de cierre en MAIN no mostró errores relevantes. **Verificada la transmisión VP8 sin REC.** Falta la prueba de grabación local con la vista activa, que debe comprobar el guardado y la reproducción del original.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.
