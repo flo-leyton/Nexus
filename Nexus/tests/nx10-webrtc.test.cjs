@@ -11,7 +11,7 @@ const WebSocket = require('ws');
 const protocol = require('../services/sessionProtocol.ts');
 const { startTestRelay, authenticate } = require('./helpers/relay.cjs');
 
-const sdp = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n';
+const sdp = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n';
 const request = (senderId, sessionId, type, payload, targetId) => ({
   protocolVersion: 1, senderId, sessionId, type, payload, targetId, messageId: randomUUID(), sentAt: Date.now(),
 });
@@ -133,6 +133,13 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     addEventListener(name, callback) { this.events[name] = callback; }
     async setRemoteDescription(description) { this.remoteDescription = description; }
     async createAnswer() { return { type: 'answer', sdp }; }
+    addTransceiver() {
+      return { setCodecPreferences: (codecs) => { this.preferred = Array.from(codecs, ({ mimeType }) => mimeType); } };
+    }
+    async createOffer() {
+      assert.deepEqual(this.preferred, ['video/VP8']);
+      return { type: 'offer', sdp };
+    }
     async setLocalDescription(description) { this.localDescription = description; }
     addTrack(track, stream) { this.track = track; this.stream = stream; }
     async getStats() { return new Map([['video', { type: 'outbound-rtp', kind: 'video', framesEncoded: 0, bytesSent: 42 }]]); }
@@ -147,7 +154,9 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     'expo-crypto': { randomUUID },
     'react-native': { NativeModules: { Nx10WebRtc: { createStream: () =>
       new Promise((resolve) => { finishCreate = resolve; }) } } },
-    'react-native-webrtc': { MediaStream: Stream, RTCPeerConnection: Peer },
+    'react-native-webrtc': { MediaStream: Stream, RTCPeerConnection: Peer,
+      RTCRtpReceiver: { getCapabilities: () => ({ codecs: [{ mimeType: 'video/H264' }, { mimeType: 'video/VP8' }] }) },
+      RTCRtpSender: { getCapabilities: () => ({ codecs: [{ mimeType: 'video/VP8' }] }) } },
     './sessionProtocol': protocol,
     './socket': { sendSocketMessage: (message) => { sent.push(message); return true; },
       subscribeToSocketMessages: (callback) => { receive = callback; return () => { receive = undefined; }; } },
@@ -156,7 +165,7 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
   vm.runInNewContext(code, { exports, setTimeout, clearTimeout, require: (name) => deps[name],
-    __DEV__: true, process: { env: { EXPO_PUBLIC_NEXUS_NX10_TRACE: '1' } },
+    __DEV__: true, process: { env: { EXPO_PUBLIC_NEXUS_NX10_TRACE: '1', EXPO_PUBLIC_NEXUS_NX10_VP8: '1' } },
     console: { info: (_tag, json) => trace.push(JSON.parse(json)) },
     setInterval: (callback, delay) => { assert.equal(delay, 2500); sampleStats = callback; return 1; },
     clearInterval: () => { sampleStats = undefined; },
@@ -175,6 +184,7 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     assert.equal(peers.length, 1);
     assert.equal(peers[0].track.kind, 'video');
     assert.equal(sent[0].payload.kind, 'answer');
+    assert.ok(trace.some((entry) => entry.event === 'codec-confirmed' && entry.codec === 'VP8'));
     preview.samplerRequested(true);
     await sampleStats();
     const stats = trace.find((entry) => entry.event === 'stats');
@@ -201,6 +211,21 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     assert.equal(peers[1].track, undefined);
     assert.equal(streams[1].releases, 1);
     assert.ok(sent.every((message) => message.type === 'PREVIEW_SIGNAL'));
+    const controller = exports.createPreviewTransport({
+      sessionId: 'session', nodeId: 'node-public', nodeDeviceId: 'node', controllerId: 'controller', deviceId: 'controller',
+    }, () => {});
+    try {
+      controller.start();
+      await turn();
+      const outbound = sent.find((message) => message.payload.kind === 'offer');
+      assert.equal(outbound.payload.sdp, sdp);
+      const answer = signal('node', 'session', 'controller', 'node-public', outbound.payload.connectionId,
+        { kind: 'answer', sdp: sdp.replace('VP8', 'H264') });
+      receive(JSON.stringify(answer));
+      await turn();
+      assert.equal(peers.at(-1).remoteDescription, undefined);
+      assert.ok(trace.some((entry) => entry.reason === 'vp8-remote-sdp-unconfirmed'));
+    } finally { controller.dispose(); }
   } finally {
     preview.dispose();
   }

@@ -53,20 +53,36 @@ type Negotiation = {
   track?: MediaStreamTrack;
 };
 
-function videoStats(reports: Iterable<Record<string, unknown>>, controller: boolean) {
+function videoStats(reports: Map<string, Record<string, unknown>>, controller: boolean) {
   const type = controller ? 'inbound-rtp' : 'outbound-rtp';
   const fields = controller ? ['framesReceived', 'framesDecoded', 'bytesReceived'] : ['framesEncoded', 'framesSent', 'bytesSent'];
-  const video = [...reports].filter((report) => report.type === type && (report.kind ?? report.mediaType) === 'video');
-  return Object.fromEntries(fields.map((field) => {
+  const video = [...reports.values()].filter((report) => report.type === type && (report.kind ?? report.mediaType) === 'video');
+  const codecs = [...new Set(video.flatMap(({ codecId }) => {
+    const mime = typeof codecId === 'string' ? reports.get(codecId)?.mimeType : undefined;
+    return typeof mime === 'string' && /^video\/[\w-]{1,20}$/i.test(mime) ? [mime] : [];
+  }))];
+  return { codec: codecs.length ? codecs.join(', ') : 'no disponible', ...Object.fromEntries(fields.map((field) => {
     const values = video.map((report) => report[field]);
     return [field, values.length && values.every((value) => typeof value === 'number' && Number.isFinite(value))
       ? (values as number[]).reduce((sum, value) => sum + value, 0) : 'no disponible'];
-  }));
+  })) };
+}
+
+// Read the effective description without rewriting it. For this diagnostic only VP8 is allowed.
+function hasOnlyVp8(sdp: string) {
+  const video = sdp.split(/\r?\n(?=m=)/).find((section) => section.startsWith('m=video '));
+  if (!video) return false;
+  const [header, ...lines] = video.split(/\r?\n/);
+  const [, port, , ...payloads] = header.trim().split(/\s+/);
+  return Number(port) > 0 && payloads.length > 0 &&
+    payloads.every((payload) => /^\d+$/.test(payload) && lines.some((line) =>
+      line.toLowerCase() === `a=rtpmap:${payload} vp8/90000`));
 }
 
 export function createPreviewTransport(pair: Pair, update: (state: PreviewState) => void) {
   const controller = pair.deviceId === pair.controllerId;
   const diagnostics = typeof __DEV__ !== 'undefined' && __DEV__ && process.env.EXPO_PUBLIC_NEXUS_NX10_TRACE === '1';
+  const vp8Test = typeof __DEV__ !== 'undefined' && __DEV__ && process.env.EXPO_PUBLIC_NEXUS_NX10_VP8 === '1';
   const trace = (next: Negotiation, event: string, detail: Record<string, unknown> = {}) => {
     if (diagnostics) console.info('[NX10 WebRTC]', JSON.stringify({
       role: controller ? 'Controller' : 'Node', negotiation: next.id, event, ...detail,
@@ -122,15 +138,20 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
     if (current !== next) return;
     await pc.setLocalDescription(description);
     if (current !== next) return;
-    send(next.id, { kind, sdp: pc.localDescription?.sdp ?? description.sdp });
+    const sdp = pc.localDescription?.sdp ?? description.sdp;
+    if (vp8Test && !hasOnlyVp8(sdp)) { stop(true, 'vp8-local-sdp-unconfirmed'); return; }
+    send(next.id, { kind, sdp });
     trace(next, 'description-sent', { kind });
+    if (vp8Test && kind === 'answer') trace(next, 'codec-confirmed', { codec: 'VP8', source: 'local-answer-sdp' });
     next.sentDescription = true;
     for (const candidate of next.localIce.splice(0)) send(next.id, candidate);
   };
   const setRemote = async (next: Negotiation, kind: 'offer' | 'answer', sdp: string) => {
+    if (vp8Test && !hasOnlyVp8(sdp)) { stop(true, 'vp8-remote-sdp-unconfirmed'); return; }
     const pc = next.pc!;
     await pc.setRemoteDescription({ type: kind, sdp });
     trace(next, 'description-applied', { kind });
+    if (vp8Test && kind === 'answer') trace(next, 'codec-confirmed', { codec: 'VP8', source: 'remote-answer-sdp' });
     for (const candidate of next.remoteIce.splice(0)) {
       if (current !== next) return;
       await pc.addIceCandidate(candidate);
@@ -155,7 +176,7 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
         try {
           const reports: Map<string, Record<string, unknown>> = await pc.getStats();
           if (current === next) trace(next, 'stats', {
-            ...(next.track && { track: trackState(next.track) }), ...videoStats(reports.values(), controller),
+            ...(next.track && { track: trackState(next.track) }), ...videoStats(reports, controller),
           });
         } catch {
           if (current === next) trace(next, 'stats-unavailable');
@@ -205,6 +226,11 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
       enqueue(async () => {
         const rtc = await peer(next);
         if (!rtc || current !== next) return;
+        if (vp8Test) {
+          const supported = rtc.RTCRtpSender.getCapabilities('video')?.codecs.some((codec) => codec.mimeType.toLowerCase() === 'video/vp8');
+          trace(next, 'vp8-capability', { direction: 'send', supported: Boolean(supported) });
+          if (!supported) { stop(true, 'vp8-sender-unavailable'); return; }
+        }
         await setRemote(next, 'offer', payload.sdp);
         if (current !== next) return;
         trace(next, 'local-track-requested');
@@ -246,8 +272,16 @@ export function createPreviewTransport(pair: Pair, update: (state: PreviewState)
       if (!controller || current) return;
       const next = begin(Crypto.randomUUID());
       enqueue(async () => {
-        if (!await peer(next) || current !== next) return;
-        next.pc!.addTransceiver('video', { direction: 'recvonly' });
+        const rtc = await peer(next);
+        if (!rtc || current !== next) return;
+        const transceiver = next.pc!.addTransceiver('video', { direction: 'recvonly' });
+        if (vp8Test) {
+          const codecs = rtc.RTCRtpReceiver.getCapabilities('video')?.codecs.filter((codec) => codec.mimeType.toLowerCase() === 'video/vp8');
+          const preferenceApi = typeof transceiver.setCodecPreferences === 'function';
+          trace(next, 'vp8-capability', { direction: 'receive', supported: Boolean(codecs?.length), preferenceApi });
+          if (!codecs?.length || !preferenceApi) { stop(true, 'vp8-receiver-unavailable'); return; }
+          transceiver.setCodecPreferences(codecs);
+        }
         await describe(next, 'offer');
       }, next);
     },
