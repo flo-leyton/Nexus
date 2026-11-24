@@ -21,11 +21,12 @@ const signal = (sender, session, target, nodeId, connectionId, details) =>
 test('NX-10 lazy preview resolves to a React wrapper that renders the native host view', async () => {
   let loadVideo;
   let rtcImports = 0;
+  let dimensions = { width: 800, height: 1200 };
   const nativeView = 'RTCVideoView';
   const dependencies = {
     react: { lazy: (load) => { loadVideo = load; return {}; } },
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
-    'react-native': {},
+    'react-native': { View: 'View', useWindowDimensions: () => dimensions },
     'react-native-paper': {},
     'react-native-webrtc': { RTCView: nativeView },
     '@/services/previewTransport': {},
@@ -35,7 +36,8 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   const code = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  vm.runInNewContext(code, { exports: {}, require(name) {
+  const exports = {};
+  vm.runInNewContext(code, { exports, require(name) {
     assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
     if (name === 'react-native-webrtc') rtcImports++;
     return dependencies[name];
@@ -50,6 +52,15 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(element.props.streamURL, props.streamURL);
   assert.equal(element.props.objectFit, props.objectFit);
   assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
+
+  const targets = ['MAIN', 'SIDE'].map((label) => ({ label, pair: { sessionId: 'session',
+    nodeId: label, nodeDeviceId: `${label}-device`, controllerId: 'controller' } }));
+  const layout = (items) => exports.ExperimentalPreview({ targets: items }).props.children.props;
+  assert.equal(layout(targets).style.flexDirection, 'row');
+  assert.deepEqual(Array.from(layout(targets).children, (tile) => tile.props.children.props.label), ['MAIN', 'SIDE']);
+  dimensions = { width: 390, height: 800 };
+  assert.equal(layout(targets).style.flexDirection, 'column');
+  assert.equal(layout([targets[1]]).children[0].props.children.props.label, 'SIDE');
 });
 
 test('NX-10 signaling schema only accepts bounded targeted video negotiation', () => {
@@ -62,27 +73,32 @@ test('NX-10 signaling schema only accepts bounded targeted video negotiation', (
     { kind: 'ice', candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 1 })));
 });
 
-test('NX-10 authenticated relay isolates video, rejects stale signals and preserves an active take after preview close', { timeout: 15000 }, async (t) => {
-  const runtime = await startTestRelay(t, { previewEnabled: true });
-  async function connect(id) {
+function connectToRelay(t, runtime) {
+  return async (id) => {
     const socket = new WebSocket(`ws://127.0.0.1:${runtime.server.address().port}`);
     t.after(() => socket.terminate());
     await once(socket, 'open');
     await authenticate(socket, id);
     const inbox = [];
     socket.on('message', (data) => inbox.push(JSON.parse(String(data))));
-    return { inbox, send: (message) => socket.send(JSON.stringify(message)), async wait(check) {
+    return { inbox, socket, send: (message) => socket.send(JSON.stringify(message)), async wait(check) {
       while (!inbox.some(check)) await once(socket, 'message');
       return inbox.find(check);
     } };
-  }
+  };
+}
+
+const sendRequest = async (socket, message) => {
+  socket.send(message);
+  return socket.wait((event) => event.payload?.requestId === message.messageId);
+};
+
+test('NX-10 authenticated relay isolates video, rejects stale signals and preserves an active take after preview close', { timeout: 15000 }, async (t) => {
+  const runtime = await startTestRelay(t, { previewEnabled: true });
+  const connect = connectToRelay(t, runtime);
   const controller = await connect('controller');
   const node = await connect('node');
   const foreign = await connect('foreign');
-  const sendRequest = async (socket, message) => {
-    socket.send(message);
-    return socket.wait((event) => event.payload?.requestId === message.messageId);
-  };
   const sid = 'test-session';
   const { payload: { session } } = await sendRequest(controller, request('controller', sid, 'SESSION_CREATE', {}));
   const join = request('node', sid, 'SESSION_JOIN_REQUEST', { code: session.code });
@@ -125,9 +141,83 @@ test('NX-10 authenticated relay isolates video, rejects stale signals and preser
   assert.equal(foreign.inbox.some((event) => event.type === 'PREVIEW_SIGNAL'), false);
 });
 
-test('NX-10 Node registers one video track and releases it on connection loss or late native completion', async () => {
+test('NX-10 relay routes simultaneous MAIN and SIDE and isolates stop, reconnect and stale signals', { timeout: 15000 }, async (t) => {
+  const connect = connectToRelay(t, await startTestRelay(t, { previewEnabled: true }));
+  const controller = await connect('controller');
+  const main = await connect('main');
+  const sid = 'two-nodes';
+  const { payload: { session } } = await sendRequest(controller, request('controller', sid, 'SESSION_CREATE', {}));
+  async function admit(socket, id) {
+    const join = request(id, sid, 'SESSION_JOIN_REQUEST', { code: session.code });
+    await sendRequest(socket, join);
+    const admission = await sendRequest(controller, request('controller', sid, 'SESSION_JOIN_ACCEPT', { requestId: join.messageId }, id));
+    return admission.payload.session.members[id].nodeId;
+  }
+  const mainId = await admit(main, 'main');
+  const side = await connect('side');
+  const sideId = await admit(side, 'side');
+  const offer = (id, connectionId) => signal('controller', sid, id, id, connectionId, { kind: 'offer', sdp });
+  const sendAndReceive = async (from, to, message) => {
+    from.send(message);
+    await to.wait((event) => event.messageId === message.messageId);
+  };
+  const mainOffer = offer(mainId, 'main-1');
+  const sideOffer = offer(sideId, 'side-1');
+  await Promise.all([sendAndReceive(controller, main, mainOffer), sendAndReceive(controller, side, sideOffer)]);
+  const answer = (from, id, connectionId) => signal(from, sid, 'controller', id, connectionId, { kind: 'answer', sdp });
+  await Promise.all([
+    sendAndReceive(side, controller, answer('side', sideId, 'side-1')),
+    sendAndReceive(main, controller, answer('main', mainId, 'main-1')),
+  ]);
+  const ice = (from, id, connectionId) => signal(from, sid, 'controller', id, connectionId,
+    { kind: 'ice', candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 });
+  const wrongNode = await sendRequest(side, ice('side', mainId, 'main-1'));
+  assert.equal(wrongNode.payload.code, 'PREVIEW_INVALID_TARGET');
+  const wrongTarget = await sendRequest(controller, { ...offer(sideId, 'wrong-target'), targetId: mainId });
+  assert.equal(wrongTarget.payload.code, 'PREVIEW_INVALID_TARGET');
+  const crossed = ice('side', sideId, 'main-1');
+  side.send(crossed);
+  const closeSide = signal('controller', sid, sideId, sideId, 'side-1', { kind: 'close' });
+  await sendAndReceive(controller, side, closeSide);
+  const late = ice('side', sideId, 'side-1');
+  side.send(late);
+  await sendRequest(side, request('side', sid, 'SESSION_GET', {}));
+  assert.ok(!controller.inbox.some((event) => [late.messageId, crossed.messageId].includes(event.messageId)));
+  assert.ok(!main.inbox.some((event) => [sideOffer.messageId, closeSide.messageId].includes(event.messageId)));
+  await sendAndReceive(main, controller, ice('main', mainId, 'main-1'));
+
+  const sideBeforeDisconnect = { ...offer(sideId, 'side-2'), sentAt: sideOffer.sentAt + 1 };
+  await sendAndReceive(controller, side, sideBeforeDisconnect);
+  side.socket.terminate();
+  await controller.wait((event) => event.payload?.session?.members.side?.online === false);
+  await sendAndReceive(main, controller, ice('main', mainId, 'main-1'));
+  const returned = await connect('side');
+  const resumed = await sendRequest(returned, request('side', sid, 'SESSION_RESUME', {}));
+  assert.equal(resumed.payload.session.members.side.nodeId, sideId);
+  const replay = { ...sideBeforeDisconnect, messageId: randomUUID() };
+  controller.send(replay);
+  const newSideOffer = { ...offer(sideId, 'side-3'), sentAt: sideBeforeDisconnect.sentAt + 1 };
+  await sendAndReceive(controller, returned, newSideOffer);
+  assert.ok(!returned.inbox.some((event) => event.messageId === replay.messageId));
+  await sendAndReceive(returned, controller, answer('side', sideId, 'side-3'));
+  await sendAndReceive(returned, controller, ice('side', sideId, 'side-3'));
+  await sendAndReceive(main, controller, ice('main', mainId, 'main-1'));
+
+  const close = request('controller', sid, 'SESSION_CLOSE', {});
+  controller.send(close);
+  await Promise.all([controller, main, returned].map((socket) => socket.wait((event) => event.type === 'SESSION_CLOSED' && event.payload.requestId === close.messageId)));
+  for (const [socket, id, nodeId, connectionId] of [[main, 'main', mainId, 'main-1'], [returned, 'side', sideId, 'side-3']]) {
+    const afterClose = await sendRequest(socket, ice(id, nodeId, connectionId));
+    assert.equal(afterClose.payload.code, 'SESSION_IS_CLOSED');
+  }
+});
+
+test('NX-10 transports isolate Controller feeds and release Node tracks on stop or late completion', async () => {
   const states = [], sent = [], peers = [], streams = [], trace = [];
-  let receive, finishCreate, sampleStats;
+  const subscriptions = new Set();
+  const receive = (data) => { for (const callback of subscriptions) callback(data); };
+  const timers = new Set();
+  let finishCreate, sampleStats;
   class Peer {
     constructor() { this.events = {}; peers.push(this); }
     addEventListener(name, callback) { this.events[name] = callback; }
@@ -159,16 +249,18 @@ test('NX-10 Node registers one video track and releases it on connection loss or
       RTCRtpSender: { getCapabilities: () => ({ codecs: [{ mimeType: 'video/VP8' }] }) } },
     './sessionProtocol': protocol,
     './socket': { sendSocketMessage: (message) => { sent.push(message); return true; },
-      subscribeToSocketMessages: (callback) => { receive = callback; return () => { receive = undefined; }; } },
+      subscribeToSocketMessages: (callback) => { subscriptions.add(callback); return () => subscriptions.delete(callback); } },
   };
   const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../services/previewTransport.ts'), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, setTimeout, clearTimeout, require: (name) => deps[name],
+  vm.runInNewContext(code, { exports, require: (name) => deps[name],
     __DEV__: true, process: { env: { EXPO_PUBLIC_NEXUS_NX10_TRACE: '1', EXPO_PUBLIC_NEXUS_NX10_VP8: '1' } },
     console: { info: (_tag, json) => trace.push(JSON.parse(json)) },
-    setInterval: (callback, delay) => { assert.equal(delay, 2500); sampleStats = callback; return 1; },
-    clearInterval: () => { sampleStats = undefined; },
+    setTimeout: (callback) => { timers.add(callback); return callback; },
+    clearTimeout: (callback) => timers.delete(callback),
+    setInterval: (callback, delay) => { assert.equal(delay, 2500); timers.add(callback); sampleStats = callback; return callback; },
+    clearInterval: (callback) => { timers.delete(callback); if (sampleStats === callback) sampleStats = undefined; },
   });
   const preview = exports.createPreviewTransport({
     sessionId: 'session', nodeId: 'node-public', nodeDeviceId: 'node', controllerId: 'controller', deviceId: 'node',
@@ -228,5 +320,78 @@ test('NX-10 Node registers one video track and releases it on connection loss or
     } finally { controller.dispose(); }
   } finally {
     preview.dispose();
+  }
+
+  const main = { deviceId: 'main', kind: 'node', nodeId: 'main-public', role: 'main', online: true };
+  const side = { deviceId: 'side', kind: 'node', nodeId: 'side-public', role: 'side', online: true };
+  const session = { sessionId: 'session', controllerId: 'controller', state: 'open', members: {
+    controller: { kind: 'controller', online: true }, main, side,
+  } };
+  const targets = (value, deviceId = 'controller') => exports.previewTargets(value, deviceId);
+  const labels = (value) => Array.from(targets(value), ({ label }) => label);
+  assert.deepEqual(labels({ ...session, members: { controller: session.members.controller, main } }), ['MAIN']);
+  assert.deepEqual(labels({ ...session, members: { controller: session.members.controller, side } }), ['SIDE']);
+  assert.deepEqual(labels(session), ['MAIN', 'SIDE']);
+  assert.equal(targets(session, 'side')[0].pair.nodeId, side.nodeId);
+  assert.equal(targets(session, 'foreign').length, 0);
+  assert.deepEqual(labels({ ...session, members: { ...session.members, side: { ...side, online: false } } }), ['MAIN']);
+  assert.deepEqual(labels({ ...session, state: 'closed' }), []);
+
+  const feedStates = new Map();
+  const createFeed = (pair) => exports.createPreviewTransport(pair, (state) => feedStates.set(pair.nodeId, state));
+  const [mainPair, sidePair] = Array.from(targets(session), ({ pair }) => pair);
+  const mainFeed = createFeed(mainPair);
+  let sideFeed = createFeed(sidePair);
+  const turn = () => new Promise(setImmediate);
+  async function streamFeed(pair, peer, feed) {
+    const offer = sent.findLast((entry) => entry.payload.kind === 'offer' && entry.payload.nodeId === pair.nodeId);
+    const answer = signal(pair.nodeDeviceId, 'session', 'controller', pair.nodeId, offer.payload.connectionId, { kind: 'answer', sdp });
+    receive(JSON.stringify({ ...answer, senderId: 'foreign' }));
+    await turn();
+    assert.equal(peer.remoteDescription, undefined);
+    receive(JSON.stringify(answer));
+    await turn();
+    assert.equal(peer.remoteDescription.type, 'answer');
+    peer.connectionState = 'connected';
+    peer.events.track({ track: { kind: 'video' }, streams: [{ toURL: () => offer.payload.connectionId }] });
+    feed.receivedFrame(offer.payload.connectionId);
+    assert.equal(feedStates.get(pair.nodeId).phase, 'streaming');
+    return offer;
+  }
+  try {
+    mainFeed.start();
+    sideFeed.start();
+    await turn();
+    const [mainPeer, sidePeer] = peers.slice(-2);
+    const mainOffer = await streamFeed(mainPair, mainPeer, mainFeed);
+    const sideOffer = await streamFeed(sidePair, sidePeer, sideFeed);
+    assert.notEqual(mainOffer.payload.connectionId, sideOffer.payload.connectionId);
+    const crossClose = signal('side', 'session', 'controller', side.nodeId, mainOffer.payload.connectionId, { kind: 'close' });
+    receive(JSON.stringify(crossClose));
+    assert.equal(feedStates.get(side.nodeId).phase, 'streaming');
+    sideFeed.stop();
+    assert.equal(sidePeer.closed, true);
+    assert.equal(feedStates.get(main.nodeId).phase, 'streaming');
+    assert.equal(mainPeer.closed, undefined);
+    sideFeed.dispose();
+    assert.equal(subscriptions.size, 1);
+    sideFeed = createFeed(sidePair);
+    sideFeed.start();
+    await turn();
+    const returnedPeer = peers.at(-1);
+    const staleClose = signal('side', 'session', 'controller', side.nodeId, sideOffer.payload.connectionId, { kind: 'close' });
+    receive(JSON.stringify(staleClose));
+    assert.equal(returnedPeer.closed, undefined);
+    await streamFeed(sidePair, returnedPeer, sideFeed);
+    assert.equal(feedStates.get(main.nodeId).phase, 'streaming');
+    mainFeed.dispose();
+    sideFeed.dispose();
+    assert.equal(mainPeer.closed, true);
+    assert.equal(returnedPeer.closed, true);
+    assert.equal(subscriptions.size, 0);
+    assert.equal(timers.size, 0);
+  } finally {
+    mainFeed.dispose();
+    sideFeed.dispose();
   }
 });

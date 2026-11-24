@@ -28,17 +28,25 @@ export function previewAvailable() {
     Boolean(NativeModules.Nx10WebRtc && NativeModules.WebRTCModule);
 }
 
-export function previewPair(session: Session | undefined, deviceId: string) {
-  if (!session || session.state === 'closed') return;
-  const nodes = Object.values(session.members).filter((member) => member.kind === 'node');
-  const node = nodes.length === 1 ? nodes[0] : undefined;
-  if (!node?.nodeId || !node.online || !session.members[session.controllerId]?.online) return;
-  if (deviceId !== session.controllerId && deviceId !== node.deviceId) return;
-  return { sessionId: session.sessionId, nodeId: node.nodeId, nodeDeviceId: node.deviceId,
-    controllerId: session.controllerId, deviceId };
+export type PreviewPair = {
+  sessionId: string; nodeId: string; nodeDeviceId: string; controllerId: string; deviceId: string;
+};
+
+export function previewTargets(session: Session | undefined, deviceId: string) {
+  const targets: { pair: PreviewPair; label: string }[] = [];
+  if (!session || session.state === 'closed' || !session.members[session.controllerId]?.online) return targets;
+  for (const node of Object.values(session.members)) {
+    if (node.kind !== 'node' || !node.online || !node.nodeId) continue;
+    if (deviceId !== session.controllerId && deviceId !== node.deviceId) continue;
+    targets.push({
+      pair: { sessionId: session.sessionId, nodeId: node.nodeId, nodeDeviceId: node.deviceId,
+        controllerId: session.controllerId, deviceId },
+      label: node.role === 'unassigned' || !node.role ? 'Node' : node.role.toUpperCase(),
+    });
+  }
+  return targets;
 }
 
-type Pair = NonNullable<ReturnType<typeof previewPair>>;
 type Negotiation = {
   id: string;
   pc?: RTCPeerConnection;
@@ -79,13 +87,13 @@ function hasOnlyVp8(sdp: string) {
       line.toLowerCase() === `a=rtpmap:${payload} vp8/90000`));
 }
 
-export function createPreviewTransport(pair: Pair, update: (state: PreviewState) => void) {
+export function createPreviewTransport(pair: PreviewPair, update: (state: PreviewState) => void) {
   const controller = pair.deviceId === pair.controllerId;
   const diagnostics = typeof __DEV__ !== 'undefined' && __DEV__ && process.env.EXPO_PUBLIC_NEXUS_NX10_TRACE === '1';
   const vp8Test = typeof __DEV__ !== 'undefined' && __DEV__ && process.env.EXPO_PUBLIC_NEXUS_NX10_VP8 === '1';
   const trace = (next: Negotiation, event: string, detail: Record<string, unknown> = {}) => {
     if (diagnostics) console.info('[NX10 WebRTC]', JSON.stringify({
-      role: controller ? 'Controller' : 'Node', negotiation: next.id, event, ...detail,
+      role: controller ? 'Controller' : 'Node', nodeId: pair.nodeId, negotiation: next.id, event, ...detail,
     }));
   };
   const trackState = (track: MediaStreamTrack) => ({ enabled: track.enabled, readyState: track.readyState, muted: track.muted });

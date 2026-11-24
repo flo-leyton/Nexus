@@ -3,12 +3,19 @@ function createPreviewSignalRouter(clients, emit) {
 
   return {
     forget(sessionId) { negotiations.delete(sessionId); },
+    disconnectNode(sessionId, nodeId) {
+      const current = negotiations.get(sessionId)?.get(nodeId);
+      if (!current) return;
+      // Keep the last offer's timestamp while the same Controller socket is online.
+      current.closed = true;
+      current.nodeSocket = null;
+      current.seen.clear();
+    },
     route(session, message, client, error) {
       const { payload, senderId, targetId, sentAt, messageId } = message;
       const controller = session.members.get(session.controllerId);
-      const nodes = [...session.members.values()].filter((member) => member.kind === 'node');
-      const node = nodes.length === 1 ? nodes[0] : undefined;
-      if (!node || node.nodeId !== payload.nodeId) return error('PREVIEW_INVALID_NODE');
+      const node = [...session.members.values()].find((member) => member.kind === 'node' && member.nodeId === payload.nodeId);
+      if (!node) return error('PREVIEW_INVALID_NODE');
       const controllerSocket = clients.get(controller?.deviceId);
       const nodeSocket = clients.get(node.deviceId);
       const available = (member, socket) => member?.online && socket?.readyState === 1 &&
@@ -17,14 +24,19 @@ function createPreviewSignalRouter(clients, emit) {
       const fromController = senderId === controller.deviceId && client === controllerSocket && targetId === node.nodeId;
       const fromNode = senderId === node.deviceId && client === nodeSocket && targetId === controller.deviceId;
       if (!fromController && !fromNode) return error('PREVIEW_INVALID_TARGET');
-      let current = negotiations.get(session.sessionId);
+      let byNode = negotiations.get(session.sessionId);
+      let current = byNode?.get(node.nodeId);
       if (payload.kind === 'offer') {
         if (!fromController) return error('PREVIEW_CONTROLLER_REQUIRED');
         if (current && (payload.connectionId === current.id ||
             (current.controllerSocket === controllerSocket && sentAt <= current.offeredAt))) return true;
         current = { id: payload.connectionId, offeredAt: sentAt, controllerSocket, nodeSocket,
           answered: false, closed: false, seen: new Set() };
-        negotiations.set(session.sessionId, current);
+        if (!byNode) {
+          byNode = new Map();
+          negotiations.set(session.sessionId, byNode);
+        }
+        byNode.set(node.nodeId, current);
       }
       if (!current || current.closed || current.id !== payload.connectionId ||
           current.controllerSocket !== controllerSocket || current.nodeSocket !== nodeSocket ||

@@ -311,7 +311,7 @@ export default function SessionScreen() {
       </>}
     </SessionSection>}
     console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession} />}
-    experimentalPreview={preview.visible && <ExperimentalPreview {...preview} />}
+    experimentalPreview={preview.targets.length > 0 && <ExperimentalPreview targets={preview.targets} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}

@@ -86,6 +86,18 @@ El Controller cerró con `stopped` y MAIN con `remote-close`. Ambos peers llegar
 
 No se recuperó Logcat nativo de MAIN para este intento. Quedaron sin verificar por registros los contadores nativos durante REC, la liberación de búferes al cerrar y el evento de finalización de CameraX.
 
+### NX-10 · Vistas simultáneas de MAIN y SIDE
+
+El Controller muestra un visor por Node disponible. Usa el rol asignado como etiqueta y permite iniciar y detener cada vista por separado. Los visores se muestran en paralelo en tablet y apilados en teléfono. Con un solo Node conectado sigue disponible su visor. La pantalla de sesión conserva un único capturador por Node.
+
+`app/session/[id].tsx` conecta los visores a la sesión. `components/session/ExperimentalPreview.tsx` mantiene un transporte y un estado por visor, y `components/session/SessionPage.tsx` les da el ancho de la página. `services/previewTransport.ts` selecciona los miembros online y reutiliza el WebSocket de Studio. `server/previewSignal.js` aísla oferta, respuesta, ICE y cierre por sesión, Node y conexión, y `server/sessions.js` retira las negociaciones afectadas tras confirmar la desconexión o el cierre de sesión. `tests/nx10-webrtc.test.cjs` cubre el visor adaptable, MAIN o SIDE por separado, las dos conexiones, el cierre independiente, la reconexión, los mensajes cruzados y la liberación de recursos.
+
+Validación local con TypeScript, lint y la suite automatizada. Pasaron 140 pruebas, con 5 pruebas de emulador omitidas por la configuración de la suite.
+
+La prueba LAN puede usar la APK experimental de `0f3f877`. Los cambios están en el bundle y el relay, y el puente nativo de PixelCopy y WebRTC es el mismo. Para la prueba, usa el relay LAN de esta revisión con `NEXUS_NX10_WEBRTC_RELAY=1` y la configuración DEV-B de autenticación y RTDB ya utilizada. Sirve el bundle Android desde Metro con `EXPO_PUBLIC_NEXUS_NX10_WEBRTC=1`, `EXPO_PUBLIC_NEXUS_NX10_VP8=1` y `EXPO_PUBLIC_RELAY_URL` apuntando al WebSocket LAN. `EXPO_PUBLIC_NEXUS_NX10_TRACE=1` identifica cada vista por Node y negociación.
+
+Pendiente de prueba física. Asigna los roles MAIN y SIDE, comprueba una vista por separado y luego las dos a la vez. Detén y vuelve a iniciar un visor, desconecta y reconecta SIDE y comprueba que MAIN sigue visible. Con ambos visores activos, verifica zoom independiente y REC/STOP, y reproduce los originales guardados en cada Node. Al cerrar la sesión, verifica que desaparezcan ambos visores y que los búferes en vuelo vuelvan a cero en los dos Nodes.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

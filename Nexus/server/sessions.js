@@ -92,6 +92,10 @@ function attachSessions(relay, { storage, previewEnabled = false,
   };
   const markOffline = (s, id) => {
     const member = s.members.get(id);
+    if (preview) {
+      if (id === s.controllerId) effects.push(() => preview.forget(s.sessionId));
+      else if (member?.nodeId) effects.push(() => preview.disconnectNode(s.sessionId, member.nodeId));
+    }
     if (id === s.controllerId) s.torchRequests?.clear();
     else if (member?.nodeId) s.torchRequests?.delete(member.nodeId);
     if (member) {
@@ -137,7 +141,7 @@ function attachSessions(relay, { storage, previewEnabled = false,
   };
   const tick = () => enqueue(() => {
     for (const s of sessions.values()) {
-      if (s.closedAt) { preview?.forget(s.sessionId); continue; }
+      if (s.closedAt) continue;
       for (const [requestId, request] of s.photoCommands ?? []) {
         if (request.expiresAt <= Date.now() && (!request.result || request.result.status === 'received')) {
           request.result = { requestId, status: 'error', error: 'Guardado sin confirmar. Comprueba el original en el Node.' };
@@ -373,6 +377,7 @@ function attachSessions(relay, { storage, previewEnabled = false,
         if ([...(s.photoCommands?.values() ?? [])].some(photoPending)) return error('PHOTO_BUSY');
         const recipients = new Map([...s.pending, ...s.members]);
         s.closedAt = Date.now();
+        if (preview) effects.push(() => preview.forget(s.sessionId));
         s.torchRequests?.clear();
         s.pending.clear();
         for (const member of s.members.values()) {

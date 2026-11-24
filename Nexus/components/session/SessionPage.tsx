@@ -18,6 +18,7 @@ export function SessionPage(props: Props) {
     <Button mode="text" icon="arrow-left" onPress={props.onBack} contentStyle={sessionStyles.touch}
       style={[{ alignSelf: 'flex-start' }, hideExtras]}>Volver a Studio</Button>
     <View style={hideExtras}>{props.header}</View>
+    {props.experimentalPreview && <View style={hideExtras}>{props.experimentalPreview}</View>}
     <View key="session-content" style={{ flex: props.fullPreview ? 1 : undefined, flexDirection: wide ? 'row' : 'column', gap: props.fullPreview ? 0 : 28, alignItems: 'stretch' }}>
       <View style={{ flex: props.fullPreview ? 1 : wide ? 1.7 : undefined, minWidth: 0, gap: props.fullPreview ? 0 : 24 }}>
         <View key="capture-owner" style={{ ...retainedVisibility(Boolean(props.capture)), flex: props.fullPreview ? 1 : undefined }}>{props.capture}</View>
@@ -25,7 +26,6 @@ export function SessionPage(props: Props) {
         <View key="console-owner" style={[retainedVisibility(Boolean(props.console)), hideExtras]}>{props.console}</View>
       </View>
       <View style={[{ flex: wide ? 1 : undefined, minWidth: 0, gap: 24 }, hideExtras]}>
-        {props.experimentalPreview}
         <View key="rejoin" style={{ ...retainedVisibility(Boolean(props.rejoin)) }}>{props.rejoin}</View>
         <View key="admission" style={{ ...retainedVisibility(Boolean(props.admission)) }}>{props.admission}</View>
         <View key="media" style={{ ...retainedVisibility(Boolean(props.media)) }}>{props.media}</View>
