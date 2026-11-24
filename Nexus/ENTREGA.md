@@ -106,6 +106,16 @@ En MAIN, `NexusNx10Preview` registró cerca de 3,9 fps sin descartes en las vent
 
 **Verificación de búferes I420.** MAIN queda verificado por sus dos cierres nativos con `in_flight=0` y `delivered=released` (536/536 y 46/46), sin descartes ni errores del puente en esos cierres. En SIDE (Redmi Note 10 Pro, `M2104K10AC`), el operador detuvo la vista existente y esperó diez segundos. Logcat registró `remote-close` en la negociación `d5a51c1d-12a2-436a-ba9a-c598443860ea`. A las 11:54:10, `NexusNx10Bridge` registró `reason=stopped`, `delivered=4170`, `released=4170`, `in_flight=0` y `worker_busy=false`, con todos los contadores de descartes y errores del puente en cero. ICE y el peer quedaron en `closed`, y PixelCopy registró `paused` con cero descartes en la ventana final. **Verificación nativa superada en ambos Nodes.**
 
+### NX-10 · Tres pruebas multicámara con Render DEV-B, 24 de noviembre de 2026
+
+**Observación del operador.** En las dos primeras pruebas, MAIN y SIDE transmitieron inicialmente y después el Controller perdió conexión. La desconexión es intermitente y su causa sigue sin identificar. En la tercera prueba, ambos Nodes llegaron a READY y transmitieron simultáneamente. Al detener MAIN, SIDE siguió visible y, al reactivar MAIN, volvieron a verse ambos. El operador repitió el mismo ciclo con SIDE y luego detuvo ambas vistas normalmente. No se usó REC en la tercera prueba.
+
+**Evidencia de Metro.** Las trazas iniciales confirman VP8 y cuadros decodificados en el Controller para ambos Nodes. En un tramo de desconexión, la reapertura de MAIN negoció y envió 20 cuadros antes de que ambos Nodes cerraran con `peer-lost`. El log también contiene dos timeouts previos de MAIN con ICE conectado y cero cuadros enviados y decodificados. Son fallos observados de arranque cuya relación con la pérdida de conexión del Controller no se pudo establecer. Metro carece de eventos del Wi-Fi y de una secuencia completa del WebSocket del Controller para atribuir la causa.
+
+En el tramo final, Metro registra negociaciones nuevas por Node, muestras de envío VP8 superpuestas y cierres `remote-close` en ambos extremos emisores, sin `peer-lost` ni `timeout` en ese tramo. Las trazas finales contienen estadísticas salientes de los Nodes. El retorno de la imagen al reactivar cada vista y el cierre normal en el Controller quedan acreditados por la observación física del operador.
+
+**Estado para presentación.** La tercera prueba valida el recorrido funcional multicámara con DEV-B. La evidencia revisada no demuestra un error crítico que impida preparar la versión de presentación. La desconexión intermitente y los arranques sin video siguen abiertos como riesgos para la demo.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.
