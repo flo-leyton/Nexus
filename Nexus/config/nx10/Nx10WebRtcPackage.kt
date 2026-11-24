@@ -20,6 +20,7 @@ import org.webrtc.VideoCapturer
 import org.webrtc.VideoFrame
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLongArray
 import java.util.concurrent.atomic.AtomicInteger
@@ -94,7 +95,7 @@ class Nx10WebRtcModule(private val context: ReactApplicationContext) :
 }
 
 private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
-  private enum class Counter { INPUT, BUSY, STALE, INVALID_SIZE, COPY_OR_QUEUE_ERROR, CONVERSION_ERROR, DELIVERED, OBSERVER_ERROR, RELEASED }
+  private enum class Counter { INPUT, BUSY, RETENTION_LIMIT, STALE, INVALID_SIZE, COPY_OR_QUEUE_ERROR, CONVERTED, CONVERSION_ERROR, DELIVERED, OBSERVER_ERROR, RELEASED }
 
   private val diagnosticId = nextDiagnosticId.incrementAndGet()
   private val counters = AtomicLongArray(Counter.entries.size)
@@ -104,15 +105,17 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
 
   private fun report(reason: String) {
     val totals = Counter.entries.joinToString(" ") { "${it.name.lowercase()}=${counters.get(it.ordinal)}" }
-    Log.i("NexusNx10Bridge", "capture=$diagnosticId reason=$reason size=$dimensions occupied=${occupied.get()} $totals")
+    Log.i("NexusNx10Bridge", "capture=$diagnosticId reason=$reason size=$dimensions worker_busy=${workerBusy.get()} in_flight=${MAX_IN_FLIGHT - bufferSlots.availablePermits()} $totals")
   }
 
   private companion object {
+    const val MAX_IN_FLIGHT = 3
     val nextDiagnosticId = AtomicInteger()
   }
 
   private val worker = Executors.newSingleThreadExecutor()
-  private val occupied = AtomicBoolean()
+  private val workerBusy = AtomicBoolean()
+  private val bufferSlots = Semaphore(MAX_IN_FLIGHT)
   private val gate = Any()
   private lateinit var observer: CapturerObserver
   @Volatile private var generation = 0
@@ -160,60 +163,81 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
       count(Counter.STALE)
       return
     }
-    if (!occupied.compareAndSet(false, true)) {
+    if (!workerBusy.compareAndSet(false, true)) {
       count(Counter.BUSY)
       if (input % 20L == 0L) report("sampling")
       return
     }
-    // Crop a possible odd edge for the encoder. Portrait stays in portrait.
-    val width = bitmap.width and -2
-    val height = bitmap.height and -2
+    var queued = false
     try {
+      // Crop a possible odd edge for the encoder. Portrait stays in portrait.
+      val width = bitmap.width and -2
+      val height = bitmap.height and -2
       if (width < 2 || height < 2) {
         count(Counter.INVALID_SIZE)
-        occupied.set(false)
         return
       }
       val pixels = IntArray(width * height)
       dimensions = "${bitmap.width}x${bitmap.height}->${width}x$height"
       bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
       worker.execute {
-        if (!active || epoch != generation) {
-          count(Counter.STALE)
-          occupied.set(false)
-          return@execute
-        }
-        val frame = try {
-          VideoFrame(toI420(pixels, width, height) {
-            count(Counter.RELEASED)
-            occupied.set(false)
-            if (!active) report("released-after-stop")
-          }, 0, timestampNs)
-        } catch (_: RuntimeException) {
-          count(Counter.CONVERSION_ERROR)
-          occupied.set(false)
-          return@execute
-        }
         try {
-          synchronized(gate) {
-            if (active && epoch == generation) {
-              observer.onFrameCaptured(frame)
-              count(Counter.DELIVERED)
-            } else {
-              count(Counter.STALE)
-            }
-          }
-        } catch (error: RuntimeException) {
-          count(Counter.OBSERVER_ERROR)
-          throw error
+          deliver(pixels, width, height, timestampNs, epoch)
         } finally {
-          frame.release()
+          workerBusy.set(false)
           if (input % 20L == 0L) report("sampling")
         }
       }
+      queued = true
     } catch (_: RuntimeException) {
       count(Counter.COPY_OR_QUEUE_ERROR)
-      occupied.set(false)
+    } finally {
+      if (!queued) workerBusy.set(false)
+    }
+  }
+
+  private fun deliver(pixels: IntArray, width: Int, height: Int, timestampNs: Long, epoch: Int) {
+    if (!active || epoch != generation) {
+      count(Counter.STALE)
+      return
+    }
+    if (!bufferSlots.tryAcquire()) {
+      count(Counter.RETENTION_LIMIT)
+      return
+    }
+    val buffer = try {
+      toI420(pixels, width, height) {
+        count(Counter.RELEASED)
+        bufferSlots.release()
+        if (!active) report("released-after-stop")
+      }
+    } catch (_: RuntimeException) {
+      count(Counter.CONVERSION_ERROR)
+      bufferSlots.release()
+      return
+    }
+    count(Counter.CONVERTED)
+    // VideoFrame takes the buffer reference; release it directly if construction fails.
+    val frame = try {
+      VideoFrame(buffer, 0, timestampNs)
+    } catch (_: RuntimeException) {
+      count(Counter.CONVERSION_ERROR)
+      buffer.release()
+      return
+    }
+    try {
+      synchronized(gate) {
+        if (active && epoch == generation) {
+          observer.onFrameCaptured(frame)
+          count(Counter.DELIVERED)
+        } else {
+          count(Counter.STALE)
+        }
+      }
+    } catch (_: RuntimeException) {
+      count(Counter.OBSERVER_ERROR)
+    } finally {
+      frame.release()
     }
   }
 }
