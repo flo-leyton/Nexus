@@ -128,6 +128,7 @@ export default function SessionScreen() {
   const session = verified ? snapshot?.sessions[sessionId] : undefined;
   const preview = useExperimentalPreview(session, deviceId, focused && connected);
   const isController = session?.controllerId === deviceId;
+  const cameraMembers = session ? Object.values(session.members).filter((member) => member.kind === 'node') : [];
   const { width, height } = useWindowDimensions();
   const controllerLandscape = isController && width > height && height >= 600;
   const sessionClosed = closedSessionId === sessionId;
@@ -288,11 +289,9 @@ export default function SessionScreen() {
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
       sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
     members={session && <SessionSection title={isController ? 'Dispositivos de la sesión' : 'Participación'}>
-      <Text variant="bodyMedium">Estado de la sesión: {sessionStateLabel[session.state]}</Text>
       {isController ? <>
-        <Text variant="bodyMedium">Nodes online: {Object.values(session.members).filter((member) => member.kind === 'node' && member.online !== false).length} / {Object.values(session.members).filter((member) => member.kind === 'node').length} aceptados</Text>
-        {!Object.values(session.members).some((member) => member.kind === 'node') && <Text variant="bodyMedium">Comparte el código de sesión y acepta las solicitudes para incorporar Nodes.</Text>}
-        {Object.values(session.members).filter((member) => member.kind === 'node').map((member) => <View key={member.deviceId} style={{ paddingVertical: 12 }}>
+        {!cameraMembers.length && <Text variant="bodyMedium">Aún no hay cámaras. Comparte el código de sesión para agregarlas.</Text>}
+        {cameraMembers.map((member) => <View key={member.deviceId} style={{ paddingVertical: 6 }}>
           <SessionMemberRow member={member} connected={connected} isSelf={member.deviceId === deviceId}>
             {member.kind === 'node' && service && member.online !== false && session.state !== 'closed' && <NodeRoleEditor compact service={service} sessionId={sessionId} deviceId={member.deviceId} role={member.role} />}
           </SessionMemberRow>
@@ -302,6 +301,7 @@ export default function SessionScreen() {
             <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
         </SessionDetails>
       </> : <>
+        <Text variant="bodyMedium">Estado de la sesión: {sessionStateLabel[session.state]}</Text>
         <Text variant="bodyMedium">Ingreso aceptado · Node · rol: {session.members[deviceId]?.role}</Text>
         {session.members[deviceId]?.online === false && <Button mode="contained-tonal" disabled={captureBusy} onPress={() => {
           try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
@@ -312,7 +312,8 @@ export default function SessionScreen() {
         </SessionDetails>
       </>}
     </SessionSection>}
-    console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession}
+    console={isController && service && session && (cameraMembers.length > 0 || !!session.take || !!session.takeHistory?.length) &&
+      <ControllerTakePanel service={service} session={session} closingSession={closingSession}
       previewTargets={preview.targets} previewEnabled={preview.enabled} landscape={controllerLandscape} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
@@ -327,7 +328,8 @@ export default function SessionScreen() {
       {!media.length ? <Text variant="bodyMedium">Aún no hay medios en esta sesión.</Text> : media.map((asset) =>
         <SessionImportedMediaRow key={asset.id} asset={asset} onPress={() => router.push(`/media/${asset.id}` as Href)} />)}
     </SessionSection>}
-    imports={<SessionImportView selected={selected} status={status} message={message} hasLastSaved={!!lastSaved}
+    imports={!isController && (session?.members[deviceId]?.kind === 'node' || localNode?.sessionId === sessionId) &&
+      <SessionImportView selected={selected} status={status} message={message} hasLastSaved={!!lastSaved}
       onSelect={selectMedia} onUpload={uploadSelected} onOpenLast={() => { if (lastSaved) router.push(`/media/${lastSaved.id}` as Href); }} />}
     administration={isController && service && session && session.state !== 'closed' && <SessionCloseView
       disabled={!connected || closingSession} pending={closingSession} confirming={confirmSessionClose}

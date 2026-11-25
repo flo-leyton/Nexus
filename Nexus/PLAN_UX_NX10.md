@@ -35,32 +35,38 @@ El operador confirmó que la presentación vertical y los controles por cámara 
 
 La segunda prueba física confirmó las dos columnas y detectó tarjetas todavía grandes. El ajuste compacto en horizontal reduce los espacios, agrupa REC/STOP, Foto y Linterna en una fila y pone el zoom debajo. Representa la conexión con texto hasta que WebRTC entrega la URL del flujo. El visor ocupa hasta 256 × 144 dp y desaparece al detener esa vista. La revisión física del ajuste compacto sigue pendiente.
 
-El último ajuste aplica el modo compacto de Paper a los botones con icono y extiende el botón de vista previa al ancho de la tarjeta. En vertical, el contenedor 16:9 se mantenía después del desmontaje de RTCView. Ahora se retira en ambas orientaciones cuando desaparece el flujo. Se simplificaron el título de la barra general y los mensajes de linterna, y se reforzaron los insets del Controller horizontal. Falta la revisión física de estos cambios.
+El último ajuste aplica el modo compacto de Paper a los botones con icono y extiende el botón de vista previa al ancho de la tarjeta. En vertical, el contenedor 16:9 se mantenía después del desmontaje de RTCView. Ahora se retira en ambas orientaciones cuando desaparece el flujo. Se simplificaron el título de la barra general y los mensajes de linterna, y se reforzaron los insets del Controller horizontal.
+
+**VERIFICADA por el operador, 25 de noviembre de 2026.** Probó `76e058f` en la tablet. Confirmó que el visor desaparece en vertical, aprobó el diseño horizontal y verificó que MAIN y SIDE se mantienen independientes al detener vistas y cambiar de orientación.
 
 ## BLOQUE B — STUDIO, SESIONES Y SOLICITUDES
 
-Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. Presentación para listas y estados. Nombre, descripción y fecha pueden requerir campos persistentes compatibles en `sessionProtocol.ts`, `sessionClient.ts` y `server/sessionSchema.js`.
+Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. En la auditoría, `Session` y el registro durable carecen de nombre, descripción y fecha de creación. `closedAt` es la fecha de cierre. La marca temporal de un mensaje fecha ese mensaje. Ni `SessionMember` ni `JoinRequest` incluyen un nombre vinculado a la identidad autenticada. La presencia heredada carece de una correspondencia fiable con esos miembros.
 
-- **PENDIENTE** · Simplificar el Controller cuando no hay Nodes conectados.
-- **PENDIENTE** · Conservar el código corto de sesión como dato principal.
-- **PENDIENTE** · Ocultar UUID, deviceId, nodeId y otros identificadores técnicos en apartados desplegables.
-- **PENDIENTE** · Evitar información técnica duplicada.
-- **PENDIENTE** · Conservar «Dispositivos de la sesión» antes de la consola de grabación.
-- **PENDIENTE** · Mostrar una consola contextual cuando existan Nodes, conservando los controles necesarios para recuperar grabaciones interrumpidas.
-- **PENDIENTE** · Simplificar la lista «Tus sesiones».
+**PENDIENTE de autorización.** Ampliar `SESSION_CREATE` con nombre y descripción opcionales, asignar `createdAt` desde el relay al crear la sesión y conservar los tres campos opcionales en snapshots y persistencia. Las sesiones antiguas seguirían mostrando código y estado cuando falten los metadatos. Para el nombre del teléfono, ampliar el contrato con un campo de presentación opcional, vinculado en el relay al dispositivo autenticado y sin efecto sobre permisos o decisiones de ingreso. Validar reinicio, clientes anteriores y registros antiguos antes de desplegar. No se simulan fechas ni persistencia.
+
+- **IMPLEMENTADA** · Simplificar el Controller cuando no hay Nodes conectados.
+- **IMPLEMENTADA** · Conservar el código corto de sesión como dato principal.
+- **IMPLEMENTADA** · Ocultar UUID, deviceId, nodeId y otros identificadores técnicos en apartados desplegables.
+- **IMPLEMENTADA** · Evitar información técnica duplicada.
+- **IMPLEMENTADA** · Conservar «Dispositivos de la sesión» antes de la consola de grabación.
+- **IMPLEMENTADA** · Mostrar una consola contextual cuando existan Nodes, conservando los controles necesarios para recuperar grabaciones interrumpidas.
+- **IMPLEMENTADA** · Simplificar la lista «Tus sesiones».
 - **PENDIENTE** · Agregar nombre descriptivo y descripción opcionales de la sesión.
 - **PENDIENTE** · Registrar y mostrar automáticamente la fecha de creación; reutilizar un timestamp existente cuando sea posible.
 - **PENDIENTE** · Mostrar nombre, fecha, código y estado de sesión. Mostrar la descripción únicamente si existe.
-- **PENDIENTE** · Mantener compatibilidad con sesiones antiguas sin nombre ni descripción.
-- **PENDIENTE** · Mantener intactos los identificadores, permisos y mecanismos de ingreso.
-- **PENDIENTE** · Eliminar «Importar medio» del Controller, conservando la función existente en los Nodes.
-- **PENDIENTE** · Al solicitar ingreso desde un Node, mostrar un solo mensaje «Esperando aprobación», sin avisos duplicados.
-- **PENDIENTE** · Mostrar «Solicitud enviada» mientras está pendiente.
+- **IMPLEMENTADA** · Mantener compatibilidad con sesiones antiguas sin nombre ni descripción.
+- **IMPLEMENTADA** · Mantener intactos los identificadores, permisos y mecanismos de ingreso.
+- **IMPLEMENTADA** · Eliminar «Importar medio» del Controller, conservando la función existente en los Nodes.
+- **IMPLEMENTADA** · Al solicitar ingreso desde un Node, mostrar un solo mensaje «Esperando aprobación», sin avisos duplicados.
+- **IMPLEMENTADA** · Mostrar «Solicitud enviada» mientras está pendiente.
 - **PENDIENTE** · En las solicitudes recibidas por el Controller, mostrar el nombre real del dispositivo si está disponible.
-- **PENDIENTE** · Mantener identificadores técnicos como respaldo y conservar «Identificar solicitante».
-- **PENDIENTE** · Simplificar tarjetas de Nodes aceptados: nombre del teléfono, rol, estado READY/NO LISTO y opción de editar rol.
-- **PENDIENTE** · Mostrar solo una causa breve y real cuando una cámara no está lista.
-- **PENDIENTE** · Conservar diagnóstico técnico en apartados expandibles.
+- **IMPLEMENTADA** · Mantener identificadores técnicos como respaldo y conservar «Identificar solicitante».
+- **IMPLEMENTADA** · Simplificar tarjetas de Nodes aceptados: nombre del teléfono, rol, estado READY/NO LISTO y opción de editar rol. El nombre real queda PENDIENTE.
+- **IMPLEMENTADA** · Mostrar solo una causa breve y real cuando una cámara no está lista.
+- **IMPLEMENTADA** · Conservar diagnóstico técnico en apartados expandibles.
+
+La revisión física del Bloque B está pendiente.
 
 ## BLOQUE C — INTERFAZ DEL NODE
 

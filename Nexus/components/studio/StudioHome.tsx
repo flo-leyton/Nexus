@@ -5,6 +5,7 @@ import { ActivityIndicator, Button, Divider, Icon, Text, TextInput, TouchableRip
 
 import { StudioShape, StudioSpacing, StudioUI } from '@/constants/studio-ui';
 import type { Session } from '@/services/sessionProtocol';
+import { SessionDetails, sessionStateLabel } from '@/components/session/SessionUI';
 import { StudioStatus } from './StudioStatus';
 
 type Props = {
@@ -55,9 +56,7 @@ export function StudioHome(props: Props) {
       </View>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <View style={styles.heading}>
-          <Text variant="labelMedium" style={[styles.eyebrow, { color: colors.onSurfaceVariant }]}>STUDIO</Text>
-          <Text accessibilityRole="header" variant="headlineMedium" style={styles.title}>Tus sesiones.</Text>
-          <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>Coordina como Controller o captura como Node.</Text>
+          <Text accessibilityRole="header" variant="headlineMedium" style={styles.title}>Studio</Text>
         </View>
 
         <View style={styles.primaryActions}>
@@ -89,8 +88,8 @@ export function StudioHome(props: Props) {
           </Button>
         </View>}
 
-        <StudioStatus error={props.failed || !!props.error} message={props.error || props.notice} />
-        {!!props.pendingMessage && <StudioStatus message={props.pendingMessage} />}
+        <StudioStatus error={props.failed || !!props.error}
+          message={props.error || (props.failed ? props.notice : props.pendingMessage || props.notice)} />
 
         <View style={styles.sectionHeading}>
           <Text accessibilityRole="header" variant="titleMedium">Tus sesiones</Text>
@@ -105,25 +104,21 @@ export function StudioHome(props: Props) {
             </Text>
           </View> : props.sessions.map((session) => {
             const controller = session.controllerId === props.deviceId;
-            const nodes = Object.values(session.members).filter((member) => member.kind === 'node').length;
             return <View key={session.sessionId}>
               <Divider />
               <TouchableRipple onPress={() => props.onOpenSession(session.sessionId)} accessibilityRole="button"
                 accessibilityLabel={`Abrir sesión ${session.code}, ${controller ? 'Controller' : 'Node'}`}>
                 <View style={styles.session}>
                   <View style={styles.sessionTop}>
-                    <Text variant="labelMedium" style={[styles.eyebrow, { color: colors.onSurfaceVariant }]}>
-                      {controller ? 'CONTROLLER' : 'INGRESO ACEPTADO · NODE'}
-                    </Text>
+                    <Text selectable variant="headlineSmall" style={styles.code}>{session.code}</Text>
                     <Icon source="arrow-right" size={22} color={colors.primary} />
                   </View>
-                  <Text selectable variant="headlineSmall" style={styles.code}>{session.code}</Text>
                   <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
-                    {nodes} {nodes === 1 ? 'Node aceptado' : 'Nodes aceptados'} · abrir sesión
+                    {sessionStateLabel[session.state]} · {controller ? 'Controller' : 'Node'}
                   </Text>
-                  <Text selectable variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>{session.sessionId}</Text>
                 </View>
               </TouchableRipple>
+              <SessionDetails title="Datos técnicos"><Text selectable variant="bodySmall">ID de sesión: {session.sessionId}</Text></SessionDetails>
             </View>;
           })}
 
@@ -137,8 +132,8 @@ export function StudioHome(props: Props) {
           importantForAccessibility={showDetails ? 'auto' : 'no-hide-descendants'}>
           <Text selectable variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Este dispositivo: {props.deviceId || 'Preparando identidad…'}</Text>
           {props.identityPanel}
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>La identidad de esta instalación autoriza el acceso. El código de sesión no demuestra propiedad.</Text>
         </View>
-        <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>La identidad de esta instalación autoriza el acceso. El código de sesión no demuestra propiedad.</Text>
       </ScrollView>
     </View>
   );
@@ -153,7 +148,6 @@ const styles = StyleSheet.create({
   dot: { height: 6, width: 6, borderRadius: 3 },
   content: { alignSelf: 'center', width: '100%', maxWidth: 720, padding: 20, paddingBottom: 48, gap: StudioSpacing.lg },
   heading: { gap: StudioSpacing.sm },
-  eyebrow: { letterSpacing: 1.2 },
   title: { fontWeight: '600' },
   primaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: StudioSpacing.sm },
   createButton: { flexGrow: 1, flexBasis: 140, borderRadius: StudioShape.control },
@@ -164,7 +158,7 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: StudioSpacing.sm },
   loading: { flexDirection: 'row', gap: StudioSpacing.md, alignItems: 'center', paddingVertical: StudioSpacing.lg },
   empty: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: StudioSpacing.lg, flexDirection: 'row', gap: StudioSpacing.md, alignItems: 'center', flexShrink: 1 },
-  session: { paddingVertical: StudioSpacing.lg, gap: StudioSpacing.sm, minHeight: StudioShape.touchTarget },
+  session: { paddingVertical: StudioSpacing.sm, gap: StudioSpacing.xs, minHeight: StudioShape.touchTarget },
   sessionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: StudioSpacing.sm },
   code: { fontFamily: 'monospace', letterSpacing: 1.5 },
   joinForm: { gap: StudioSpacing.md },

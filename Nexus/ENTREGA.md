@@ -122,6 +122,8 @@ El punto de recuperación `nx10/pre-ux-final` conserva `d510dd3`. El [plan UX/UI
 
 Pasaron TypeScript, lint y 141 pruebas automatizadas. La suite omitió cinco pruebas de emulador. Metro entregó el bundle Android del Bloque A con HTTP 200.
 
+El 25 de noviembre de 2026 el operador aprobó físicamente `76e058f`. Confirmó que el visor desaparece en vertical, aprobó la distribución horizontal de la tablet y verificó la independencia de MAIN y SIDE al detener vistas y cambiar de orientación.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

@@ -7,11 +7,11 @@ export function SessionAdmissionView({ requests, deciding, onDecision }: {
   requests: JoinRequest[]; deciding: Record<string, string>; onDecision(request: JoinRequest, accept: boolean): void;
 }) {
   const { colors } = useTheme();
-  return <SessionSection title={`Solicitudes de ingreso · ${requests.length}`} description="Sólo una aceptación confirmada convierte al solicitante en miembro.">
+  return <SessionSection title="Solicitudes de ingreso">
     {!requests.length && <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>No hay solicitudes pendientes.</Text>}
     {requests.map((request) => <View key={request.deviceId} style={{ gap: 12, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
       <View style={sessionStyles.between}><Text variant="titleMedium">Dispositivo · …{request.deviceId.slice(-6)}</Text>
-        <SessionBadge label={request.online === false ? 'Offline · solicitud conservada' : 'Solicita ingreso'} tone="warning" />
+        <SessionBadge label={request.online === false ? 'Desconectado' : 'Pendiente'} tone="warning" />
       </View>
       {request.online === false && <Text variant="bodyMedium">Debe reconectar antes de aceptarlo. La solicitud se conserva.</Text>}
       <View style={sessionStyles.row}>

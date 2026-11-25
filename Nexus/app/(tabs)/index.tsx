@@ -11,7 +11,7 @@ import { connectSocket } from '@/services/socket';
 export default function StudioScreen() {
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
-  const [notice, setNotice] = useState('Crea una sesión o solicita ingreso con el código del Controller.');
+  const [notice, setNotice] = useState('');
   const [failed, setFailed] = useState(false);
   const [sending, setSending] = useState(false);
   const operation = useRef<{ kind: 'create' | 'join'; messageId: string; sessionId?: string } | null>(null);
@@ -36,7 +36,7 @@ export default function StudioScreen() {
     } else if (event?.type === 'SESSION_JOIN_PENDING' && event.payload.requestId === current.messageId) {
       current.sessionId = event.sessionId;
       setSending(false);
-      setNotice(event.payload.controllerOnline === false ? 'Solicitud guardada. El Controller está offline; podrá resolverla cuando reconecte.' : 'Solicitud pendiente. Espera a que el Controller la acepte o rechace.');
+      setNotice('');
     } else if (event?.type === 'SESSION_SNAPSHOT' && (event.payload.requestId === current.messageId ||
         (current.kind === 'join' && current.sessionId === event.sessionId))) {
       operation.current = null;
@@ -96,8 +96,8 @@ export default function StudioScreen() {
       failed={failed}
       notice={notice}
       pendingMessage={pending.length > 0 ? pending.some(([, requests]) => requests.some((r) => r.deviceId === deviceId && r.controllerOnline === false))
-        ? 'Solicitud guardada. Controller offline; podrá resolverla al reconectar.' : 'Solicitud pendiente de aceptación por el Controller.' : undefined}
-      rejoinPanel={service && snapshot ? <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} consoleMode /> : null}
+        ? 'Solicitud enviada · Esperando aprobación. El Controller está desconectado.' : 'Solicitud enviada · Esperando aprobación' : undefined}
+      rejoinPanel={service && snapshot ? <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} pendingInParent /> : null}
       identityPanel={<StudioIdentityPanel />}
       onCodeChange={setCode}
       onCreate={() => start('create')}

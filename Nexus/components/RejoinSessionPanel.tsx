@@ -6,8 +6,8 @@ import type { getSessionService } from '@/services/session';
 import type { SessionSnapshot } from '@/services/sessionClient';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false }: {
-  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean; consoleMode?: boolean;
+export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false, pendingInParent = false }: {
+  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean; consoleMode?: boolean; pendingInParent?: boolean;
 }) {
   const request = useRef<string | null>(null);
   const target = useRef<string | null>(null);
@@ -23,7 +23,7 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
     if (event.type === 'SESSION_SNAPSHOT' && event.sessionId === target.current && event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
       request.current = null; setNotice('Participación autorizada. Abre la Session, prepara la cámara y confirma READY si se solicita.');
     } else if (event.payload.requestId === request.current) {
-      if (event.type === 'SESSION_JOIN_PENDING') setNotice('Solicitud enviada. Espera una nueva aprobación del Controller.');
+      if (event.type === 'SESSION_JOIN_PENDING') setNotice('');
       if (event.type === 'SESSION_JOIN_REJECTED' || event.type === 'SESSION_ERROR') {
         request.current = null;
         setNotice(event.type === 'SESSION_ERROR' ? sessionErrorMessage(event.payload.code) : 'El Controller rechazó el reingreso. Puedes solicitarlo otra vez o usar otro código.');
@@ -37,9 +37,10 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
   const isMember = last && !!snapshot.sessions[last.sessionId]?.members[deviceId] && snapshot.sessions[last.sessionId]?.members[deviceId]?.online !== false;
   const connected = snapshot.connection === 'Connected';
   const disabled = !connected || snapshot.joinInFlight || blocked;
-  if ((!last || isMember) && !notice && !snapshot.historyError) return null;
+  const pending = !pendingInParent && Object.values(snapshot.pending).some((requests) => requests.some((item) => item.deviceId === deviceId));
+  if ((!last || isMember) && !notice && !pending && !snapshot.historyError) return null;
   return <RejoinSessionView last={last} showLast={!!last && !isMember} disabled={!!disabled} connected={connected} blocked={blocked}
-    pending={snapshot.joinInFlight} notice={notice} historyError={snapshot.historyError}
+    pending={pending} notice={notice} historyError={snapshot.historyError}
     onResume={() => {
       try { target.current = last!.sessionId; request.current = service.resumeSession(last!.sessionId); setNotice('Verificando participación persistida…'); }
       catch (error) { setNotice(sessionErrorMessage(error)); }
