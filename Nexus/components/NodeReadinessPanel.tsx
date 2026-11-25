@@ -3,7 +3,7 @@ import { Camera, CameraView } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import { requireOptionalNativeModule } from 'expo';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, useWindowDimensions } from 'react-native';
+import { AppState, NativeModules, Platform, useWindowDimensions } from 'react-native';
 
 import { NodeCaptureView } from './session/NodeCaptureView';
 import { useNodeZoom } from './session/useNodeZoom';
@@ -18,6 +18,10 @@ import type { CaptureIdentity } from '@/types/capture';
 type Service = Awaited<ReturnType<typeof getSessionService>>;
 const experimentalPreview = Platform.OS === 'android' && process.env.EXPO_PUBLIC_NEXUS_NX10_PREVIEW === '1' &&
   requireOptionalNativeModule<{ nx10PreviewSamplingAvailable?: boolean }>('ExpoCamera')?.nx10PreviewSamplingAvailable === true;
+const nodeOrientation = Platform.OS === 'android' ? NativeModules.Nx10WebRtc as {
+  setNodeOrientation?(locked: boolean): void;
+  restoreNodeOrientation?(): void;
+} | undefined : undefined;
 export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, deviceId, accepted, sessionClosed = false, streamPreview, onPreviewSampler,
   onBusyChange, onSaved, fullPreview, onPreviewChange }: CaptureIdentity & {
   service: Service; controllerId: string; accepted: boolean; sessionClosed?: boolean; onBusyChange(busy: boolean): void; onSaved(): void;
@@ -67,6 +71,14 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     persist: persistLocalCapture,
   }));
   const [preparation, setPreparation] = useState(engine.getSnapshot());
+  const lockOrientation = engine.isBusy() || !!photoStatus;
+  useEffect(() => {
+    if (!focused) return;
+    return () => nodeOrientation?.restoreNodeOrientation?.();
+  }, [focused]);
+  useEffect(() => {
+    if (focused) nodeOrientation?.setNodeOrientation?.(lockOrientation);
+  }, [focused, lockOrientation]);
   const [reportError, setReportError] = useState('');
   const canAdjustZoom = useCallback(() => {
     const current = engine.getSnapshot();
@@ -239,7 +251,10 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
 
   const { readiness, generation } = preparation;
   const bounds = previewBounds ?? window;
-  const previewWidth = Math.min(bounds.width, bounds.height * 9 / 16);
+  const landscape = window.width > window.height;
+  const aspectRatio = landscape ? 16 / 9 : fullPreview ? 9 / 16 : 4 / 3;
+  const previewWidth = fullPreview ? Math.min(bounds.width, bounds.height * aspectRatio) :
+    landscape ? Math.min(window.width, window.height * 0.48 * aspectRatio) : '100%';
   const busy = engine.isBusy() || !!photoStatus;
   const canMount = engine.isBusy() || (focused && appState === 'active' && preparation.active &&
     readiness.cameraPermission === 'granted' && readiness.cameraAvailable !== false && !readiness.error);
@@ -283,7 +298,7 @@ export function NodeReadinessPanel({ service, sessionId, controllerId, nodeId, d
     camera={canMount && photoView.mounting && <CameraView key={`${generation}:${photoView.version}`} ref={view} facing="back" mode={photoView.mode} mute
       {...((experimentalPreview || streamPreview !== undefined) ? { nx10PreviewSampling: samplerEnabled } : {})}
       ratio={Platform.OS === 'android' ? '16:9' : undefined}
-      style={{ width: fullPreview ? previewWidth : '100%', aspectRatio: fullPreview ? 9 / 16 : 4 / 3 }}
+      style={{ width: previewWidth, maxWidth: '100%', aspectRatio, alignSelf: 'center' }}
       zoom={zoom.percent / 100}
       enableTorch={accepted && torchGeneration === generation}
       onCameraReady={() => {

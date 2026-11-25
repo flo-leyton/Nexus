@@ -6,6 +6,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.util.Size
 import android.view.PixelCopy
 import android.view.Surface
 import android.view.SurfaceView
@@ -16,15 +17,20 @@ import kotlin.math.roundToInt
 
 fun interface Nx10FrameSink {
   // Called on the PixelCopy worker. The bitmap is borrowed only for this call.
-  fun onFrame(bitmap: Bitmap, timestampNs: Long)
+  fun onFrame(bitmap: Bitmap, rotation: Int, timestampNs: Long)
 }
+
+internal data class Nx10PreviewGeometry(val resolution: Size, val rotation: Int)
 
 object Nx10PixelCopyFrames {
   @JvmField @Volatile var sink: Nx10FrameSink? = null
 }
 
 /** Reads only the attached preview surface. CameraX retains ownership of that surface. */
-internal class Nx10PreviewSampler(private val preview: PreviewView) {
+internal class Nx10PreviewSampler(
+  private val preview: PreviewView,
+  private val geometry: () -> Nx10PreviewGeometry?
+) {
   private val main = Handler(Looper.getMainLooper())
   @Volatile private var enabled = false
   private var aborted = false
@@ -80,12 +86,25 @@ internal class Nx10PreviewSampler(private val preview: PreviewView) {
       miss("no_supported_surface")
       return
     }
-    val portrait = frame.height() > frame.width()
-    val scale = minOf(1.0, (if (portrait) 360.0 else 640.0) / frame.width(),
-      (if (portrait) 640.0 else 360.0) / frame.height())
-    val width = (frame.width() * scale).roundToInt().coerceAtLeast(1)
-    val height = (frame.height() * scale).roundToInt().coerceAtLeast(1)
-    size = "${width}x$height"
+    val source = geometry()
+    // PreviewView can retain the previous surface while CameraX replaces its use case.
+    // Never stretch that surface into dimensions calculated for a different buffer.
+    if (source == null || frame.width() != source.resolution.width || frame.height() != source.resolution.height) {
+      dropped++
+      size = "waiting_geometry holder=${frame.width()}x${frame.height()} camera=${source?.resolution ?: "-"}"
+      return
+    }
+    val sourceWidth = source.resolution.width
+    val sourceHeight = source.resolution.height
+    val quarterTurn = source.rotation % 180 != 0
+    val displayWidth = if (quarterTurn) sourceHeight else sourceWidth
+    val displayHeight = if (quarterTurn) sourceWidth else sourceHeight
+    val portrait = displayHeight > displayWidth
+    val scale = minOf(1.0, (if (portrait) 360.0 else 640.0) / displayWidth,
+      (if (portrait) 640.0 else 360.0) / displayHeight)
+    val width = (sourceWidth * scale).roundToInt().coerceAtLeast(1)
+    val height = (sourceHeight * scale).roundToInt().coerceAtLeast(1)
+    size = "${sourceWidth}x$sourceHeight->${width}x$height rotation=${source.rotation}"
     val started = SystemClock.elapsedRealtime()
     val timestampNs = System.nanoTime()
     val requestGeneration = generation
@@ -102,7 +121,7 @@ internal class Nx10PreviewSampler(private val preview: PreviewView) {
           if (result == PixelCopy.SUCCESS && elapsed < COPY_BUDGET_MS && enabled &&
               requestGeneration == generation && sink === Nx10PixelCopyFrames.sink) {
             try {
-              sink?.onFrame(bitmap, timestampNs)
+              sink?.onFrame(bitmap, source.rotation, timestampNs)
             } catch (error: RuntimeException) {
               Log.w(TAG, "preview_sink_failed", error)
             }

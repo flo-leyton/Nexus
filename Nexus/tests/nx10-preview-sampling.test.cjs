@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { addPreviewSampling, assertPreviewSampling } = require('../config/nx10/withPreviewSampling.cjs');
 
-test('NX-10 Android patch is opt-in, reproducible and leaves CameraX binding and recorder untouched', (t) => {
+test('NX-10 Android patch is opt-in, keeps CameraX binding and sets video rotation before recording', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-nx10-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const installed = path.dirname(require.resolve('expo-camera/package.json'));
@@ -29,7 +29,12 @@ test('NX-10 Android patch is opt-in, reproducible and leaves CameraX binding and
   const module = read(target, 'CameraViewModule.kt');
   const sampler = read(target, 'Nx10PreviewSampler.kt');
   assert.equal(sampler, read(path.resolve(__dirname, '../config/nx10'), 'Nx10PreviewSampler.kt'));
-  assert.equal(view.replace(/\n\n  private var nx10Sampler:[\s\S]*?\n  }/, '')
+  assert.match(view, /Nx10PreviewGeometry\(info\.resolution, cameraInfo\.getSensorRotationDegrees\(display\.rotation\)\)/);
+  assert.match(sampler, /sink\?\.onFrame\(bitmap, source\.rotation, timestampNs\)/);
+  assert.match(view, /nx10VideoUseCase\?\.targetRotation = it\.rotation/);
+  assert.equal(view.replace(/\n\n  private var nx10PreviewUseCase:[\s\S]*?\n  }/, '')
+    .replace('\n\n    nx10PreviewUseCase = preview\n    nx10VideoUseCase = videoCapture', '')
+    .replace('\n    previewView.display?.let { nx10VideoUseCase?.targetRotation = it.rotation }', '')
     .replace('\n    nx10Sampler?.setEnabled(false)', ''), originals.get('ExpoCameraView.kt'));
   assert.equal(module.replace('\n    Constant("nx10PreviewSamplingAvailable") { true }', '')
     .replace(/\n\n      Prop\("nx10PreviewSampling"\) \{[\s\S]*?\n      }/, ''), originals.get('CameraViewModule.kt'));

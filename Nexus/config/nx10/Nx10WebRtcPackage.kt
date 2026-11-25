@@ -1,7 +1,11 @@
 package com.oney.WebRTCModule
 
+import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.Arguments
@@ -36,16 +40,44 @@ class Nx10WebRtcModule(private val context: ReactApplicationContext) :
   ReactContextBaseJavaModule(context) {
   @Volatile private var invalidated = false
   private var releaseLatest: (() -> Unit)? = null
+  private val main = Handler(Looper.getMainLooper())
+  private var orientationActivity: Activity? = null
+  private var previousOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
   override fun getName() = "Nx10WebRtc"
 
   override fun invalidate() {
     invalidated = true
+    restoreNodeOrientation()
     ThreadUtils.runOnExecutor {
       releaseLatest?.invoke()
       releaseLatest = null
     }
     super.invalidate()
+  }
+
+  @ReactMethod
+  fun setNodeOrientation(locked: Boolean) {
+    val activity = context.currentActivity ?: return
+    main.post {
+      if (invalidated || activity.isFinishing || activity.isDestroyed) return@post
+      if (orientationActivity !== activity) {
+        orientationActivity = activity
+        previousOrientation = activity.requestedOrientation
+      }
+      val requested = if (locked) ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+      if (activity.requestedOrientation != requested) activity.requestedOrientation = requested
+    }
+  }
+
+  @ReactMethod
+  fun restoreNodeOrientation() {
+    main.post {
+      val activity = orientationActivity ?: return@post
+      orientationActivity = null
+      if (!activity.isFinishing && !activity.isDestroyed) activity.requestedOrientation = previousOrientation
+    }
   }
 
   @ReactMethod
@@ -156,7 +188,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
   override fun isScreencast() = false
   override fun changeCaptureFormat(width: Int, height: Int, framerate: Int) = Unit
 
-  override fun onFrame(bitmap: Bitmap, timestampNs: Long) {
+  override fun onFrame(bitmap: Bitmap, rotation: Int, timestampNs: Long) {
     val input = count(Counter.INPUT)
     val epoch = generation
     if (!active) {
@@ -182,7 +214,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
       bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
       worker.execute {
         try {
-          deliver(pixels, width, height, timestampNs, epoch)
+          deliver(pixels, width, height, rotation, timestampNs, epoch)
         } finally {
           workerBusy.set(false)
           if (input % 20L == 0L) report("sampling")
@@ -196,7 +228,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
     }
   }
 
-  private fun deliver(pixels: IntArray, width: Int, height: Int, timestampNs: Long, epoch: Int) {
+  private fun deliver(pixels: IntArray, width: Int, height: Int, rotation: Int, timestampNs: Long, epoch: Int) {
     if (!active || epoch != generation) {
       count(Counter.STALE)
       return
@@ -219,7 +251,7 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
     count(Counter.CONVERTED)
     // VideoFrame takes the buffer reference; release it directly if construction fails.
     val frame = try {
-      VideoFrame(buffer, 0, timestampNs)
+      VideoFrame(buffer, rotation, timestampNs)
     } catch (_: RuntimeException) {
       count(Counter.CONVERSION_ERROR)
       buffer.release()

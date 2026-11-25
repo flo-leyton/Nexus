@@ -150,6 +150,18 @@ TypeScript y lint pasaron. Metro respondió HTTP 200 con el bundle Android que i
 
 Tras la revisión visual de Cuenta, Datos técnicos inicia contraído y muestra solo los identificadores con selección nativa para copiar. Las acciones de recuperación y transferencia siguen disponibles cuando existe una identidad anterior, incluida la confirmación de la transferencia. Para revisar el ajuste, recarga el Dev Client, abre Cuenta, despliega Datos técnicos y mantén pulsado un identificador.
 
+### NX-10 · Proporción WebRTC y giro del Node
+
+El operador comparó la misma escena en la cámara local y en el Controller. El objeto conservaba su proporción en el Node y se veía deformado en el Controller. Esa observación indica un problema en la ruta de vista previa. Los registros anteriores solo acreditan tamaños de cuadros, sin establecer en qué punto se deformó esa escena.
+
+El muestreador Android valida el tamaño de la superficie contra la resolución del caso de uso Preview de CameraX. Calcula el bitmap con una escala uniforme y pasa a WebRTC la rotación del sensor relativa a la pantalla por cada cuadro. RTCView conserva `contain`. Un desacuerdo de geometría descarta la muestra y se vuelve a intentar en el ciclo siguiente, sin sustituir la pista.
+
+La pantalla de captura del Node habilita el giro mientras tiene el foco y restaura la orientación anterior al salir. Durante foto, inicio de REC, grabación y guardado, conserva el giro que estaba activo. CameraX recibe la rotación de pantalla antes de iniciar cada clip. La vista horizontal se ajusta con estilos y conserva la instancia de CameraView.
+
+Pasaron TypeScript, lint, la suite local (149 aprobadas y 5 omitidas) y Gradle sin conexión para `:expo-camera:compileDebugKotlin` y `:app:compileDebugKotlin`.
+
+La verificación física requiere una APK experimental. Usar una escena con un círculo y una flecha, MAIN vertical y SIDE horizontal, y comparar ambas vistas con las cámaras locales. Girar un Node en reposo con ambas vistas activas y comprobar que se recuperan los cuadros y continúa el otro Node. Después probar REC local y coordinado, intento de giro durante REC, STOP, READY, fotos y reproducción de archivos iniciados en cada orientación. Confirmar también que al volver a Studio se restaura la política anterior.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

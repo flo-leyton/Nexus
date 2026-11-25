@@ -22,13 +22,28 @@ function addPreviewSampling(cameraRoot) {
   const moduleFile = path.join(kotlin, 'CameraViewModule.kt');
   const originalView = fs.readFileSync(viewFile, 'utf8');
   const originalModule = fs.readFileSync(moduleFile, 'utf8');
-  const view = insert(insert(originalView, '  private var previewPaused = false', `
+  const view = insert(insert(insert(insert(originalView, '  private var previewPaused = false', `
+  private var nx10PreviewUseCase: Preview? = null
+  private var nx10VideoUseCase: VideoCapture<Recorder>? = null
   private var nx10Sampler: Nx10PreviewSampler? = null
 
   fun setNx10PreviewSampling(enabled: Boolean) {
-    if (enabled && nx10Sampler == null) nx10Sampler = Nx10PreviewSampler(previewView)
+    if (enabled && nx10Sampler == null) {
+      nx10Sampler = Nx10PreviewSampler(previewView) {
+        val display = previewView.display
+        val info = nx10PreviewUseCase?.resolutionInfo
+        val cameraInfo = camera?.cameraInfo
+        if (display == null || info == null || cameraInfo == null) null else
+          Nx10PreviewGeometry(info.resolution, cameraInfo.getSensorRotationDegrees(display.rotation))
+      }
+    }
     nx10Sampler?.setEnabled(enabled)
-  }`), '  fun cleanupCamera() {', '    nx10Sampler?.setEnabled(false)');
+  }`), '    val videoCapture = createVideoCapture()', `
+    nx10PreviewUseCase = preview
+    nx10VideoUseCase = videoCapture`),
+    '  fun record(options: RecordingOptions, promise: Promise, cacheDirectory: File) {',
+    '    previewView.display?.let { nx10VideoUseCase?.targetRotation = it.rotation }'),
+    '  fun cleanupCamera() {', '    nx10Sampler?.setEnabled(false)');
   const cameraModule = insert(insert(originalModule, '    Name("ExpoCamera")',
     '    Constant("nx10PreviewSamplingAvailable") { true }'), '    View(ExpoCameraView::class) {', `
       Prop("nx10PreviewSampling") { view, enabled: Boolean? ->
@@ -68,7 +83,7 @@ module.exports.addPreviewSampling = addPreviewSampling;
 module.exports.assertPreviewSampling = (cameraRoot) => {
   const kotlin = path.join(cameraRoot, 'android/src/main/java/expo/modules/camera');
   const read = (file) => fs.readFileSync(path.join(kotlin, file), 'utf8');
-  if (!read('ExpoCameraView.kt').includes('Nx10PreviewSampler(previewView)') ||
+  if (!read('ExpoCameraView.kt').includes('Nx10PreviewSampler(previewView) {') ||
       !read('CameraViewModule.kt').includes('Prop("nx10PreviewSampling")') ||
       read('Nx10PreviewSampler.kt') !== fs.readFileSync(path.join(__dirname, 'Nx10PreviewSampler.kt'), 'utf8')) {
     throw new Error('NX-10: Android prebuild did not install the preview sampler.');
