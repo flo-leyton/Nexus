@@ -89,6 +89,8 @@ Para desplegar los datos descriptivos en Render DEV-B hace falta autorización, 
 
 **VERIFICADA por el operador, 25 de noviembre de 2026.** Aprobó físicamente `e4f8e55`: diseño del Node, herramientas y datos técnicos, participación, Confirmar READY y fotografía. También aprobó `dcb81b5`: grabó con REC local, detuvo con STOP local y reprodujo el original. REC local permanece visible junto a Tomar foto.
 
+El 25 de noviembre de 2026 el operador aprobó físicamente `6eaecb8`: Participación aparece antes de Cámara en el Node. Las herramientas técnicas y de recuperación siguen accesibles.
+
 ## BLOQUE D — TOMAS, VIDEOS Y FOTOGRAFÍAS
 
 Biblioteca en `app/(tabs)/medios.tsx` y `components/navigation/LibraryContents.tsx`. Tomas y originales en `components/session/`. El visor compartido en `components/MediaViewer.tsx` conserva las listas montadas y desmonta `LocalVideoPlayer` al cerrar. Los archivos locales siguen pasando por la verificación existente. La numeración se deriva de las tomas disponibles en cada vista y no reemplaza los IDs.
@@ -115,9 +117,8 @@ El operador observó una subida a Cloudinary que no apareció en «Ángulos por 
 
 `app.json`, configuración Expo y `assets/`. Marca visual y recursos nativos para la futura APK.
 
-- **PENDIENTE** · Localizar y revisar `Nexus_Expo_Iconos.zip`.
-- **PENDIENTE** · Integrar sus iconos oficiales de Android, icono adaptable, splash y recursos compatibles con Expo.
-- **PENDIENTE** · Verificar dimensiones, transparencia y configuración en app.json/app.config.
-- **PENDIENTE** · Mantener la paleta violeta y React Native Paper Material Design 3.
-- **PENDIENTE** · Colocar una marca discreta en Studio, sin saturar Controller ni Node.
-- **PENDIENTE** · Los cambios de recursos nativos se incluirán en la futura APK de presentación.
+- **IMPLEMENTADA** · Revisar `Nexus_Expo_Iconos.zip`, sus instrucciones, el ejemplo de Expo y la vista previa.
+- **IMPLEMENTADA** · Integrar icono general, adaptativo, monocromático, splash e icono Android de notificaciones.
+- **VERIFICADA LOCALMENTE** · PNG de 1024 × 1024 y notificaciones de 96 × 96. Expo resuelve los cinco archivos y conserva `com.floleyton.nexus`.
+- **IMPLEMENTADA** · Conservar el tema de React Native Paper y el encabezado actual de Studio.
+- **PREPARADA** · Usar `presentation-nx10` para la futura APK con bundle integrado, WebRTC NX-10 y relay público DEV-B. Queda pendiente comprobar los recursos nativos y la apertura en Android con Metro apagado.

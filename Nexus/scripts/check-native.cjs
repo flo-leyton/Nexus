@@ -27,7 +27,7 @@ function checkNative(root = path.resolve(__dirname, '..')) {
 if (require.main === module && (!process.env.EAS_BUILD_PLATFORM || process.env.EAS_BUILD_PLATFORM === 'android')) {
   try {
     const { expo, reactNative } = checkNative();
-    if (process.env.EAS_BUILD_PROFILE === 'development-nx10') {
+    if (['development-nx10', 'presentation-nx10'].includes(process.env.EAS_BUILD_PROFILE)) {
       const camera = expo.modules.find((module) => module.packageName === 'expo-camera');
       const sourceProjects = expo.configuration?.buildFromSource ?? [];
       if (!camera.projects.some((project) => sourceProjects.some((pattern) =>

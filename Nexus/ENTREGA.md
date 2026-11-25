@@ -132,6 +132,16 @@ El 25 de noviembre de 2026 el operador comunicó la aprobación física de la pa
 
 El 25 de noviembre de 2026 el operador aprobó físicamente `e4f8e55` en diseño del Node, herramientas de cámara, datos técnicos, participación, Confirmar READY y fotografía. También aprobó `dcb81b5` tras grabar, detener y reproducir el video original con REC local y STOP local. El acceso a REC local permanece visible junto a Tomar foto.
 
+El 25 de noviembre de 2026 el operador también aprobó físicamente `6eaecb8`: Participación aparece antes de Cámara en la pantalla del Node.
+
+### NX-10 · Bloque E de UX/UI
+
+Los cinco PNG de DEV-A se integran en `assets/nexus-official/` mediante `app.json`. Expo resuelve los recursos y el paquete Android sigue siendo `com.floleyton.nexus`. TypeScript, lint y la suite local pasaron con 148 pruebas aprobadas y 5 omitidas.
+
+La exportación Android en modo release generó un bundle Hermes (`.hbc`). Metro resolvió `event-target-shim` por ruta de archivo tras un aviso sobre los exports de la dependencia de WebRTC. La exportación terminó correctamente.
+
+El perfil `presentation-nx10` hereda el APK interno de `preview`, incluye PixelCopy y WebRTC, apunta a Render DEV-B y conserva las credenciales remotas sin incremento automático. Antes de generar la APK, verificar las variables públicas de Firebase y Cloudinary en EAS preview y el versionCode remoto respecto de la APK instalada. La selección explícita de VP8 está limitada al modo desarrollo. En la APK de presentación habrá que comprobar el códec negociado y repetir la prueba multicámara con Metro apagado, además de revisar el icono, el splash y las notificaciones.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

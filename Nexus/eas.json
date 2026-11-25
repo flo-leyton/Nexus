@@ -33,6 +33,19 @@
         "buildType": "apk"
       }
     },
+    "presentation-nx10": {
+      "extends": "preview",
+      "autoIncrement": false,
+      "env": {
+        "NEXUS_NX10_NATIVE": "1",
+        "NEXUS_NX10_WEBRTC_NATIVE": "1",
+        "EXPO_PUBLIC_NEXUS_NX10_WEBRTC": "1",
+        "EXPO_PUBLIC_RELAY_URL": "wss://nexus-relay-devb.onrender.com"
+      },
+      "android": {
+        "credentialsSource": "remote"
+      }
+    },
     "production": {
       "environment": "production",
       "env": {
