@@ -76,10 +76,10 @@ Para desplegar los datos descriptivos en Render DEV-B hace falta autorización, 
 
 ## BLOQUE C — INTERFAZ DEL NODE
 
-`components/session/NodeCaptureView.tsx`, `components/session/NodeParticipation.tsx` y `app/session/[id].tsx`. La cámara y sus acciones preceden los avisos de recuperación. «Herramientas de cámara» conserva la preparación y la prueba local. «Datos técnicos de cámara» reúne permisos, motor e identificador de toma. «Participación» utiliza el nombre o modelo local del teléfono y muestra solo los datos del propio Node. Falta la revisión física del Bloque C.
+`components/session/NodeCaptureView.tsx`, `components/session/NodeParticipation.tsx` y `app/session/[id].tsx`. La cámara y sus acciones preceden los avisos de recuperación. «Herramientas de cámara» conserva la preparación. «Datos técnicos de cámara» reúne permisos, motor e identificador de toma. «Participación» utiliza el nombre o modelo local del teléfono y muestra solo los datos del propio Node. Falta la revisión física del Bloque C.
 
 - **IMPLEMENTADA** · Dar protagonismo a la vista de cámara.
-- **IMPLEMENTADA** · Retirar «Prueba local» de la pantalla principal, preservando la función en herramientas de diagnóstico.
+- **IMPLEMENTADA** · Mantener la grabación local visible junto a «Tomar foto» con «REC local» y «STOP local». El motor y el guardado existentes siguen vinculando la grabación al Node aceptado de una sesión. La captura manual guarda el original sin asociarlo a una toma coordinada.
 - **IMPLEMENTADA** · Simplificar «Detalles de cámara y toma».
 - **IMPLEMENTADA** · Mantener «Volver a preparar cámara» y las herramientas de recuperación.
 - **IMPLEMENTADA** · Reducir «Participación» al nombre del teléfono, rol, sesión y estado de conexión y READY.

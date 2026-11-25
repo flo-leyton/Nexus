@@ -64,6 +64,7 @@ test('H1.4: capture transitions, duplicate START/STOP and saved only after persi
   assert.throws(() => e.start(identity), /en curso/);
   await flush();
   assert.equal(e.getSnapshot().phase, 'recording');
+  assert.throws(() => e.start({ ...identity, takeId: 'remote-take' }), /en curso/);
   assert.equal(e.getReadiness().enginePrepared, false);
   await assert.rejects(e.prepare(), /termine la captura/);
   e.stop();

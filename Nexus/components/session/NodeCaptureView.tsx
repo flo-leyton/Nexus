@@ -73,13 +73,18 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
     </View>}
     {!full && <View key="actions" style={sessionStyles.stack}>
       {p.phase === 'recording' ? <Button mode="contained" icon="stop" onPress={props.onStop}
-        buttonColor={colors.error} textColor={colors.onError} style={sessionStyles.control} contentStyle={sessionStyles.touch}>Detener y guardar</Button> :
+        buttonColor={colors.error} textColor={colors.onError} style={sessionStyles.control} contentStyle={sessionStyles.touch}>STOP local</Button> :
         needsSaveRetry && <Button mode="contained-tonal" icon="refresh" onPress={props.onRetrySave}
           style={sessionStyles.control} contentStyle={sessionStyles.touch}>Reintentar guardado</Button>}
       {props.requiresConfirmation && <Button mode="contained" icon="check" disabled={props.confirmDisabled} onPress={props.onConfirmReady}
         style={sessionStyles.control} contentStyle={sessionStyles.touch}>Confirmar READY</Button>}
-      {props.onPhoto && <Button mode="contained-tonal" icon="camera-outline" disabled={!props.canRecord || !!props.photoStatus}
-        onPress={props.onPhoto} contentStyle={sessionStyles.touch}>Tomar foto</Button>}
+      <View style={sessionStyles.row}>
+        {p.phase !== 'recording' && !needsSaveRetry && <Button mode="outlined" icon="record-circle-outline"
+          disabled={!props.canRecord} onPress={props.onRecord}
+          style={sessionStyles.flex} contentStyle={sessionStyles.touch}>REC local</Button>}
+        {props.onPhoto && <Button mode="contained-tonal" icon="camera-outline" disabled={!props.canRecord || !!props.photoStatus}
+          onPress={props.onPhoto} style={sessionStyles.flex} contentStyle={sessionStyles.touch}>Tomar foto</Button>}
+      </View>
     </View>}
     {!full && (needsSaveRetry || captureError || !props.accepted || props.reportError || r.cameraPermission !== 'granted') &&
       <View key="capture-feedback" style={sessionStyles.stack}>
@@ -92,10 +97,8 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
         {r.cameraPermission !== 'granted' && prepareControl}
         {!p.canAskAgain && r.cameraPermission !== 'granted' && <Text variant="bodyMedium">Concede permiso de cámara en los ajustes del teléfono y vuelve a la Session.</Text>}
       </View>}
-    {!full && <SessionDetails title="Herramientas de cámara">
-      {r.cameraPermission === 'granted' && prepareControl}
-      {p.phase !== 'recording' && !needsSaveRetry && <Button mode="outlined" icon="record-circle-outline"
-        disabled={!props.canRecord} onPress={props.onRecord} contentStyle={sessionStyles.touch}>Prueba local</Button>}
+    {!full && r.cameraPermission === 'granted' && <SessionDetails title="Herramientas de cámara">
+      {prepareControl}
     </SessionDetails>}
     {!full && <SessionDetails title="Datos técnicos de cámara">
       {!!props.reasons.length && <Text variant="bodyMedium">{props.reasons.join(' · ')}</Text>}

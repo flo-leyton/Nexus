@@ -49,7 +49,7 @@ test('Studio presents one pending notice and keeps session identity in technical
   assert.deepEqual(failed.filter((item) => item?.type === 'Status').map((item) => item.props.message), ['Error de ingreso']);
 });
 
-test('Node keeps camera and recovery callbacks available while putting local recording in diagnostics', () => {
+test('Node keeps local REC and STOP visible with the original camera and recovery callbacks', () => {
   const jsx = (type, props, key) => ({ type, props, key });
   const deps = {
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
@@ -75,10 +75,17 @@ test('Node keeps camera and recovery callbacks available while putting local rec
   const actions = (tree) => tree.find((item) => item?.key === 'actions').props.children.filter(Boolean);
   assert.equal(preview(normal).props.children[0], camera);
   assert.equal(preview(render({ fullPreview: true })).props.children[0], camera);
-  assert.equal(actions(normal).some((item) => item.props.onPress === props.onRecord), false);
   const tools = normal.find((item) => item?.props?.title === 'Herramientas de cámara');
-  assert.deepEqual(Array.from(tools.props.children, (item) => item.props.onPress), [props.onPrepare, props.onRecord]);
-  assert.deepEqual(Array.from(actions(normal), (item) => item.props.onPress), [props.onConfirmReady, props.onPhoto]);
-  assert.equal(actions(render({ accepted: false, preparation: { ...props.preparation, phase: 'recording' } }))[0].props.onPress, props.onStop);
+  assert.equal(tools.props.children.props.onPress, props.onPrepare);
+  const [confirm, row] = actions(normal);
+  const [rec, photo] = row.props.children;
+  assert.equal(confirm.props.onPress, props.onConfirmReady);
+  assert.equal(photo.props.onPress, props.onPhoto);
+  assert.equal(rec.props.children, 'REC local');
+  assert.equal(rec.props.onPress, props.onRecord);
+  assert.equal(actions(render({ canRecord: false }))[1].props.children[0].props.disabled, true);
+  const [stop] = actions(render({ accepted: false, preparation: { ...props.preparation, phase: 'recording' } }));
+  assert.equal(stop.props.children, 'STOP local');
+  assert.equal(stop.props.onPress, props.onStop);
   assert.equal(actions(render({ preparation: { ...props.preparation, pendingSave: true } }))[0].props.onPress, props.onRetrySave);
 });
