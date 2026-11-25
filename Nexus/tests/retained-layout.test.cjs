@@ -49,6 +49,32 @@ test('Studio presents one pending notice and keeps session identity in technical
   assert.deepEqual(failed.filter((item) => item?.type === 'Status').map((item) => item.props.message), ['Error de ingreso']);
 });
 
+test('Session puts participation before the same camera slot across updates', () => {
+  const jsx = (type, props, key) => ({ type, props, key });
+  const deps = {
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    'react-native': { View: 'View', useWindowDimensions: () => ({ width: 420 }) },
+    'react-native-paper': { Button: 'Button' },
+    '@/components/retainedVisibility': load('components/retainedVisibility.ts'),
+    './SessionUI': { SessionCanvas: 'Canvas', sessionStyles: {} },
+  };
+  const source = fs.readFileSync('components/session/SessionPage.tsx', 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, require: (name) => deps[name] });
+  const capture = { type: 'CameraOwner' };
+  const slots = (members, fullPreview = false) => exports.SessionPage({ capture, members, fullPreview })
+    .props.children[2].props.children[0].props.children;
+  for (const views of [slots('READY'), slots('NO LISTO'), slots(null), slots('READY', true)]) {
+    assert.equal(views[0].key, 'members');
+    assert.equal(views[1].key, 'capture-owner');
+    assert.equal(views[1].props.children, capture);
+  }
+  assert.equal(slots('READY', true)[0].props.style[1].display, 'none');
+});
+
 test('Node keeps local REC and STOP visible with the original camera and recovery callbacks', () => {
   const jsx = (type, props, key) => ({ type, props, key });
   const deps = {

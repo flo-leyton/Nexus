@@ -21,8 +21,8 @@ export function SessionPage(props: Props) {
     <View style={hideExtras}>{props.header}</View>
     <View key="session-content" style={{ flex: props.fullPreview ? 1 : undefined, flexDirection: wide ? 'row' : 'column', gap: props.fullPreview ? 0 : 28, alignItems: 'stretch' }}>
       <View style={{ flex: props.fullPreview ? 1 : wide ? 1.7 : undefined, minWidth: 0, gap: props.fullPreview ? 0 : 24 }}>
-        <View key="capture-owner" style={{ ...retainedVisibility(Boolean(props.capture)), flex: props.fullPreview ? 1 : undefined }}>{props.capture}</View>
         <View key="members" style={[retainedVisibility(Boolean(props.members)), hideExtras]}>{props.members}</View>
+        <View key="capture-owner" style={{ ...retainedVisibility(Boolean(props.capture)), flex: props.fullPreview ? 1 : undefined }}>{props.capture}</View>
         <View key="console-owner" style={[retainedVisibility(Boolean(props.console)), hideExtras]}>{props.console}</View>
       </View>
       <View style={[{ flex: wide ? 1 : undefined, minWidth: 0, gap: 24 }, hideExtras]}>
