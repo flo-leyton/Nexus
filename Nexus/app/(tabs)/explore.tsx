@@ -2,7 +2,6 @@ import { Button, TextInput, useTheme, type MD3Theme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, type Href } from 'expo-router';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { onValue, ref } from 'firebase/database';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,7 +10,7 @@ import {
   StyleSheet,
 } from 'react-native';
 
-import { auth, database } from '@/config/firebase';
+import { auth } from '@/config/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';
@@ -22,12 +21,6 @@ import {
   logoutUser,
   registerUser,
 } from '@/services/authService';
-
-type UserProfile = {
-  email?: string;
-  createdAt?: number | object;
-  lastLoginAt?: number | object;
-};
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -42,7 +35,6 @@ export default function AccountScreen() {
   const insets = useSafeAreaInsets();
   const styles = createStyles(colors);
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -71,27 +63,6 @@ export default function AccountScreen() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (!user || !database) {
-      setProfile(null);
-      return;
-    }
-
-    const userRef = ref(database, `users/${user.uid}`);
-
-    const unsubscribe = onValue(
-      userRef,
-      (snapshot) => {
-        setProfile(snapshot.exists() ? snapshot.val() : null);
-      },
-      (error) => {
-        setMessage(`RTDB: ${error.message}`);
-      },
-    );
-
-    return unsubscribe;
-  }, [user]);
-
   const handleRegister = async () => {
     if (!email.trim() || !password) {
       setMessage('Ingresa email y contraseña.');
@@ -103,7 +74,7 @@ export default function AccountScreen() {
 
     try {
       await registerUser(email, password);
-      setMessage('Cuenta creada y guardada en Realtime Database.');
+      setMessage('Cuenta creada.');
     } catch (error) {
       setCollision(!!error && typeof error === 'object' && 'code' in error && error.code === 'STUDIO_ACCOUNT_COLLISION');
       setMessage(getErrorMessage(error));
@@ -168,7 +139,7 @@ export default function AccountScreen() {
         {(!user || user.isAnonymous) ? (
           <ThemedView style={styles.panel}>
             <ThemedText type="subtitle">Autenticación</ThemedText>
-            {user?.isAnonymous && <ThemedText>Vincula una cuenta nueva para conservar tu identidad de Studio.</ThemedText>}
+            <ThemedText>Crea una cuenta para conservar el acceso a tus sesiones</ThemedText>
 
             <TextInput mode="outlined"
               autoCapitalize="none"
@@ -259,15 +230,11 @@ export default function AccountScreen() {
           onPress={() => router.push('/acerca-de-nexus' as Href)}>Acerca de Nexus</Button>
 
         <SessionDetails>
-          <ThemedText selectable>Este dispositivo: {deviceId || 'Identificador no disponible'}</ThemedText>
+          <ThemedView>
+            <ThemedText>ID del dispositivo</ThemedText>
+            {deviceId ? <ThemedText selectable>{deviceId}</ThemedText> : <ThemedText>No disponible</ThemedText>}
+          </ThemedView>
           <StudioIdentityPanel />
-          <ThemedText>La identidad de esta instalación autoriza el acceso. El código de sesión no demuestra propiedad.</ThemedText>
-          {user?.isAnonymous && <ThemedText>Crear o vincular una cuenta nueva conserva el UID. Una cuenta existente requiere un cambio y una transferencia explícitos. Mantén la app abierta hasta resolverlo.</ThemedText>}
-          {user && !user.isAnonymous && <ThemedView style={styles.infoBox}>
-            <ThemedText style={styles.label}>REALTIME DATABASE</ThemedText>
-            <ThemedText>{profile ? 'Registro encontrado en users/{uid}' : 'Esperando registro...'}</ThemedText>
-            {!!profile?.email && <ThemedText>Email almacenado: {profile.email}</ThemedText>}
-          </ThemedView>}
         </SessionDetails>
       </ScrollView>
     </ThemedView>

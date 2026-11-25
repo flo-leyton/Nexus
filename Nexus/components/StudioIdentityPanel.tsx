@@ -22,19 +22,25 @@ export function StudioIdentityPanel() {
         const proof = await previous.getIdToken(true);
         await transferSocketIdentity(proof, uid);
         forgetPreviousStudioIdentity();
-        setMessage('Transferencia confirmada y persistida por el relay. Studio consultará tus Sessions.');
+        setMessage('Transferencia confirmada.');
       } else {
         await restorePreviousStudioIdentity();
         connectSocket();
-        setMessage('Identidad original recuperada. Conectando con un token actual.');
+        setMessage('Identidad anterior recuperada.');
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo verificar la identidad anterior.'); }
     finally { setBusy(false); }
   };
   return <ThemedView style={{ gap: 10 }}>
-    <ThemedText selectable>UID actual: {uid || 'Sin cuenta activa'}</ThemedText>
-    {previous ? <>
-      <ThemedText selectable>Identidad anónima anterior disponible en esta ejecución: {previous.uid}</ThemedText>
+    <ThemedView>
+      <ThemedText>UID actual</ThemedText>
+      {uid ? <ThemedText selectable>{uid}</ThemedText> : <ThemedText>Sin cuenta activa</ThemedText>}
+    </ThemedView>
+    {previous && <>
+      <ThemedView>
+        <ThemedText>UID anterior</ThemedText>
+        <ThemedText selectable>{previous.uid}</ThemedText>
+      </ThemedView>
       <Pressable accessibilityRole="button" disabled={busy} onPress={() => void run(false)}>
         <ThemedText type="link">RECUPERAR IDENTIDAD ANTERIOR</ThemedText>
       </Pressable>
@@ -43,7 +49,7 @@ export function StudioIdentityPanel() {
         [{ text: 'Cancelar', style: 'cancel' }, { text: 'Autorizar transferencia', onPress: () => void run(true) }])}>
         <ThemedText type="link">TRANSFERIR A LA CUENTA ACTUAL</ThemedText>
       </Pressable>}
-    </> : <ThemedText>Si cambiaste de cuenta antes de esta versión y perdiste el usuario anónimo original, no se puede recuperarlo con el código o deviceId. No borres datos: usa una instalación que aún conserve esa identidad. Sin esa prueba la app no puede transferir sus Sessions.</ThemedText>}
+    </>}
     {!!message && <ThemedText accessibilityLiveRegion="polite">{message}</ThemedText>}
   </ThemedView>;
 }

@@ -35,6 +35,15 @@ test('UX account links to About and retains identity recovery in technical detai
  const account=read('app/(tabs)/explore.tsx');
  assert.match(account, /router\.push\('\/acerca-de-nexus'/);
  assert.match(account, /<SessionDetails>[\s\S]*<StudioIdentityPanel\s*\/>[\s\S]*<\/SessionDetails>/);
+ assert.match(account, /Crea una cuenta para conservar el acceso a tus sesiones/);
+ assert.match(account, /<ThemedText selectable>\{deviceId\}/);
+ assert.doesNotMatch(account, /REALTIME DATABASE|El código de sesión no demuestra propiedad/);
+ const identity=read('components/StudioIdentityPanel.tsx');
+ assert.match(identity, /<ThemedText selectable>\{uid\}/);
+ assert.match(identity, /<ThemedText selectable>\{previous\.uid\}/);
+ assert.match(identity, /RECUPERAR IDENTIDAD ANTERIOR/);
+ assert.match(identity, /Autorizar transferencia/);
+ assert.doesNotMatch(identity, /Si cambiaste de cuenta antes de esta versión/);
  assert.doesNotMatch(read('components/studio/StudioHome.tsx'), /Identidad y soporte|identityPanel/);
  assert.match(read('app/_layout.tsx'), /name="acerca-de-nexus"/);
  const about=read('app/acerca-de-nexus.tsx');

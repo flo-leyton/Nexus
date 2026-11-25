@@ -148,6 +148,8 @@ Dispositivos retira las pruebas A/B de la interfaz. Cuenta agrupa los identifica
 
 TypeScript y lint pasaron. Metro respondió HTTP 200 con el bundle Android que incluye la pantalla Acerca de Nexus. Pendiente de aprobación visual en el dispositivo. Recarga el Dev Client, revisa el encabezado de Studio, abre Dispositivos y entra en Cuenta → Datos técnicos y Cuenta → Acerca de Nexus. Comprueba el regreso con Atrás y el número de compilación que muestra la APK instalada.
 
+Tras la revisión visual de Cuenta, Datos técnicos inicia contraído y muestra solo los identificadores con selección nativa para copiar. Las acciones de recuperación y transferencia siguen disponibles cuando existe una identidad anterior, incluida la confirmación de la transferencia. Para revisar el ajuste, recarga el Dev Client, abre Cuenta, despliega Datos técnicos y mantén pulsado un identificador.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.
