@@ -107,7 +107,9 @@ Biblioteca en `app/(tabs)/medios.tsx` y `components/navigation/LibraryContents.t
 - **IMPLEMENTADA** · Conservar íntegramente Subir a Cloudinary, Guardar en galería y Eliminar de Nexus.
 - **IMPLEMENTADA** · Aplicar criterios visuales consistentes en Biblioteca, Node y Controller.
 
-Pendiente de prueba física en Android. Comprobar apertura del archivo seleccionado, reproducción local y remota, fotos con proporción original, cierre con Atrás y retorno al mismo desplazamiento. Verificar también galería, eliminación y subida. El zoom por gestos de fotografías queda pendiente. Los ángulos sin fecha de captura en la referencia muestran los datos disponibles.
+El operador confirmó físicamente en `6c4d408` la reproducción de videos en modal y la apertura de fotos con sus proporciones. El visor de fotos usa fondo negro, doble toque, pellizco y arrastre con Gesture Handler y Reanimated, ya presentes en la APK. Falta validar los gestos, el cierre y el retorno al desplazamiento en Android, además de las acciones de galería, eliminación y subida.
+
+El operador observó una subida a Cloudinary que no apareció en «Ángulos por toma». Una grabación con REC local carece de `takeId` y su subida se conserva en la Biblioteca del Node. En una toma coordinada, la subida local persistida y la confirmación `MEDIA_ACCEPTED` son pasos distintos. El Controller muestra las referencias aceptadas de la sesión, consolidadas por dispositivo y clip. Los registros revisados no permiten identificar el clip ni confirmar en qué paso quedó. No se cambiaron las asociaciones, la persistencia ni la publicación.
 
 ## BLOQUE E — IDENTIDAD VISUAL DE DEV-A
 
