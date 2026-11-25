@@ -5,12 +5,17 @@ import { ScheduledRecordingPanel } from './session/ScheduledRecordingPanel';
 import { RemoteTorchControl } from './session/RemoteTorchControl';
 import { RemotePhotoControl } from './session/RemotePhotoControl';
 import { RemoteZoomControl } from './session/RemoteZoomControl';
+import { NodePreview } from './session/ExperimentalPreview';
 
 import type { getSessionService } from '@/services/session';
+import type { previewTargets as selectPreviewTargets } from '@/services/previewTransport';
 import { activeTakeForDevice, activeTakes, readinessReasons, type Session } from '@/services/sessionProtocol';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function ControllerTakePanel({ service, session, closingSession = false }: { service: Service; session: Session; closingSession?: boolean }) {
+export function ControllerTakePanel({ service, session, closingSession = false, previewTargets, previewEnabled }: {
+  service: Service; session: Session; closingSession?: boolean;
+  previewTargets: ReturnType<typeof selectPreviewTargets>; previewEnabled: boolean;
+}) {
   const focused = useIsFocused();
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState(false);
@@ -44,7 +49,10 @@ export function ControllerTakePanel({ service, session, closingSession = false }
     const status = !online ? 'DESCONECTADA' : awaiting ? 'ORDEN PENDIENTE' : result?.connectionLost ? 'ESTADO SIN CONFIRMAR'
       : result?.phase === 'recording' ? 'GRABANDO' : result?.phase === 'saving' ? 'GUARDANDO'
         : result?.phase === 'error' ? 'REVISAR CÁMARA' : result ? 'INICIANDO' : 'DETENIDA';
-    return { deviceId: member.deviceId, nodeId: member.nodeId, online, label: member.role === 'unassigned' ? `Cámara · …${member.deviceId.slice(-6)}` : member.role,
+    const role = member.role.toUpperCase();
+    const label = role === 'MAIN' || role === 'SIDE' ? role
+      : member.role === 'unassigned' ? `Cámara · …${member.deviceId.slice(-6)}` : member.role;
+    return { deviceId: member.deviceId, nodeId: member.nodeId, online, label,
       status, recording, ready: online && !take && !member.requiresReadyConfirmation && !readinessReasons(member.readiness).length };
   });
   const readyIds = cameras.filter((camera) => camera.ready).map((camera) => camera.deviceId);
@@ -70,6 +78,8 @@ export function ControllerTakePanel({ service, session, closingSession = false }
   return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
     cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.recording,
+      preview: previewEnabled && camera.nodeId && <NodePreview
+        pair={previewTargets.find(({ pair }) => pair.nodeId === camera.nodeId)?.pair} label={camera.label} />,
       zoomControl: camera.nodeId && <RemoteZoomControl key={`${session.sessionId}:${camera.nodeId}`} service={service}
         sessionId={session.sessionId} nodeId={camera.nodeId} deviceId={camera.deviceId} label={camera.label}
         disabled={!focused || closingSession} />,

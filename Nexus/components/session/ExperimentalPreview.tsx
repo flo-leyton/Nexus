@@ -1,10 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { View, useWindowDimensions } from 'react-native';
+import { View } from 'react-native';
 import { ActivityIndicator, Button, Text } from 'react-native-paper';
 import type { RTCVideoViewProps } from 'react-native-webrtc';
 import { createPreviewTransport, previewAvailable, previewTargets, type PreviewPair, type PreviewState } from '@/services/previewTransport';
 import type { Session } from '@/services/sessionProtocol';
-import { SessionSection, sessionStyles } from './SessionUI';
+import { sessionStyles } from './SessionUI';
 
 const Video = lazy(async () => {
   const { RTCView } = await import('react-native-webrtc');
@@ -20,6 +20,7 @@ export function useExperimentalPreview(session: Session | undefined, deviceId: s
   const pair = isController ? undefined : targets[0]?.pair;
   const preview = usePreviewConnection(pair);
   return {
+    enabled,
     targets: isController ? targets : [],
     sample: enabled ? Boolean(pair && preview.state.phase !== 'disconnected') : undefined,
     samplerRequested: preview.samplerRequested,
@@ -54,38 +55,22 @@ function usePreviewConnection(pair: PreviewPair | undefined) {
   };
 }
 
-export function ExperimentalPreview({ targets }: { targets: ReturnType<typeof previewTargets> }) {
-  const { width, height } = useWindowDimensions();
-  const sideBySide = Math.min(width, height) >= 600 && targets.length > 1;
-  if (!targets.length) return null;
-
-  return <SessionSection title="Vista previa experimental">
-    <View style={{ flexDirection: sideBySide ? 'row' : 'column', flexWrap: sideBySide ? 'wrap' : 'nowrap', gap: 12 }}>
-      {targets.map(({ pair, label }) => <View key={JSON.stringify([pair.sessionId, pair.nodeId, pair.nodeDeviceId, pair.controllerId])}
-        style={sideBySide ? { flexGrow: 1, flexBasis: '46%', minWidth: 0 } : undefined}>
-        <NodePreview pair={pair} label={label} />
-      </View>)}
-    </View>
-  </SessionSection>;
-}
-
-function NodePreview({ pair, label }: { pair: PreviewPair; label: string }) {
+export function NodePreview({ pair, label }: { pair?: PreviewPair; label: string }) {
   const { state, start, stop, receivedFrame, dimensionsReported } = usePreviewConnection(pair);
-  const streamURL = state.streamURL;
+  const streamURL = pair ? state.streamURL : undefined;
   const actionLabel = state.phase === 'disconnected' ? 'Iniciar vista previa' : 'Detener vista previa';
-  const status = { disconnected: 'Desconectada', connecting: 'Conectando', streaming: 'Transmitiendo' }[state.phase];
+  const status = { disconnected: 'Vista detenida', connecting: 'Conectando', streaming: 'Transmitiendo' }[state.phase];
   return <View style={{ gap: 8 }}>
-    <Text variant="titleMedium">{label}</Text>
-    <Text accessibilityLiveRegion="polite">{status}</Text>
-    {streamURL && <View style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
-      <Suspense fallback={<ActivityIndicator />}>
+    <Text accessibilityLiveRegion="polite">{pair ? status : 'Vista no disponible'}</Text>
+    <View style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
+      {streamURL && <Suspense fallback={<ActivityIndicator />}>
         <Video streamURL={streamURL} objectFit="contain" style={{ flex: 1 }} onDimensionsChange={({ nativeEvent }) => {
           dimensionsReported(streamURL, nativeEvent.width, nativeEvent.height);
           if (nativeEvent.width > 0 && nativeEvent.height > 0) receivedFrame(streamURL);
         }} />
-      </Suspense>
-    </View>}
-    <Button mode="outlined" accessibilityLabel={`${actionLabel} ${label}`} contentStyle={sessionStyles.touch}
+      </Suspense>}
+    </View>
+    <Button mode="outlined" accessibilityLabel={`${actionLabel} ${label}`} contentStyle={sessionStyles.touch} disabled={!pair}
       onPress={state.phase === 'disconnected' ? start : stop}>
       {actionLabel}
     </Button>

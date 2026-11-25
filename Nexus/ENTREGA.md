@@ -116,6 +116,12 @@ En el tramo final, Metro registra negociaciones nuevas por Node, muestras de env
 
 **Estado para presentación.** La tercera prueba valida el recorrido funcional multicámara con DEV-B. La evidencia revisada no demuestra un error crítico que impida preparar la versión de presentación. La desconexión intermitente y los arranques sin video siguen abiertos como riesgos para la demo.
 
+### NX-10 · Bloque A de UX/UI
+
+El punto de recuperación `nx10/pre-ux-final` conserva `d510dd3`. El [plan UX/UI](PLAN_UX_NX10.md) registra los cinco bloques. En el Controller, cada visor ocupa un área 16:9 dentro de «Control por cámara», con proporciones de video conservadas y acciones REC/STOP, Foto, Linterna y Zoom en ese orden. Las tarjetas conservan su identidad por `nodeId` al cambiar de ancho. La ampliación del visor y el nombre remoto del teléfono quedan pendientes. Falta verificar físicamente la rotación con ambas vistas y una grabación activas.
+
+Pasaron TypeScript, lint y 141 pruebas automatizadas. La suite omitió cinco pruebas de emulador. Metro entregó el bundle Android del Bloque A con HTTP 200.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

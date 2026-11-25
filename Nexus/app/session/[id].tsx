@@ -8,7 +8,7 @@ import { Button, Text } from 'react-native-paper';
 
 import { formatBytes } from '@/components/MediaAssetCard';
 import { SessionPage } from '@/components/session/SessionPage';
-import { ExperimentalPreview, useExperimentalPreview } from '@/components/session/ExperimentalPreview';
+import { useExperimentalPreview } from '@/components/session/ExperimentalPreview';
 import { SessionSection, SessionDetails, sessionStyles, sessionStateLabel } from '@/components/session/SessionUI';
 import { SessionAdmissionView, SessionCloseView } from '@/components/session/SessionAdmissionView';
 import { SessionImportView } from '@/components/session/SessionImportView';
@@ -310,8 +310,8 @@ export default function SessionScreen() {
         </SessionDetails>
       </>}
     </SessionSection>}
-    console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession} />}
-    experimentalPreview={preview.targets.length > 0 && <ExperimentalPreview targets={preview.targets} />}
+    console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession}
+      previewTargets={preview.targets} previewEnabled={preview.enabled} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}

@@ -7,7 +7,7 @@ import { SessionCanvas, sessionStyles } from './SessionUI';
 type Props = {
   topInset: number; onBack(): void; header: ReactNode; capture: ReactNode; members: ReactNode; console: ReactNode;
   admission: ReactNode; rejoin: ReactNode; administration: ReactNode; media: ReactNode; imports: ReactNode;
-  fullPreview?: boolean; experimentalPreview?: ReactNode;
+  fullPreview?: boolean;
 };
 
 /** Slots and keys stay constant across loss/recovery of the verified Session. */
@@ -18,7 +18,6 @@ export function SessionPage(props: Props) {
     <Button mode="text" icon="arrow-left" onPress={props.onBack} contentStyle={sessionStyles.touch}
       style={[{ alignSelf: 'flex-start' }, hideExtras]}>Volver a Studio</Button>
     <View style={hideExtras}>{props.header}</View>
-    {props.experimentalPreview && <View style={hideExtras}>{props.experimentalPreview}</View>}
     <View key="session-content" style={{ flex: props.fullPreview ? 1 : undefined, flexDirection: wide ? 'row' : 'column', gap: props.fullPreview ? 0 : 28, alignItems: 'stretch' }}>
       <View style={{ flex: props.fullPreview ? 1 : wide ? 1.7 : undefined, minWidth: 0, gap: props.fullPreview ? 0 : 24 }}>
         <View key="capture-owner" style={{ ...retainedVisibility(Boolean(props.capture)), flex: props.fullPreview ? 1 : undefined }}>{props.capture}</View>

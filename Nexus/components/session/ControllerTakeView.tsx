@@ -1,4 +1,5 @@
-import { ScrollView, View } from 'react-native';
+import { ScrollView, View, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
 import { activeTakes, takeFinished, type Session } from '@/services/sessionProtocol';
@@ -7,8 +8,8 @@ import { TakeHistoryItem, TakeNodeStatus } from './TakeNodeStatus';
 
 export type ControllerTakeViewProps = {
   session: Session; nodeCount: number; canStart: boolean; canStop: boolean;
-  cameras: { deviceId: string; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean;
-    zoomControl?: ReactNode; torchControl?: ReactNode; photoControl?: ReactNode }[];
+  cameras: { deviceId: string; nodeId: string | null; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean;
+    preview?: ReactNode; zoomControl?: ReactNode; torchControl?: ReactNode; photoControl?: ReactNode }[];
   closableTakeIds: string[];
   scheduling?: ReactNode;
   notice: string; pending: boolean; confirmingClose: boolean; focused: boolean;
@@ -18,6 +19,9 @@ export type ControllerTakeViewProps = {
 
 export function ControllerTakeView(props: ControllerTakeViewProps) {
   const { colors } = useTheme();
+  const { width, height } = useWindowDimensions();
+  const [cameraAreaWidth, setCameraAreaWidth] = useState(0);
+  const columns = width > height && cameraAreaWidth >= 560 && props.cameras.length > 1;
   const take = props.session.take;
   const previous = props.session.takeHistory ?? [];
   const active = previous.filter((entry) => !takeFinished(entry));
@@ -31,26 +35,31 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     node.connectionLost ? !entry.stopMessageId : node.busy && !!node.error && node.phase !== 'saving'));
   return <View style={sessionStyles.stack}>
     <Text accessibilityRole="header" variant="titleLarge">Consola de grabación</Text>
-    <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>REC solicita captura a los Nodes conectados y listos. Cada resultado se confirma por separado.</Text>
     {props.pending && !props.notice && <SessionBadge label="Comando enviado · esperando relay" />}
     {!!props.notice && <SessionNotice title={props.pending ? 'Comando enviado · esperando relay' : props.notice}>
       {props.pending && <Text variant="bodyMedium">{props.notice}</Text>}
     </SessionNotice>}
     {!props.canStart && !take && <Text variant="bodyMedium">Acepta los Nodes y prepara sus cámaras antes de REC.</Text>}
     {!!props.cameras.length && <SessionSection title="Control por cámara">
-      {props.cameras.map((camera) => <View key={camera.deviceId} style={sessionStyles.stack}>
-        <View style={sessionStyles.between}><Text variant="titleMedium">{camera.label}</Text>
-          <SessionBadge label={camera.status} />
-        </View>
-        <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
-          disabled={camera.recording ? !camera.canStop : !camera.canStart}
-          accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
-          onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
-          contentStyle={sessionStyles.touch}>{camera.recording ? 'STOP' : 'REC'}</Button>
-        {camera.zoomControl}
-        {camera.torchControl}
-        {camera.photoControl}
-      </View>)}
+      <View onLayout={({ nativeEvent }) => setCameraAreaWidth(nativeEvent.layout.width)}
+        style={{ gap: 12, flexDirection: columns ? 'row' : 'column', flexWrap: columns ? 'wrap' : 'nowrap' }}>
+        {props.cameras.map((camera) => <View key={camera.nodeId ?? camera.deviceId}
+          style={[sessionStyles.stack, { minWidth: 0, width: columns ? (cameraAreaWidth - 12) / 2 : '100%',
+            padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}>
+          <View style={sessionStyles.between}><Text variant="titleMedium">{camera.label}</Text>
+            <SessionBadge label={camera.status} />
+          </View>
+          {camera.preview}
+          <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
+            disabled={camera.recording ? !camera.canStop : !camera.canStart}
+            accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
+            onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
+            contentStyle={sessionStyles.touch}>{camera.recording ? 'STOP' : 'REC'}</Button>
+          {camera.photoControl}
+          {camera.torchControl}
+          {camera.zoomControl}
+        </View>)}
+      </View>
     </SessionSection>}
     {props.scheduling}
     {take ? <>

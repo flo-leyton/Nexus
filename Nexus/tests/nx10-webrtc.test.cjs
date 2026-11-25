@@ -21,12 +21,11 @@ const signal = (sender, session, target, nodeId, connectionId, details) =>
 test('NX-10 lazy preview resolves to a React wrapper that renders the native host view', async () => {
   let loadVideo;
   let rtcImports = 0;
-  let dimensions = { width: 800, height: 1200 };
   const nativeView = 'RTCVideoView';
   const dependencies = {
     react: { lazy: (load) => { loadVideo = load; return {}; } },
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
-    'react-native': { View: 'View', useWindowDimensions: () => dimensions },
+    'react-native': { View: 'View' },
     'react-native-paper': {},
     'react-native-webrtc': { RTCView: nativeView },
     '@/services/previewTransport': {},
@@ -52,15 +51,56 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(element.props.streamURL, props.streamURL);
   assert.equal(element.props.objectFit, props.objectFit);
   assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
+});
 
-  const targets = ['MAIN', 'SIDE'].map((label) => ({ label, pair: { sessionId: 'session',
-    nodeId: label, nodeDeviceId: `${label}-device`, controllerId: 'controller' } }));
-  const layout = (items) => exports.ExperimentalPreview({ targets: items }).props.children.props;
-  assert.equal(layout(targets).style.flexDirection, 'row');
-  assert.deepEqual(Array.from(layout(targets).children, (tile) => tile.props.children.props.label), ['MAIN', 'SIDE']);
+test('NX-10 camera cards keep their identities and original controls across width changes', () => {
+  let dimensions = { width: 1200, height: 800 };
+  let areaWidth = 0;
+  const jsx = (type, props, key) => ({ type, props, key });
+  const deps = {
+    react: { useState: () => [areaWidth, (width) => { areaWidth = width; }] },
+    'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
+    'react-native': { View: 'View', useWindowDimensions: () => dimensions },
+    'react-native-paper': { Button: 'Button', Text: 'Text', useTheme: () => ({ colors: {} }) },
+    '@/services/sessionProtocol': { ...protocol, activeTakes: () => [] },
+    './SessionUI': { SessionSection: 'Section', SessionActionDock: 'Dock', sessionStyles: {} },
+    './TakeNodeStatus': {},
+  };
+  const source = fs.readFileSync(path.join(__dirname, '../components/session/ControllerTakeView.tsx'), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, require: (name) => deps[name] });
+  const cameras = ['MAIN', 'SIDE'].map((label) => ({ label, nodeId: label, deviceId: `${label}-device`,
+    preview: `preview:${label}`, photoControl: `photo:${label}`, torchControl: `torch:${label}`, zoomControl: `zoom:${label}`,
+    canStart: true, canStop: true, recording: label === 'SIDE' }));
+  const actions = [];
+  const props = { session: { members: {} }, cameras, closableTakeIds: ['interrupted'], canStart: true,
+    onStart: () => actions.push('general'), onStartCamera: (id) => actions.push(id),
+    onStopCamera: (id) => actions.push(`stop:${id}`), onRequestClose: (id) => actions.push(id) };
+  const render = () => exports.ControllerTakeView(props).props.children;
+  const layout = () => render().find((child) => child?.type === 'Section' && child.props.title === 'Control por cámara').props.children.props;
+  layout().onLayout({ nativeEvent: { layout: { width: 640 } } });
+  const wide = layout();
+  assert.equal(wide.style.flexDirection, 'row');
+  assert.deepEqual(Array.from(wide.children, (card) => card.props.style[1].width), [314, 314]);
+  const keys = Array.from(wide.children, (card) => card.key);
   dimensions = { width: 390, height: 800 };
-  assert.equal(layout(targets).style.flexDirection, 'column');
-  assert.equal(layout([targets[1]]).children[0].props.children.props.label, 'SIDE');
+  layout().onLayout({ nativeEvent: { layout: { width: 360 } } });
+  const narrow = layout();
+  assert.equal(narrow.style.flexDirection, 'column');
+  assert.deepEqual(Array.from(narrow.children, (card) => card.key), keys);
+  for (const [index, card] of narrow.children.entries()) {
+    const [, preview, record, photo, torch, zoom] = card.props.children;
+    const { label } = cameras[index];
+    assert.deepEqual([preview, photo, torch, zoom], [`preview:${label}`, `photo:${label}`, `torch:${label}`, `zoom:${label}`]);
+    record.props.onPress();
+  }
+  const tree = render();
+  tree.find((x) => x?.type === 'Dock').props.children.props.onPress();
+  tree.flat().find((x) => x?.key === 'interrupted').props.onPress();
+  assert.deepEqual(actions, ['MAIN-device', 'stop:SIDE-device', 'general', 'interrupted']);
 });
 
 test('NX-10 signaling schema only accepts bounded targeted video negotiation', () => {
