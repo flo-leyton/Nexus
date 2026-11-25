@@ -20,7 +20,17 @@ fun interface Nx10FrameSink {
   fun onFrame(bitmap: Bitmap, rotation: Int, timestampNs: Long)
 }
 
-internal data class Nx10PreviewGeometry(val resolution: Size, val rotation: Int)
+internal data class Nx10PreviewGeometry(
+  val resolution: Size,
+  val displayRotation: Int,
+  val sensorRotation: Int,
+  val targetRotation: Int
+) {
+  // PixelCopy applies the queued camera Surface's sensor transform before scaling.
+  val copiedWidth = if (sensorRotation % 180 == 0) resolution.width else resolution.height
+  val copiedHeight = if (sensorRotation % 180 == 0) resolution.height else resolution.width
+  val remainingRotation = (targetRotation - sensorRotation + 360) % 360
+}
 
 object Nx10PixelCopyFrames {
   @JvmField @Volatile var sink: Nx10FrameSink? = null
@@ -94,9 +104,9 @@ internal class Nx10PreviewSampler(
       size = "waiting_geometry holder=${frame.width()}x${frame.height()} camera=${source?.resolution ?: "-"}"
       return
     }
-    val sourceWidth = source.resolution.width
-    val sourceHeight = source.resolution.height
-    val quarterTurn = source.rotation % 180 != 0
+    val sourceWidth = source.copiedWidth
+    val sourceHeight = source.copiedHeight
+    val quarterTurn = source.remainingRotation % 180 != 0
     val displayWidth = if (quarterTurn) sourceHeight else sourceWidth
     val displayHeight = if (quarterTurn) sourceWidth else sourceHeight
     val portrait = displayHeight > displayWidth
@@ -104,7 +114,7 @@ internal class Nx10PreviewSampler(
       (if (portrait) 640.0 else 360.0) / displayHeight)
     val width = (sourceWidth * scale).roundToInt().coerceAtLeast(1)
     val height = (sourceHeight * scale).roundToInt().coerceAtLeast(1)
-    size = "${sourceWidth}x$sourceHeight->${width}x$height rotation=${source.rotation}"
+    size = "${source.resolution}->${width}x$height rotation=${source.remainingRotation}"
     val started = SystemClock.elapsedRealtime()
     val timestampNs = System.nanoTime()
     val requestGeneration = generation
@@ -121,7 +131,12 @@ internal class Nx10PreviewSampler(
           if (result == PixelCopy.SUCCESS && elapsed < COPY_BUDGET_MS && enabled &&
               requestGeneration == generation && sink === Nx10PixelCopyFrames.sink) {
             try {
-              sink?.onFrame(bitmap, source.rotation, timestampNs)
+              if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "frame ts_ns=$timestampNs display_rotation=${source.displayRotation * 90} " +
+                  "camera=${source.resolution} surface_rotation=${source.sensorRotation} " +
+                  "pixel_copy=${bitmap.width}x${bitmap.height} webrtc_rotation=${source.remainingRotation}")
+              }
+              sink?.onFrame(bitmap, source.remainingRotation, timestampNs)
             } catch (error: RuntimeException) {
               Log.w(TAG, "preview_sink_failed", error)
             }

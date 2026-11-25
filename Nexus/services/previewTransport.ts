@@ -69,7 +69,12 @@ function videoStats(reports: Map<string, Record<string, unknown>>, controller: b
     const mime = typeof codecId === 'string' ? reports.get(codecId)?.mimeType : undefined;
     return typeof mime === 'string' && /^video\/[\w-]{1,20}$/i.test(mime) ? [mime] : [];
   }))];
-  return { codec: codecs.length ? codecs.join(', ') : 'no disponible', ...Object.fromEntries(fields.map((field) => {
+  const dimensions = [...new Set(video.flatMap(({ frameWidth, frameHeight }) =>
+    typeof frameWidth === 'number' && Number.isInteger(frameWidth) && frameWidth > 0 &&
+    typeof frameHeight === 'number' && Number.isInteger(frameHeight) && frameHeight > 0
+      ? [`${frameWidth}x${frameHeight}`] : []))];
+  return { codec: codecs.length ? codecs.join(', ') : 'no disponible',
+    frameSize: dimensions.length ? dimensions.join(', ') : 'no disponible', ...Object.fromEntries(fields.map((field) => {
     const values = video.map((report) => report[field]);
     return [field, values.length && values.every((value) => typeof value === 'number' && Number.isFinite(value))
       ? (values as number[]).reduce((sum, value) => sum + value, 0) : 'no disponible'];

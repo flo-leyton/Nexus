@@ -29,8 +29,11 @@ test('NX-10 Android patch is opt-in, keeps CameraX binding and sets video rotati
   const module = read(target, 'CameraViewModule.kt');
   const sampler = read(target, 'Nx10PreviewSampler.kt');
   assert.equal(sampler, read(path.resolve(__dirname, '../config/nx10'), 'Nx10PreviewSampler.kt'));
-  assert.match(view, /Nx10PreviewGeometry\(info\.resolution, cameraInfo\.getSensorRotationDegrees\(display\.rotation\)\)/);
-  assert.match(sampler, /sink\?\.onFrame\(bitmap, source\.rotation, timestampNs\)/);
+  assert.match(view, /Nx10PreviewGeometry\([\s\S]*?info\.resolution,[\s\S]*?getSensorRotationDegrees\(Surface\.ROTATION_0\),[\s\S]*?getSensorRotationDegrees\(display\.rotation\)/);
+  assert.match(sampler, /remainingRotation = \(targetRotation - sensorRotation \+ 360\) % 360/);
+  assert.match(sampler, /val sourceWidth = source\.copiedWidth/);
+  assert.match(sampler, /val sourceHeight = source\.copiedHeight/);
+  assert.match(sampler, /sink\?\.onFrame\(bitmap, source\.remainingRotation, timestampNs\)/);
   assert.match(view, /nx10VideoUseCase\?\.targetRotation = it\.rotation/);
   assert.equal(view.replace(/\n\n  private var nx10PreviewUseCase:[\s\S]*?\n  }/, '')
     .replace('\n\n    nx10PreviewUseCase = preview\n    nx10VideoUseCase = videoCapture', '')

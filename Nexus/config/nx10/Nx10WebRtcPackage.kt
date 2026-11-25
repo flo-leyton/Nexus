@@ -262,6 +262,10 @@ private class PixelCopyCapturer : VideoCapturer, Nx10FrameSink {
         if (active && epoch == generation) {
           observer.onFrameCaptured(frame)
           count(Counter.DELIVERED)
+          if (Log.isLoggable("NexusNx10Bridge", Log.DEBUG)) {
+            Log.d("NexusNx10Bridge", "frame capture=$diagnosticId ts_ns=$timestampNs i420=${width}x$height " +
+              "webrtc_rotation=$rotation oriented=${frame.rotatedWidth}x${frame.rotatedHeight}")
+          }
         } else {
           count(Counter.STALE)
         }

@@ -162,6 +162,12 @@ Pasaron TypeScript, lint, la suite local (149 aprobadas y 5 omitidas) y Gradle s
 
 La verificación física requiere una APK experimental. Usar una escena con un círculo y una flecha, MAIN vertical y SIDE horizontal, y comparar ambas vistas con las cámaras locales. Girar un Node en reposo con ambas vistas activas y comprobar que se recuperan los cuadros y continúa el otro Node. Después probar REC local y coordinado, intento de giro durante REC, STOP, READY, fotos y reproducción de archivos iniciados en cada orientación. Confirmar también que al volver a Studio se restaura la política anterior.
 
+### NX-10 · Corrección del giro de la vista remota
+
+En la APK de `b67bfba` el operador comparó la cámara vertical del Node con la vista remota. El Node mostró la escena derecha y el Controller la mostró girada 90° dentro de un visor vertical. En la ruta directa de cámara trasera a SurfaceView, PixelCopy aplica la transformación del búfer antes de escalar. El puente enviaba además la rotación completa del sensor al display. El ajuste dimensiona la copia en las coordenadas del búfer ya transformado y envía solo la rotación restante. La confirmación en los dos modelos físicos sigue pendiente.
+
+Para diagnosticar una APK que incluya el ajuste, habilitar `DEBUG` para `NexusNx10Preview` y `NexusNx10Bridge` con `adb shell setprop log.tag.NexusNx10Preview DEBUG` y `adb shell setprop log.tag.NexusNx10Bridge DEBUG`. Las líneas por cuadro se cruzan por `ts_ns` en el mismo Node. En el Controller, `EXPO_PUBLIC_NEXUS_NX10_TRACE=1` muestra `rtcview-dimensions` al cambiar la resolución y `frameSize` en las muestras RTP cuando WebRTC informa esas métricas. Las dimensiones por sí solas no establecen si el contenido está derecho. Usar una flecha y un círculo en ambos Nodes, en vertical y horizontal, y comprobar las dos vistas activas antes de repetir REC/STOP y verificar los originales.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

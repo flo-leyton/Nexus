@@ -34,7 +34,12 @@ function addPreviewSampling(cameraRoot) {
         val info = nx10PreviewUseCase?.resolutionInfo
         val cameraInfo = camera?.cameraInfo
         if (display == null || info == null || cameraInfo == null) null else
-          Nx10PreviewGeometry(info.resolution, cameraInfo.getSensorRotationDegrees(display.rotation))
+          Nx10PreviewGeometry(
+            info.resolution,
+            display.rotation,
+            cameraInfo.getSensorRotationDegrees(Surface.ROTATION_0),
+            cameraInfo.getSensorRotationDegrees(display.rotation)
+          )
       }
     }
     nx10Sampler?.setEnabled(enabled)

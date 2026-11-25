@@ -327,7 +327,8 @@ test('NX-10 transports isolate Controller feeds and release Node tracks on stop 
     }
     async setLocalDescription(description) { this.localDescription = description; }
     addTrack(track, stream) { this.track = track; this.stream = stream; }
-    async getStats() { return new Map([['video', { type: 'outbound-rtp', kind: 'video', framesEncoded: 0, bytesSent: 42 }]]); }
+    async getStats() { return new Map([['video', { type: 'outbound-rtp', kind: 'video',
+      framesEncoded: 0, bytesSent: 42, frameWidth: 360, frameHeight: 640 }]]); }
     close() { this.closed = true; }
   }
   class Stream {
@@ -380,6 +381,7 @@ test('NX-10 transports isolate Controller feeds and release Node tracks on stop 
     assert.equal(stats.framesEncoded, 0);
     assert.equal(stats.framesSent, 'no disponible');
     assert.equal(stats.bytesSent, 42);
+    assert.equal(stats.frameSize, '360x640');
     assert.ok(trace.some((entry) => entry.event === 'pixelcopy-prop' && entry.enabled));
     peers[0].connectionState = 'connected';
     peers[0].events.connectionstatechange();
