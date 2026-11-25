@@ -35,6 +35,8 @@ El operador confirmó que la presentación vertical y los controles por cámara 
 
 La segunda prueba física confirmó las dos columnas y detectó tarjetas todavía grandes. El ajuste compacto en horizontal reduce los espacios, agrupa REC/STOP, Foto y Linterna en una fila y pone el zoom debajo. Representa la conexión con texto hasta que WebRTC entrega la URL del flujo. El visor ocupa hasta 256 × 144 dp y desaparece al detener esa vista. La revisión física del ajuste compacto sigue pendiente.
 
+El último ajuste aplica el modo compacto de Paper a los botones con icono y extiende el botón de vista previa al ancho de la tarjeta. En vertical, el contenedor 16:9 se mantenía después del desmontaje de RTCView. Ahora se retira en ambas orientaciones cuando desaparece el flujo. Se simplificaron el título de la barra general y los mensajes de linterna, y se reforzaron los insets del Controller horizontal. Falta la revisión física de estos cambios.
+
 ## BLOQUE B — STUDIO, SESIONES Y SOLICITUDES
 
 Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. Presentación para listas y estados. Nombre, descripción y fecha pueden requerir campos persistentes compatibles en `sessionProtocol.ts`, `sessionClient.ts` y `server/sessionSchema.js`.

@@ -58,13 +58,12 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
     }
   };
   const action = online && requestedOn ? 'Apagar linterna' : 'Encender linterna';
-  const status = (!compact || request || !online) && <Text variant={compact ? 'bodySmall' : 'bodyMedium'} accessibilityLiveRegion="polite">
-      {!online ? 'Linterna · cámara desconectada'
-        : request ? `Última orden · ${request.enabled ? 'encender' : 'apagar'} · ${request.status}` : 'Linterna · sin orden reciente'}
+  const status = request && request.status !== 'Orden recibida' && <Text variant={compact ? 'bodySmall' : 'bodyMedium'} accessibilityLiveRegion="polite">
+      {request.status}
     </Text>;
   return <View style={compact ? { gap: 4 } : sessionStyles.stack}>
     {!compact && status}
-    <Button mode="outlined" icon={online && requestedOn ? 'flashlight-off' : 'flashlight'}
+    <Button mode="outlined" compact={compact} icon={online && requestedOn ? 'flashlight-off' : 'flashlight'}
       accessibilityLabel={`${action} de ${label}`} disabled={!online || disabled || !!pending.current}
       onPress={() => send(!requestedOn)} contentStyle={compact ? sessionStyles.compactTouch : sessionStyles.touch}
       labelStyle={compact ? sessionStyles.compactLabel : undefined}>{compact ? 'Linterna' : action}</Button>

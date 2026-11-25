@@ -1,6 +1,6 @@
 import { retainedVisibility } from '@/components/retainedVisibility';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { Button, Icon, Portal, Surface, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -24,10 +24,11 @@ export const sessionStyles = StyleSheet.create({
 const DockContext = createContext({ height: 0, setHeight: (_height: number) => {} });
 
 /** Only layout state. Children keep stable owners while the dock changes height. */
-export function SessionCanvas({ children, topInset = 0, maxWidth = 760, fullPreview = false }: {
-  children: ReactNode; topInset?: number; maxWidth?: number; fullPreview?: boolean;
+export function SessionCanvas({ children, topInset = 0, maxWidth = 760, fullPreview = false, controllerLandscape = false }: {
+  children: ReactNode; topInset?: number; maxWidth?: number; fullPreview?: boolean; controllerLandscape?: boolean;
 }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [height, setHeight] = useState(0);
   const value = useMemo(() => ({ height, setHeight }), [height]);
   const scroll = useRef<ScrollView>(null);
@@ -39,7 +40,11 @@ export function SessionCanvas({ children, topInset = 0, maxWidth = 760, fullPrev
       <ScrollView ref={scroll} removeClippedSubviews={false} scrollEnabled={!fullPreview}
         keyboardShouldPersistTaps="handled" contentContainerStyle={fullPreview
           ? { flexGrow: 1 }
-          : { alignSelf: 'center', width: '100%', maxWidth, padding: 20, paddingTop: topInset + 12, paddingBottom: height + 32, gap: 24 }}>
+          : { alignSelf: 'center', width: '100%', maxWidth, padding: 20,
+            paddingTop: (controllerLandscape ? Math.max(topInset, insets.top, StatusBar.currentHeight ?? 0) : topInset) + 12,
+            paddingLeft: controllerLandscape ? insets.left + 20 : 20,
+            paddingRight: controllerLandscape ? insets.right + 20 : 20,
+            paddingBottom: height + 32, gap: 24 }}>
         {children}
       </ScrollView>
     </View>

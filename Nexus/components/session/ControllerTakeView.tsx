@@ -51,7 +51,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
           <View style={{ flexDirection: props.landscape ? 'row' : 'column', alignItems: props.landscape ? 'flex-start' : 'stretch',
             gap: props.landscape ? 6 : 12 }}>
             <View style={props.landscape ? { flex: 1, minWidth: 0 } : undefined}>
-              <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
+              <Button mode="outlined" compact={props.landscape} icon={camera.recording ? 'stop' : 'record-circle'}
                 disabled={camera.recording ? !camera.canStop : !camera.canStart}
                 accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
                 onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
@@ -93,11 +93,10 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
         <Button onPress={props.onClose} contentStyle={sessionStyles.touch}>Confirmar cierre</Button>
       </Dialog.Actions>
     </Dialog></Portal>}
-    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Vídeos sin audio, conservados en cada teléfono. No se certifica sincronización exacta. La subida se consulta en Tomas y medios.</Text>
     {!!history.length && <SessionSection title="Historial de tomas">
       {history.map((old) => <TakeHistoryItem key={old.takeId} take={old} />)}
     </SessionSection>}
-    <SessionActionDock visible={props.focused} compact={props.landscape} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma · vídeo sin audio'}>
+    <SessionActionDock visible={props.focused} compact={props.landscape} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma'}>
       <Button mode={recording ? 'contained-tonal' : 'contained'} icon={recording ? 'stop' : 'record-circle'}
         disabled={recording ? !props.canStop : !props.canStart || !!allActive.length}
         onPress={recording ? props.onStop : props.onStart} buttonColor={recording ? undefined : colors.error}

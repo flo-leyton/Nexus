@@ -53,9 +53,11 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(element.props.streamURL, props.streamURL);
   assert.equal(element.props.objectFit, props.objectFit);
   assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
-  const frame = (compact) => exports.NodePreview({ label: 'MAIN', pair: {}, compact }).props.children[1];
+  const preview = (compact) => exports.NodePreview({ label: 'MAIN', pair: {}, compact }).props.children;
+  const frame = (compact) => preview(compact)[1];
   assert.equal(frame(true), false);
-  assert.equal(frame(false).props.style.maxWidth, undefined);
+  assert.equal(frame(false), false);
+  assert.equal(preview(true)[2].props.style.width, '100%');
   previewState = { phase: 'connecting' };
   assert.equal(frame(true), false);
   previewState = { phase: 'connecting', streamURL: 'remote-stream' };
@@ -69,6 +71,7 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(video(frame(false)).props.streamURL, 'remote-stream');
   previewState = { phase: 'disconnected' };
   assert.equal(frame(true), false);
+  assert.equal(frame(false), false);
 });
 
 test('NX-10 camera cards keep their identities and original controls across orientations', () => {
@@ -101,9 +104,11 @@ test('NX-10 camera cards keep their identities and original controls across orie
   assert.deepEqual(Array.from(wide.children, (card) => card.props.style[1].width), ['49%', '49%']);
   assert.equal(wide.style.alignItems, 'flex-start');
   assert.equal(wide.children[0].props.children[2].props.style.flexDirection, 'row');
+  assert.equal(wide.children[0].props.children[2].props.children[0].props.children.props.compact, true);
   const keys = Array.from(wide.children, (card) => card.key);
   const wideDock = render().find((x) => x?.type === 'Dock');
   assert.equal(wideDock.props.compact, true);
+  assert.equal(wideDock.props.title, 'Próxima toma');
   props.landscape = false;
   const narrow = layout();
   assert.equal(narrow.style.flexDirection, 'column');
@@ -123,6 +128,33 @@ test('NX-10 camera cards keep their identities and original controls across orie
   narrowDock.props.children.props.onPress();
   tree.flat().find((x) => x?.key === 'interrupted').props.onPress();
   assert.deepEqual(actions, ['MAIN-device', 'stop:SIDE-device', 'general', 'interrupted']);
+});
+
+test('NX-10 Controller landscape reserves space for Android status bar and side insets', () => {
+  const jsx = (type, props) => ({ type, props });
+  const deps = {
+    react: { createContext: () => ({ Provider: 'Provider' }), useState: () => [72, () => {}],
+      useMemo: (get) => get(), useEffect() {}, useRef: () => ({ current: null }) },
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    'react-native': { ScrollView: 'ScrollView', StyleSheet: { create: (styles) => styles }, StatusBar: { currentHeight: 24 } },
+    'react-native-paper': { useTheme: () => ({ colors: {} }) },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, left: 16, right: 8 }) },
+    '@/constants/studio-ui': { StudioShape: {} },
+    '@/components/retainedVisibility': {},
+  };
+  const source = fs.readFileSync(path.join(__dirname, '../components/session/SessionUI.tsx'), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, require: (name) => deps[name] });
+  const padding = (props) => exports.SessionCanvas(props).props.children.props.children.props.contentContainerStyle;
+  assert.equal(padding({ controllerLandscape: true }).paddingTop, 36);
+  assert.equal(padding({ controllerLandscape: true, topInset: 32 }).paddingTop, 44);
+  assert.equal(padding({ controllerLandscape: true }).paddingLeft, 36);
+  assert.equal(padding({ controllerLandscape: true }).paddingRight, 28);
+  assert.equal(padding({ controllerLandscape: true }).paddingBottom, padding({}).paddingBottom);
+  assert.equal(padding({ topInset: 8 }).paddingTop, 20);
 });
 
 test('NX-10 signaling schema only accepts bounded targeted video negotiation', () => {

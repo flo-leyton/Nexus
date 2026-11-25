@@ -62,17 +62,17 @@ export function NodePreview({ pair, label, compact = false }: { pair?: PreviewPa
   const status = { disconnected: 'Vista detenida', connecting: 'Conectando', streaming: 'Transmitiendo' }[state.phase];
   return <View style={{ gap: compact ? 4 : 8 }}>
     <Text variant={compact ? 'labelSmall' : undefined} accessibilityLiveRegion="polite">{pair ? status : 'Vista no disponible'}</Text>
-    {(!compact || !!streamURL) && <View style={{ width: '100%', maxWidth: compact ? 256 : undefined, alignSelf: 'center',
+    {!!streamURL && <View style={{ width: '100%', maxWidth: compact ? 256 : undefined, alignSelf: 'center',
       aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
-      {streamURL && <Suspense fallback={<ActivityIndicator />}>
+      <Suspense fallback={<ActivityIndicator />}>
         <Video streamURL={streamURL} objectFit="contain" style={{ flex: 1 }} onDimensionsChange={({ nativeEvent }) => {
           dimensionsReported(streamURL, nativeEvent.width, nativeEvent.height);
           if (nativeEvent.width > 0 && nativeEvent.height > 0) receivedFrame(streamURL);
         }} />
-      </Suspense>}
+      </Suspense>
     </View>}
     <Button mode="outlined" accessibilityLabel={`${actionLabel} ${label}`} disabled={!pair}
-      style={compact ? { alignSelf: 'flex-start' } : undefined}
+      style={compact ? { width: '100%' } : undefined}
       contentStyle={compact ? sessionStyles.compactTouch : sessionStyles.touch}
       labelStyle={compact ? sessionStyles.compactLabel : undefined}
       onPress={state.phase === 'disconnected' ? start : stop}>

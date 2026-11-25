@@ -34,7 +34,7 @@ export function RemotePhotoControl({ service, sessionId, nodeId, disabled, label
     return () => { off(); clear(); };
   }, [service, sessionId, nodeId]);
   return <>
-    <Button mode="outlined" icon="camera-outline" accessibilityLabel={`Foto de ${label}`}
+    <Button mode="outlined" compact={compact} icon="camera-outline" accessibilityLabel={`Foto de ${label}`}
       disabled={disabled || !!request.current} contentStyle={compact ? sessionStyles.compactTouch : sessionStyles.touch}
       labelStyle={compact ? sessionStyles.compactLabel : undefined} onPress={() => {
         if (disabled || request.current) return;
