@@ -29,7 +29,7 @@ function createRelay({ port, host = '0.0.0.0', verifyToken, storage, codeGenerat
   const connections = new Map(); // only active sockets; ownership is durable
   const authenticated = (client) => client.readyState === OPEN && client.studioIdentity?.expiresAt > Date.now();
   const presence = attachDevicePresence(relay, authenticated);
-  const sessions = attachSessions(relay, { storage, codeGenerator, previewEnabled });
+  const sessions = attachSessions(relay, { storage, codeGenerator, previewEnabled, deviceName: presence.displayName });
   relay.on('connection', (client) => {
     let verifying = false;
     const reject = (code) => {

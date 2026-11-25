@@ -42,6 +42,9 @@ test('RTDB emulator: actual process restart preserves Sessions/Takes/media and c
   }
   const first = await launch(), c = await peer(first.port, 'controller'), a = await peer(first.port, 'a'), b = await peer(first.port, 'b');
   const s = (await c.call('SESSION_CREATE', 'persisted-session')).event.payload.session;
+  assert.ok(s.createdAt > 0);
+  const details = await c.call('SESSION_DETAILS_SET', s.sessionId, { name: 'Ensayo DEV-B', description: 'Sesión sintética' });
+  assert.equal(details.event.payload.session.name, 'Ensayo DEV-B');
   for (const n of [a, b]) {
     const pending = await n.call('SESSION_JOIN_REQUEST', 'join-by-code', { code: s.code });
     await c.call('SESSION_JOIN_ACCEPT', s.sessionId, { requestId: pending.message.messageId }, n.id);
@@ -80,6 +83,9 @@ test('RTDB emulator: actual process restart preserves Sessions/Takes/media and c
   const interruptedStop = await c.call('STOP_RECORDING', s.sessionId, { takeId: 'interrupted-take', targetNodeIds });
   await ack(a, interruptedStop.message); await saved(a, interruptedStop.message);
   const durable = (await ref.get()).val();
+  assert.equal(durable.sessions[s.sessionId].createdAt, s.createdAt);
+  assert.equal(durable.sessions[s.sessionId].name, 'Ensayo DEV-B');
+  assert.equal(durable.sessions[s.sessionId].description, 'Sesión sintética');
   assert.equal(durable.sessions[s.sessionId].take.nodes.a.phase, 'saved');
   assert.equal(durable.sessions[s.sessionId].take.nodes.b.startReceived, false);
   assert.equal(JSON.stringify(durable).includes('file://'), false);
@@ -88,6 +94,9 @@ test('RTDB emulator: actual process restart preserves Sessions/Takes/media and c
   const second = await launch(), owner = await peer(second.port, 'controller');
   const recovered = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
   assert.equal(recovered.code, s.code);
+  assert.equal(recovered.createdAt, s.createdAt);
+  assert.equal(recovered.name, 'Ensayo DEV-B');
+  assert.equal(recovered.description, 'Sesión sintética');
   assert.equal(recovered.take.interrupted.reason, 'relay-restarted');
   assert.equal(recovered.take.nodes.a.phase, 'saved');
   assert.equal(recovered.take.nodes.b.phase, 'disconnected');

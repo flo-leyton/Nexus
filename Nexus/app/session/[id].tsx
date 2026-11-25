@@ -16,6 +16,7 @@ import { SessionImportedMediaRow } from '@/components/session/SessionImportedMed
 import { NodeReadinessPanel } from '@/components/NodeReadinessPanel';
 import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { SessionHeader } from '@/components/session/SessionHeader';
+import { SessionDescriptionEditor } from '@/components/session/SessionDescriptionEditor';
 import { SessionMemberRow } from '@/components/session/SessionMemberRow';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ControllerTakePanel } from '@/components/ControllerTakePanel';
@@ -278,10 +279,14 @@ export default function SessionScreen() {
   if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
   return <SessionPage topInset={insets.top} fullPreview={fullPreview} controllerLandscape={controllerLandscape} onBack={() => router.back()}
-    header={<SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
+    header={<><SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
+      name={session?.name} description={session?.description} createdAt={session?.createdAt}
       role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
       connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
-      notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />}
+      notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />
+      {isController && service && session?.supportsSessionDetails && session.state !== 'closed' &&
+        <SessionDescriptionEditor key={sessionId} session={session} service={service} disabled={!connected || closingSession} />}
+    </>}
     capture={localNode && localNode.sessionId === sessionId && service && <NodeReadinessPanel key={localNode.nodeId} service={service} {...localNode}
       streamPreview={preview.sample}
       onPreviewSampler={preview.samplerRequested}

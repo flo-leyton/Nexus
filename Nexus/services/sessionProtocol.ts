@@ -4,6 +4,16 @@ export const SESSION_PROTOCOL_VERSION = 1;
 export const JOIN_BY_CODE = 'join-by-code';
 export const RELAY_ID = 'nexus-relay';
 export const NODE_STATE_TTL_MS = 15000;
+export const SESSION_NAME_LIMIT = 80;
+export const SESSION_DESCRIPTION_LIMIT = 400;
+export const DEVICE_NAME_LIMIT = 80;
+
+export interface SessionDetailsUpdate { name?: string; description?: string }
+
+export function isDisplayText(value: unknown, max: number, multiline = false): value is string {
+  const controls = multiline ? /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u : /[\u0000-\u001f\u007f-\u009f]/u;
+  return typeof value === 'string' && value.length <= max && !controls.test(value) && !/file:\/\//iu.test(value);
+}
 
 export interface NodeReadiness {
   cameraPermission: 'unknown' | 'granted' | 'denied';
@@ -27,6 +37,7 @@ export function readinessReasons(state: NodeReadiness | undefined, connected = t
 
 export type SessionState = 'draft' | 'joining' | 'preparing' | 'ready' | 'recording' | 'finishing' | 'completed' | 'failed' | 'closed';
 export interface SessionMember {
+  deviceName?: string;
   readyEpoch?: string;
   requiresReadyConfirmation?: boolean;
   uid?: string;
@@ -38,6 +49,10 @@ export interface SessionMember {
   readiness?: NodeReadiness;
 }
 export interface Session {
+  name?: string;
+  description?: string;
+  createdAt?: number;
+  supportsSessionDetails?: true;
   closedAt?: number;
   sessionId: string;
   controllerId: string;
@@ -128,6 +143,7 @@ export interface RecordingReport {
   busy: boolean;
 }
 export interface JoinRequest {
+  deviceName?: string;
   online?: boolean;
   controllerOnline?: boolean;
   deviceId: string;
@@ -146,6 +162,7 @@ export interface NexusMessage<T = unknown> {
 export type SessionRequest =
   | (NexusMessage<Record<string, never>> & { type: 'SESSION_CREATE' | 'SESSION_GET' | 'SESSION_CLOSE' | 'SESSION_LIST' | 'SESSION_RESUME' })
   | (NexusMessage<{ code: string }> & { type: 'SESSION_JOIN_REQUEST' })
+  | (NexusMessage<SessionDetailsUpdate> & { type: 'SESSION_DETAILS_SET' })
   | (NexusMessage<{ requestId: string }> & { type: 'SESSION_JOIN_ACCEPT' | 'SESSION_JOIN_REJECT' | 'SESSION_ROLE_ACK'; targetId: string })
   | (NexusMessage<{ role: string }> & { type: 'ASSIGN_ROLE'; targetId: string })
   | (NexusMessage<{ enabled: boolean }> & { type: 'TORCH_SET'; targetId: string })
@@ -277,6 +294,10 @@ export function isSessionRequest(value: unknown): value is SessionRequest {
   switch (value.type) {
     case 'SESSION_CREATE':
       return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length === 0;
+    case 'SESSION_DETAILS_SET':
+      return value.sessionId !== JOIN_BY_CODE && !value.targetId && keys.length > 0 && keys.every((key) =>
+        (key === 'name' && isDisplayText(value.payload.name, SESSION_NAME_LIMIT)) ||
+        (key === 'description' && isDisplayText(value.payload.description, SESSION_DESCRIPTION_LIMIT, true)));
     case 'SESSION_GET':
     case 'SESSION_CLOSE':
     case 'SESSION_LIST':
@@ -344,12 +365,17 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
     case 'ZOOM_STATE': return isProtocolId(p.nodeId) && (p.value === null || isZoomValue(p.value));
     case 'PHOTO_RESULT': return isProtocolId(p.nodeId) && isPhotoResult(p, 1);
     case 'SESSION_JOIN_PENDING': return isProtocolId(p.deviceId) &&
+      (p.deviceName === undefined || isDisplayText(p.deviceName, DEVICE_NAME_LIMIT)) &&
       (p.online === undefined || typeof p.online === 'boolean') && (p.controllerOnline === undefined || typeof p.controllerOnline === 'boolean');
     case 'SESSION_JOIN_REJECTED':
     case 'SESSION_CLOSED': return true;
     case 'SESSION_SNAPSHOT': {
       const s = p.session;
       if (!isRecord(s) || s.sessionId !== value.sessionId || !isProtocolId(s.controllerId) ||
+          (s.name !== undefined && !isDisplayText(s.name, SESSION_NAME_LIMIT)) ||
+          (s.description !== undefined && !isDisplayText(s.description, SESSION_DESCRIPTION_LIMIT, true)) ||
+          (s.createdAt !== undefined && (!Number.isSafeInteger(s.createdAt) || Number(s.createdAt) <= 0 || Number(s.createdAt) > 8.64e15)) ||
+          (s.supportsSessionDetails !== undefined && s.supportsSessionDetails !== true) ||
             (s.closedAt !== undefined && (!Number.isSafeInteger(s.closedAt) || Number(s.closedAt) <= 0)) ||
           !isJoinCode(s.code) || !['draft', 'joining', 'preparing', 'ready', 'recording', 'finishing', 'completed', 'failed', 'closed'].includes(String(s.state)) ||
           !isRecord(s.members) || (s.take !== undefined && !isCoordinatedTake(s.take)) ||
@@ -359,12 +385,14 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
       const members = Object.entries(s.members);
       return members.filter(([, m]) => isRecord(m) && m.kind === 'controller').length === 1 &&
           members.every(([id, m]) => isProtocolId(id) && isRecord(m) && m.deviceId === id &&
+            (m.deviceName === undefined || isDisplayText(m.deviceName, DEVICE_NAME_LIMIT)) &&
             (m.readyEpoch === undefined || isProtocolId(m.readyEpoch)) && (m.requiresReadyConfirmation === undefined || typeof m.requiresReadyConfirmation === 'boolean') &&
             (m.uid === undefined || (typeof m.uid === 'string' && m.uid.length > 0)) && (m.online === undefined || typeof m.online === 'boolean') &&
           isNodeRole(m.role) && (m.readiness === undefined || isNodeReadiness(m.readiness)) && (m.kind === 'controller'
             ? id === s.controllerId && m.nodeId === null : m.kind === 'node' && isProtocolId(m.nodeId))) &&
         (p.pending === undefined || (Array.isArray(p.pending) && p.pending.every((r) =>
           isRecord(r) && isProtocolId(r.deviceId) && isProtocolId(r.requestId) &&
+          (r.deviceName === undefined || isDisplayText(r.deviceName, DEVICE_NAME_LIMIT)) &&
           (r.online === undefined || typeof r.online === 'boolean') && (r.controllerOnline === undefined || typeof r.controllerOnline === 'boolean'))));
     }
     default: return false;

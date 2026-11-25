@@ -124,6 +124,10 @@ Pasaron TypeScript, lint y 141 pruebas automatizadas. La suite omitió cinco pru
 
 El 25 de noviembre de 2026 el operador aprobó físicamente `76e058f`. Confirmó que el visor desaparece en vertical, aprobó la distribución horizontal de la tablet y verificó la independencia de MAIN y SIDE al detener vistas y cambiar de orientación.
 
+### NX-10 · Bloque B de UX/UI
+
+El 25 de noviembre de 2026 el operador comunicó la aprobación física de la parte visual de `23eda26`. La ampliación posterior permite editar el nombre y la descripción desde el Controller, asigna la fecha de creación en el relay para sesiones nuevas y utiliza la etiqueta del teléfono cuando el relay recibe ese dato en la conexión autenticada. Las sesiones anteriores conservan el código, los permisos y la ausencia de una fecha inicial desconocida. Falta probar físicamente la ampliación. El [plan UX/UI](PLAN_UX_NX10.md) recoge las condiciones para llevarla a Render DEV-B.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

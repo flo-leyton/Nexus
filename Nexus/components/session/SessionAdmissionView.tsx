@@ -10,7 +10,7 @@ export function SessionAdmissionView({ requests, deciding, onDecision }: {
   return <SessionSection title="Solicitudes de ingreso">
     {!requests.length && <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>No hay solicitudes pendientes.</Text>}
     {requests.map((request) => <View key={request.deviceId} style={{ gap: 12, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
-      <View style={sessionStyles.between}><Text variant="titleMedium">Dispositivo · …{request.deviceId.slice(-6)}</Text>
+      <View style={sessionStyles.between}><Text variant="titleMedium">{request.deviceName || `Dispositivo · …${request.deviceId.slice(-6)}`}</Text>
         <SessionBadge label={request.online === false ? 'Desconectado' : 'Pendiente'} tone="warning" />
       </View>
       {request.online === false && <Text variant="bodyMedium">Debe reconectar antes de aceptarlo. La solicitud se conserva.</Text>}

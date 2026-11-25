@@ -4,7 +4,7 @@ const { createPreviewSignalRouter } = require('./previewSignal');
 const { sharedSession, encodeRegistry, decodeRegistry } = require('./sessionSchema');
 const { isSessionRequest, isRecord, isProtocolId, activeTakes, sessionTakes, activeTakeForDevice, readinessReasons, SESSION_PROTOCOL_VERSION, RELAY_ID, INITIAL_READINESS, NODE_STATE_TTL_MS, JOIN_BY_CODE } = require('../services/sessionProtocol.ts');
 
-function attachSessions(relay, { storage, previewEnabled = false,
+function attachSessions(relay, { storage, previewEnabled = false, deviceName = () => undefined,
   codeGenerator = () => randomInt(0, 36 ** 6).toString(36).toUpperCase().padStart(6, '0') }) {
   const sessions = new Map();
   const codes = new Map();
@@ -56,10 +56,11 @@ function attachSessions(relay, { storage, previewEnabled = false,
     queue = task; return task;
   };
   const wireSession = (s, id) => {
-    const wire = sharedSession(s); wire.mediaAngles = mediaFor(s, id);
+    const wire = sharedSession(s); wire.mediaAngles = mediaFor(s, id); wire.supportsSessionDetails = true;
     for (const member of Object.values(wire.members)) {
       const client = clients.get(member.deviceId);
       member.online = !!member.online && client?.readyState === 1 && client.studioIdentity?.uid === member.uid && client.studioIdentity.expiresAt > Date.now();
+      if (member.kind === 'node' && member.online) member.deviceName = deviceName(client) || member.deviceName;
       if (member.kind === 'node' && !member.online) member.readiness = { ...INITIAL_READINESS };
     }
     return wire;
@@ -71,10 +72,12 @@ function attachSessions(relay, { storage, previewEnabled = false,
       senderId: RELAY_ID, targetId: identities.get(client), sentAt: Date.now(), payload,
     }));
   };
-  const pendingFor = (s) => [...s.pending.values()].map((p) => ({ ...p,
-    online: clients.get(p.deviceId)?.readyState === 1 && clients.get(p.deviceId).studioIdentity?.uid === p.uid && clients.get(p.deviceId).studioIdentity.expiresAt > Date.now(),
-    controllerOnline: wireSession(s, s.controllerId).members[s.controllerId].online,
-  }));
+  const pendingFor = (s) => [...s.pending.values()].map((p) => {
+    const client = clients.get(p.deviceId);
+    const online = client?.readyState === 1 && client.studioIdentity?.uid === p.uid && client.studioIdentity.expiresAt > Date.now();
+    return { ...p, deviceName: (online && deviceName(client)) || p.deviceName, online,
+      controllerOnline: wireSession(s, s.controllerId).members[s.controllerId].online };
+  });
   const snapshot = (s, requestId, excludeId) => {
     for (const id of s.members.keys()) {
       if (id === excludeId) continue;
@@ -208,7 +211,7 @@ function attachSessions(relay, { storage, previewEnabled = false,
         let code;
         for (let attempt = 0; attempt < 100; attempt++) { code = codeGenerator(); if (!codes.has(code)) break; code = null; }
         if (!code || !/^[A-Z0-9]{6}$/.test(code)) return error('CODE_UNAVAILABLE');
-        const s = { sessionId: m.sessionId, controllerId: m.senderId, code, members: new Map(), pending: new Map(), roles: new Map() };
+        const s = { sessionId: m.sessionId, controllerId: m.senderId, code, createdAt: Date.now(), members: new Map(), pending: new Map(), roles: new Map() };
         s.members.set(m.senderId, { uid: client.studioIdentity.uid, online: true, deviceId: m.senderId, nodeId: null, kind: 'controller', role: 'controller' });
         sessions.set(s.sessionId, s);
         codes.set(code, s.sessionId);
@@ -226,7 +229,7 @@ function attachSessions(relay, { storage, previewEnabled = false,
           return true;
         }
         if (member?.online) return error('ALREADY_MEMBER');
-        const request = { requestId: m.messageId, deviceId: m.senderId, uid: client.studioIdentity.uid };
+        const request = { requestId: m.messageId, deviceId: m.senderId, uid: client.studioIdentity.uid, deviceName: deviceName(client) };
         s.pending.set(m.senderId, request);
         const pending = pendingFor(s).find((p) => p.deviceId === m.senderId);
         send(clients.get(s.controllerId), 'SESSION_JOIN_PENDING', s.sessionId, pending);
@@ -336,6 +339,16 @@ function attachSessions(relay, { storage, previewEnabled = false,
         return true;
       }
       if (s.controllerId !== m.senderId) return error('CONTROLLER_REQUIRED');
+      if (m.type === 'SESSION_DETAILS_SET') {
+        for (const key of ['name', 'description']) {
+          if (!Object.hasOwn(m.payload, key)) continue;
+          const value = m.payload[key].trim();
+          if (value) s[key] = value;
+          else delete s[key];
+        }
+        snapshot(s, m.messageId);
+        return true;
+      }
       if (m.type === 'PHOTO_CAPTURE') {
         s.photoCommands ??= new Map();
         const previous = s.photoCommands.get(m.messageId);
@@ -410,7 +423,8 @@ function attachSessions(relay, { storage, previewEnabled = false,
       if (m.type === 'SESSION_JOIN_REJECT') {
         send(clients.get(m.targetId), 'SESSION_JOIN_REJECTED', s.sessionId, { requestId: pending.requestId });
       } else {
-        s.members.set(m.targetId, { uid: pending.uid, online: true, deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned', readiness: { ...INITIAL_READINESS } });
+        s.members.set(m.targetId, { uid: pending.uid, online: true, deviceId: m.targetId, nodeId: randomUUID(), kind: 'node', role: 'unassigned',
+          deviceName: deviceName(clients.get(m.targetId)) || pending.deviceName, readiness: { ...INITIAL_READINESS } });
       }
       snapshot(s, m.messageId);
       return true;

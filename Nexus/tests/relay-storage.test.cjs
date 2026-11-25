@@ -126,6 +126,65 @@ async function ready(n, s) {
   const member = n.inbox.findLast((m) => m.type === 'SESSION_SNAPSHOT' && m.sessionId === s.sessionId)?.payload.session.members[n.id];
   await n.call('NODE_STATE', s.sessionId, { readiness, ...(member?.readyEpoch ? { readyEpoch: member.readyEpoch } : {}) }, s.controllerId);
 }
+
+test('UX B: durable descriptions and authenticated device labels preserve session identity and legacy records', { timeout: 15000 }, async (t) => {
+  const { DEVICE_FIELDS } = require('../services/deviceProtocol.ts');
+  const storage = createMemoryStore();
+  const before = Date.now();
+  const { runtime, c, s } = await session(t, storage);
+  assert.ok(s.createdAt >= before && s.createdAt <= Date.now());
+  assert.equal(s.supportsSessionDetails, true);
+  assert.equal(storage.backing.document.sessions[s.sessionId].supportsSessionDetails, undefined);
+
+  const n = await peer(t, runtime, 'camera');
+  const sendPresence = (values) => n.ws.send(JSON.stringify({ type: 'DEVICE_INFO', info: {
+    ...Object.fromEntries(Object.keys(DEVICE_FIELDS).map((key) => [key, null])), ...values,
+  } }));
+  sendPresence({ name: ' ', model: 'Redmi Note 10 Pro' });
+  await c.wait((event) => event.type === 'DEVICE_INFO' && event.info.model === 'Redmi Note 10 Pro');
+  assert.equal((await n.call('SESSION_JOIN_REQUEST', s.sessionId, { code: s.code, deviceName: 'Controller' })).event.payload.code, 'INVALID_MESSAGE');
+  const join = await n.call('SESSION_JOIN_REQUEST', s.sessionId, { code: s.code });
+  assert.equal(join.event.payload.deviceName, 'Redmi Note 10 Pro');
+  assert.equal(storage.backing.document.sessions[s.sessionId].pending[n.id].deviceName, 'Redmi Note 10 Pro');
+  assert.equal((await n.call('SESSION_DETAILS_SET', s.sessionId, { name: 'Ajeno' })).event.payload.code, 'NOT_MEMBER');
+  const accepted = await c.call('SESSION_JOIN_ACCEPT', s.sessionId, { requestId: join.message.messageId }, n.id);
+  const member = accepted.event.payload.session.members[n.id];
+  assert.equal(member.deviceName, 'Redmi Note 10 Pro');
+  assert.equal((await n.call('SESSION_DETAILS_SET', s.sessionId, { name: 'Ajeno' })).event.payload.code, 'CONTROLLER_REQUIRED');
+  for (const payload of [{ name: 'x'.repeat(81) }, { description: 'x'.repeat(401) }, { code: 'NEW123' }, { createdAt: 1 }, { name: 'x\n' }]) {
+    assert.equal((await c.call('SESSION_DETAILS_SET', s.sessionId, payload)).event.payload.code, 'INVALID_MESSAGE');
+  }
+  const saved = await c.call('SESSION_DETAILS_SET', s.sessionId, { name: ' Demo ', description: 'Primera línea\nSegunda línea' });
+  const edited = saved.event.payload.session;
+  assert.equal(edited.name, 'Demo');
+  assert.equal(edited.description, 'Primera línea\nSegunda línea');
+  assert.equal(edited.sessionId, s.sessionId);
+  assert.equal(edited.code, s.code);
+  assert.equal(edited.createdAt, s.createdAt);
+  assert.equal(edited.members[n.id].nodeId, member.nodeId);
+  await n.wait((event) => event.type === 'SESSION_SNAPSHOT' && event.payload.requestId === saved.message.messageId);
+  storage.backing.fail = true;
+  assert.equal((await c.call('SESSION_DETAILS_SET', s.sessionId, { name: 'No confirmado' })).event.payload.code, 'STORE_UNAVAILABLE');
+  storage.backing.fail = false;
+  assert.equal(storage.backing.document.sessions[s.sessionId].name, 'Demo');
+  await c.call('SESSION_CREATE', 'legacy');
+  await runtime.close();
+  delete storage.backing.document.sessions.legacy.createdAt;
+  const restarted = await start(t, createMemoryStore(storage.backing));
+  const owner = await peer(t, restarted, c.id);
+  const restored = (await owner.call('SESSION_GET', s.sessionId)).event.payload.session;
+  assert.equal(restored.name, 'Demo');
+  assert.equal(restored.createdAt, s.createdAt);
+  assert.equal(restored.members[n.id].deviceName, 'Redmi Note 10 Pro');
+  const cleared = (await owner.call('SESSION_DETAILS_SET', s.sessionId, { description: '' })).event.payload.session;
+  assert.equal(cleared.description, undefined);
+  assert.equal(cleared.name, 'Demo');
+  const legacy = (await owner.call('SESSION_DETAILS_SET', 'legacy', { name: 'Legado' })).event.payload.session;
+  assert.equal(legacy.name, 'Legado');
+  assert.equal(legacy.createdAt, undefined);
+  await owner.call('SESSION_CLOSE', 'legacy');
+  assert.equal((await owner.call('SESSION_DETAILS_SET', 'legacy', { name: 'Cerrada' })).event.payload.code, 'SESSION_IS_CLOSED');
+});
 async function confirmReady(n, s) {
   const member = (await n.call('SESSION_GET', s.sessionId)).event.payload.session.members[n.id];
   return n.call('NODE_STATE', s.sessionId, { readiness, readyEpoch: member.readyEpoch, confirmReady: true }, s.controllerId);

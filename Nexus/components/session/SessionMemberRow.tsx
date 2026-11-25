@@ -21,7 +21,7 @@ export function SessionMemberRow({ member, connected, isSelf, children }: Props)
     <View style={styles.top}>
       <Icon source={node ? 'video-outline' : 'view-dashboard-outline'} size={24} color={colors.onSurfaceVariant} />
       <View style={styles.name}>
-        <Text variant="titleMedium">{isSelf ? 'Este dispositivo' : node ? `Cámara · …${member.deviceId.slice(-6)}` : 'Controller'}</Text>
+        <Text variant="titleMedium">{member.deviceName || (isSelf ? 'Este dispositivo' : node ? `Cámara · …${member.deviceId.slice(-6)}` : 'Controller')}</Text>
         <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
           {node ? (member.role === 'unassigned' ? 'Sin rol asignado' : member.role) : online ? 'Conectado' : 'Desconectado'}
         </Text>

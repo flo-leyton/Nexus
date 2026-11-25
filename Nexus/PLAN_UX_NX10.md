@@ -43,7 +43,11 @@ El último ajuste aplica el modo compacto de Paper a los botones con icono y ext
 
 Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. En la auditoría, `Session` y el registro durable carecen de nombre, descripción y fecha de creación. `closedAt` es la fecha de cierre. La marca temporal de un mensaje fecha ese mensaje. Ni `SessionMember` ni `JoinRequest` incluyen un nombre vinculado a la identidad autenticada. La presencia heredada carece de una correspondencia fiable con esos miembros.
 
-**PENDIENTE de autorización.** Ampliar `SESSION_CREATE` con nombre y descripción opcionales, asignar `createdAt` desde el relay al crear la sesión y conservar los tres campos opcionales en snapshots y persistencia. Las sesiones antiguas seguirían mostrando código y estado cuando falten los metadatos. Para el nombre del teléfono, ampliar el contrato con un campo de presentación opcional, vinculado en el relay al dispositivo autenticado y sin efecto sobre permisos o decisiones de ingreso. Validar reinicio, clientes anteriores y registros antiguos antes de desplegar. No se simulan fechas ni persistencia.
+**VERIFICADA por el operador, 25 de noviembre de 2026.** El operador comunicó la aprobación física de la parte visual del Bloque B en `23eda26`.
+
+**Datos descriptivos.** El Controller asigna y edita nombre y descripción mediante `SESSION_DETAILS_SET`. El relay confirma los cambios después de persistirlos y asigna `createdAt` en `SESSION_CREATE`. Los límites son 80 caracteres para nombre y 400 para descripción. Las sesiones antiguas se pueden editar y conservan su fecha desconocida. El editor requiere que el relay anuncie soporte. El cliente puede consultar y operar sesiones de relays anteriores.
+
+El dispositivo publica nombre y modelo con la presencia existente de Expo Device. El relay lee el dato de la conexión autenticada del solicitante, prefiere el nombre y usa el modelo como alternativa. Cuando está disponible, guarda la etiqueta de hasta 80 caracteres con la solicitud y el miembro aceptado. Los campos de identidad y autorización conservan su función actual. Si falta la etiqueta, la interfaz muestra un identificador corto y deja el ID completo en los detalles.
 
 - **IMPLEMENTADA** · Simplificar el Controller cuando no hay Nodes conectados.
 - **IMPLEMENTADA** · Conservar el código corto de sesión como dato principal.
@@ -52,21 +56,21 @@ Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/s
 - **IMPLEMENTADA** · Conservar «Dispositivos de la sesión» antes de la consola de grabación.
 - **IMPLEMENTADA** · Mostrar una consola contextual cuando existan Nodes, conservando los controles necesarios para recuperar grabaciones interrumpidas.
 - **IMPLEMENTADA** · Simplificar la lista «Tus sesiones».
-- **PENDIENTE** · Agregar nombre descriptivo y descripción opcionales de la sesión.
-- **PENDIENTE** · Registrar y mostrar automáticamente la fecha de creación; reutilizar un timestamp existente cuando sea posible.
-- **PENDIENTE** · Mostrar nombre, fecha, código y estado de sesión. Mostrar la descripción únicamente si existe.
+- **IMPLEMENTADA** · Agregar nombre descriptivo y descripción opcionales de la sesión.
+- **IMPLEMENTADA** · Registrar y mostrar automáticamente la fecha de creación de sesiones nuevas.
+- **IMPLEMENTADA** · Mostrar nombre, fecha, código y estado de sesión. Mostrar la descripción únicamente si existe.
 - **IMPLEMENTADA** · Mantener compatibilidad con sesiones antiguas sin nombre ni descripción.
 - **IMPLEMENTADA** · Mantener intactos los identificadores, permisos y mecanismos de ingreso.
 - **IMPLEMENTADA** · Eliminar «Importar medio» del Controller, conservando la función existente en los Nodes.
 - **IMPLEMENTADA** · Al solicitar ingreso desde un Node, mostrar un solo mensaje «Esperando aprobación», sin avisos duplicados.
 - **IMPLEMENTADA** · Mostrar «Solicitud enviada» mientras está pendiente.
-- **PENDIENTE** · En las solicitudes recibidas por el Controller, mostrar el nombre real del dispositivo si está disponible.
+- **IMPLEMENTADA** · En las solicitudes recibidas por el Controller, mostrar el nombre o modelo del dispositivo si está disponible.
 - **IMPLEMENTADA** · Mantener identificadores técnicos como respaldo y conservar «Identificar solicitante».
-- **IMPLEMENTADA** · Simplificar tarjetas de Nodes aceptados: nombre del teléfono, rol, estado READY/NO LISTO y opción de editar rol. El nombre real queda PENDIENTE.
+- **IMPLEMENTADA** · Simplificar tarjetas de Nodes aceptados: nombre o modelo del teléfono, rol, estado READY/NO LISTO y opción de editar rol.
 - **IMPLEMENTADA** · Mostrar solo una causa breve y real cuando una cámara no está lista.
 - **IMPLEMENTADA** · Conservar diagnóstico técnico en apartados expandibles.
 
-La revisión física del Bloque B está pendiente.
+La revisión física de los datos descriptivos queda pendiente. Para desplegarlos en Render DEV-B hace falta autorización, publicar el commit y verificar la configuración de `nexusStudio/relayDevB` antes del despliegue manual. El formato durable sigue siendo compatible y carece de migración. El relay anterior serializa solo sus campos conocidos, por lo que un rollback después de guardar datos descriptivos podría perder esos campos. Antes de desplegar, acordar una reversión que preserve metadatos (por ejemplo, una revisión de rollback que conserve el serializador actualizado).
 
 ## BLOQUE C — INTERFAZ DEL NODE
 

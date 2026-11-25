@@ -107,8 +107,9 @@ export function StudioHome(props: Props) {
             return <View key={session.sessionId}>
               <Divider />
               <TouchableRipple onPress={() => props.onOpenSession(session.sessionId)} accessibilityRole="button"
-                accessibilityLabel={`Abrir sesión ${session.code}, ${controller ? 'Controller' : 'Node'}`}>
+                accessibilityLabel={`Abrir sesión ${session.name ? `${session.name}, ` : ''}${session.code}, ${controller ? 'Controller' : 'Node'}`}>
                 <View style={styles.session}>
+                  {!!session.name && <Text variant="titleMedium">{session.name}</Text>}
                   <View style={styles.sessionTop}>
                     <Text selectable variant="headlineSmall" style={styles.code}>{session.code}</Text>
                     <Icon source="arrow-right" size={22} color={colors.primary} />
@@ -116,6 +117,10 @@ export function StudioHome(props: Props) {
                   <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
                     {sessionStateLabel[session.state]} · {controller ? 'Controller' : 'Node'}
                   </Text>
+                  {session.createdAt !== undefined && <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                    {new Date(session.createdAt).toLocaleDateString('es')}
+                  </Text>}
+                  {!!session.description && <Text variant="bodyMedium">{session.description}</Text>}
                 </View>
               </TouchableRipple>
               <SessionDetails title="Datos técnicos"><Text selectable variant="bodySmall">ID de sesión: {session.sessionId}</Text></SessionDetails>

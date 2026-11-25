@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { isDeviceInfo } = require('../services/deviceProtocol.ts');
+const { DEVICE_NAME_LIMIT, isDisplayText } = require('../services/sessionProtocol.ts');
 
 // Metadatos efímeros por conexión; no se guardan identificadores del hardware.
 function attachDevicePresence(relay, authenticated = () => true) {
@@ -23,6 +24,13 @@ function attachDevicePresence(relay, authenticated = () => true) {
   relay.on('close', () => clearInterval(heartbeat));
 
   return {
+    displayName(client) {
+      const info = client && authenticated(client) ? devices.get(client) : undefined;
+      for (const candidate of [info?.name, info?.model]) {
+        const name = candidate?.trim().slice(0, DEVICE_NAME_LIMIT);
+        if (name && isDisplayText(name, DEVICE_NAME_LIMIT)) return name;
+      }
+    },
     connect(client) {
       ids.set(client, randomUUID());
       alive.set(client, true);

@@ -1,6 +1,6 @@
 import {
   isSessionEvent, isSessionRequest, JOIN_BY_CODE, SESSION_PROTOCOL_VERSION,
-  type JoinRequest, type Session, type SessionEvent, type SessionRequest, type NodeReadiness,
+  type JoinRequest, type Session, type SessionDetailsUpdate, type SessionEvent, type SessionRequest, type NodeReadiness,
   type RecordingCommand, type RecordingReport, type TakeMediaAngle, readinessReasons,
   activeTakes, activeTakeForDevice, sessionTakes, nodeTakePending, isRecordingDuration, takeFinished, type CoordinatedTake, type PhotoResult, type ZoomValue,
 } from './sessionProtocol';
@@ -300,6 +300,10 @@ export function createSessionClient(deviceId: string, uuid: () => string, transp
       const sessionId = uuid();
       const messageId = send({ ...envelope(sessionId), type: 'SESSION_CREATE', payload: {} });
       return { sessionId, messageId };
+    },
+    updateSessionDetails(sessionId: string, details: SessionDetailsUpdate) {
+      if (!controllerSession(sessionId).supportsSessionDetails) throw new Error('El relay todavía no admite editar los datos de sesión.');
+      return send({ ...envelope(sessionId), type: 'SESSION_DETAILS_SET', payload: details });
     },
     requestJoin(code: string) {
       return requestJoin(code);

@@ -10,6 +10,9 @@ type Props = {
   sessionId: string;
   deviceId: string;
   code?: string;
+  name?: string;
+  description?: string;
+  createdAt?: number;
   role?: 'Controller' | 'Node';
   compact?: boolean;
   connectionLabel: string;
@@ -37,6 +40,11 @@ export function SessionHeader(props: Props) {
         <Text variant="labelLarge" style={{ color: colors.onPrimaryContainer }}>{props.role}</Text>
       </View>}
     </View>
+    {!!props.name && <Text variant="titleMedium">{props.name}</Text>}
+    {props.createdAt !== undefined && <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+      Creada el {new Date(props.createdAt).toLocaleDateString('es')}
+    </Text>}
+    {!!props.description && <Text variant="bodyMedium">{props.description}</Text>}
     <View style={styles.connection}>
       <Icon source={props.connected ? 'check-circle-outline' : 'connection'} size={18}
         color={props.connected ? palette.success : palette.warning} />

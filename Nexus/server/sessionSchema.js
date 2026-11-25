@@ -1,11 +1,12 @@
-const { isSessionEvent, isProtocolId, isNodeRole, INITIAL_READINESS, sessionTakes, activeTakes, nodeTakePending } = require('../services/sessionProtocol.ts');
+const { isSessionEvent, isProtocolId, isNodeRole, isDisplayText, DEVICE_NAME_LIMIT, INITIAL_READINESS, sessionTakes, activeTakes, nodeTakePending } = require('../services/sessionProtocol.ts');
 const { recordingState } = require('./recording');
 const { randomUUID } = require('node:crypto');
 
 const entries = (value) => Object.entries(value || {});
 function sharedMember(member) {
   return { uid: member.uid, deviceId: member.deviceId, nodeId: member.nodeId, kind: member.kind,
-    role: member.role, online: member.online, ...(member.readiness ? { readiness: member.readiness } : {}),
+    role: member.role, online: member.online, ...(member.deviceName ? { deviceName: member.deviceName } : {}),
+    ...(member.readiness ? { readiness: member.readiness } : {}),
     ...(member.readyEpoch ? { readyEpoch: member.readyEpoch, requiresReadyConfirmation: member.requiresReadyConfirmation } : {}) };
 }
 function sharedTake(take) {
@@ -19,6 +20,8 @@ function sharedTake(take) {
 }
 function sharedSession(s) {
   return { sessionId: s.sessionId, controllerId: s.controllerId, code: s.code, state: recordingState(s),
+    ...(s.name ? { name: s.name } : {}), ...(s.description ? { description: s.description } : {}),
+    ...(s.createdAt ? { createdAt: s.createdAt } : {}),
     members: Object.fromEntries([...s.members].map(([id, m]) => [id, sharedMember(m)])),
     ...(s.closedAt ? { closedAt: s.closedAt } : {}), ...(s.take ? { take: sharedTake(s.take) } : {}),
     takeHistory: (s.takeHistory || []).map(sharedTake), mediaAngles: s.mediaAngles || {} };
@@ -31,7 +34,8 @@ function scrub(value) {
 }
 function encodeRegistry(sessions, owners, revision) {
   return scrub({ schemaVersion: 1, revision, devices: Object.fromEntries(owners), sessions: Object.fromEntries([...sessions].map(([id, s]) => [id, {
-    ...sharedSession(s), pending: Object.fromEntries([...s.pending].map(([key, p]) => [key, { requestId: p.requestId, deviceId: p.deviceId, uid: p.uid }])),
+    ...sharedSession(s), pending: Object.fromEntries([...s.pending].map(([key, p]) => [key, { requestId: p.requestId, deviceId: p.deviceId, uid: p.uid,
+      ...(p.deviceName ? { deviceName: p.deviceName } : {}) }])),
     roles: Object.fromEntries([...s.roles].map(([key, r]) => [key, { targetId: r.targetId, role: r.role, acked: r.acked, expired: r.expired, expiresAt: r.expiresAt }])),
     usedTakes: [...(s.usedTakes || [])], closeCommands: Object.fromEntries(s.closeCommands || []),
     ...(s.photoCommands?.size ? { photoCommands: Object.fromEntries(s.photoCommands) } : {}),
@@ -60,7 +64,8 @@ function decodeRegistry(doc) {
     s.members = new Map(entries(members)); s.pending = new Map(entries(raw.pending)); s.roles = new Map(entries(raw.roles));
     for (const [key, role] of s.roles) if (!isProtocolId(key) || !isProtocolId(role?.targetId) || !isNodeRole(role.role) ||
       typeof role.acked !== 'boolean' || typeof role.expired !== 'boolean' || !Number.isFinite(role.expiresAt)) throw new Error('Diario de roles durable inválido.');
-    for (const [key, p] of s.pending) if (!isProtocolId(key) || p?.deviceId !== key || !validUid(p.uid) || !isProtocolId(p.requestId) || owners.get(key) !== p.uid) throw new Error('Solicitud durable inválida.');
+    for (const [key, p] of s.pending) if (!isProtocolId(key) || p?.deviceId !== key || !validUid(p.uid) || !isProtocolId(p.requestId) || owners.get(key) !== p.uid ||
+        (p.deviceName !== undefined && !isDisplayText(p.deviceName, DEVICE_NAME_LIMIT))) throw new Error('Solicitud durable inválida.');
     for (const [key, cmd] of entries(raw.recordingCommands)) if (!isProtocolId(key) || !['START_RECORDING', 'STOP_RECORDING'].includes(cmd?.type) ||
       !isProtocolId(cmd.takeId) || typeof cmd.signature !== 'string' || !Number.isFinite(cmd.expiresAt) ||
       !Array.isArray(cmd.targetNodeIds) || !cmd.targetNodeIds.every(isProtocolId) ||
