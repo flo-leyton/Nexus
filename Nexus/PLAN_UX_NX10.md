@@ -31,6 +31,8 @@ Vista del Controller y composición de sesión en `app/session/[id].tsx`, `Contr
 
 La verificación de identidad de tarjetas y aislamiento de transportes es automatizada. Falta comprobar en la tablet y los teléfonos que las vistas y una grabación continúan al girar el dispositivo. La ampliación a pantalla completa queda pendiente porque mover o duplicar la superficie nativa del visor podría interrumpir la presentación del flujo. La sesión de Studio carece de un nombre de teléfono vinculado al miembro y la ficha de presencia heredada no identifica de forma fiable a MAIN y SIDE.
 
+El operador confirmó que la presentación vertical y los controles por cámara funcionan. La primera revisión horizontal reveló una consola demasiado estrecha y una barra inferior mal situada. La corrección da a la consola todo el ancho, iguala las columnas, limita cada visor a 320 × 180 y compacta la barra general. Queda pendiente volver a probar esta revisión en la tablet.
+
 ## BLOQUE B — STUDIO, SESIONES Y SOLICITUDES
 
 Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. Presentación para listas y estados. Nombre, descripción y fecha pueden requerir campos persistentes compatibles en `sessionProtocol.ts`, `sessionClient.ts` y `server/sessionSchema.js`.

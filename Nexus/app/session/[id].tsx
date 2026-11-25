@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useIsFocused, usePreventRemove } from '@react-navigation/native';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, View } from 'react-native';
+import { Alert, BackHandler, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Text } from 'react-native-paper';
 
@@ -128,6 +128,8 @@ export default function SessionScreen() {
   const session = verified ? snapshot?.sessions[sessionId] : undefined;
   const preview = useExperimentalPreview(session, deviceId, focused && connected);
   const isController = session?.controllerId === deviceId;
+  const { width, height } = useWindowDimensions();
+  const controllerLandscape = isController && width > height && height >= 600;
   const sessionClosed = closedSessionId === sessionId;
   useEffect(() => {
     if (sessionClosed && focused && !captureBusy) router.dismissTo('/(tabs)');
@@ -274,7 +276,7 @@ export default function SessionScreen() {
 
   if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
-  return <SessionPage topInset={insets.top} fullPreview={fullPreview} onBack={() => router.back()}
+  return <SessionPage topInset={insets.top} fullPreview={fullPreview} controllerLandscape={controllerLandscape} onBack={() => router.back()}
     header={<SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
       role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
       connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
@@ -311,7 +313,7 @@ export default function SessionScreen() {
       </>}
     </SessionSection>}
     console={isController && service && session && <ControllerTakePanel service={service} session={session} closingSession={closingSession}
-      previewTargets={preview.targets} previewEnabled={preview.enabled} />}
+      previewTargets={preview.targets} previewEnabled={preview.enabled} landscape={controllerLandscape} />}
     rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
       <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}

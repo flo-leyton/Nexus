@@ -1,5 +1,4 @@
-import { ScrollView, View, useWindowDimensions } from 'react-native';
-import { useState } from 'react';
+import { ScrollView, View } from 'react-native';
 import type { ReactNode } from 'react';
 import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
 import { activeTakes, takeFinished, type Session } from '@/services/sessionProtocol';
@@ -7,7 +6,7 @@ import { SessionActionDock, SessionBadge, SessionDetails, SessionNotice, Session
 import { TakeHistoryItem, TakeNodeStatus } from './TakeNodeStatus';
 
 export type ControllerTakeViewProps = {
-  session: Session; nodeCount: number; canStart: boolean; canStop: boolean;
+  session: Session; nodeCount: number; canStart: boolean; canStop: boolean; landscape?: boolean;
   cameras: { deviceId: string; nodeId: string | null; label: string; status: string; recording: boolean; canStart: boolean; canStop: boolean;
     preview?: ReactNode; zoomControl?: ReactNode; torchControl?: ReactNode; photoControl?: ReactNode }[];
   closableTakeIds: string[];
@@ -19,9 +18,7 @@ export type ControllerTakeViewProps = {
 
 export function ControllerTakeView(props: ControllerTakeViewProps) {
   const { colors } = useTheme();
-  const { width, height } = useWindowDimensions();
-  const [cameraAreaWidth, setCameraAreaWidth] = useState(0);
-  const columns = width > height && cameraAreaWidth >= 560 && props.cameras.length > 1;
+  const columns = props.landscape && props.cameras.length > 1;
   const take = props.session.take;
   const previous = props.session.takeHistory ?? [];
   const active = previous.filter((entry) => !takeFinished(entry));
@@ -41,10 +38,10 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     </SessionNotice>}
     {!props.canStart && !take && <Text variant="bodyMedium">Acepta los Nodes y prepara sus cámaras antes de REC.</Text>}
     {!!props.cameras.length && <SessionSection title="Control por cámara">
-      <View onLayout={({ nativeEvent }) => setCameraAreaWidth(nativeEvent.layout.width)}
-        style={{ gap: 12, flexDirection: columns ? 'row' : 'column', flexWrap: columns ? 'wrap' : 'nowrap' }}>
+      <View style={{ rowGap: 12, flexDirection: columns ? 'row' : 'column', flexWrap: columns ? 'wrap' : 'nowrap',
+        justifyContent: columns ? 'space-between' : undefined }}>
         {props.cameras.map((camera) => <View key={camera.nodeId ?? camera.deviceId}
-          style={[sessionStyles.stack, { minWidth: 0, width: columns ? (cameraAreaWidth - 12) / 2 : '100%',
+          style={[sessionStyles.stack, { minWidth: 0, width: columns ? '49%' : '100%',
             padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}>
           <View style={sessionStyles.between}><Text variant="titleMedium">{camera.label}</Text>
             <SessionBadge label={camera.status} />
@@ -93,7 +90,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     {!!history.length && <SessionSection title="Historial de tomas">
       {history.map((old) => <TakeHistoryItem key={old.takeId} take={old} />)}
     </SessionSection>}
-    <SessionActionDock visible={props.focused} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma · vídeo sin audio'}>
+    <SessionActionDock visible={props.focused} compact={props.landscape} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma · vídeo sin audio'}>
       <Button mode={recording ? 'contained-tonal' : 'contained'} icon={recording ? 'stop' : 'record-circle'}
         disabled={recording ? !props.canStop : !props.canStart || !!allActive.length}
         onPress={recording ? props.onStop : props.onStart} buttonColor={recording ? undefined : colors.error}

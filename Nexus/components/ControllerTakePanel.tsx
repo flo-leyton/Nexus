@@ -12,9 +12,9 @@ import type { previewTargets as selectPreviewTargets } from '@/services/previewT
 import { activeTakeForDevice, activeTakes, readinessReasons, type Session } from '@/services/sessionProtocol';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function ControllerTakePanel({ service, session, closingSession = false, previewTargets, previewEnabled }: {
+export function ControllerTakePanel({ service, session, closingSession = false, previewTargets, previewEnabled, landscape }: {
   service: Service; session: Session; closingSession?: boolean;
-  previewTargets: ReturnType<typeof selectPreviewTargets>; previewEnabled: boolean;
+  previewTargets: ReturnType<typeof selectPreviewTargets>; previewEnabled: boolean; landscape: boolean;
 }) {
   const focused = useIsFocused();
   const [notice, setNotice] = useState('');
@@ -75,11 +75,11 @@ export function ControllerTakePanel({ service, session, closingSession = false, 
     submit(() => [service.closeInterruptedTake(session.sessionId, takeToClose.takeId)]);
     setConfirmClose(null);
   };
-  return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop}
+  return <ControllerTakeView session={session} nodeCount={readyIds.length} canStart={canStart} canStop={canStop} landscape={landscape}
     scheduling={<ScheduledRecordingPanel service={service} session={session} cameras={cameras} disabled={!enabled} />}
     cameras={cameras.map((camera) => ({ ...camera, canStart: enabled && camera.ready, canStop: enabled && camera.recording,
       preview: previewEnabled && camera.nodeId && <NodePreview
-        pair={previewTargets.find(({ pair }) => pair.nodeId === camera.nodeId)?.pair} label={camera.label} />,
+        pair={previewTargets.find(({ pair }) => pair.nodeId === camera.nodeId)?.pair} label={camera.label} compact={landscape} />,
       zoomControl: camera.nodeId && <RemoteZoomControl key={`${session.sessionId}:${camera.nodeId}`} service={service}
         sessionId={session.sessionId} nodeId={camera.nodeId} deviceId={camera.deviceId} label={camera.label}
         disabled={!focused || closingSession} />,

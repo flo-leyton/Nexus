@@ -55,14 +55,15 @@ function usePreviewConnection(pair: PreviewPair | undefined) {
   };
 }
 
-export function NodePreview({ pair, label }: { pair?: PreviewPair; label: string }) {
+export function NodePreview({ pair, label, compact = false }: { pair?: PreviewPair; label: string; compact?: boolean }) {
   const { state, start, stop, receivedFrame, dimensionsReported } = usePreviewConnection(pair);
   const streamURL = pair ? state.streamURL : undefined;
   const actionLabel = state.phase === 'disconnected' ? 'Iniciar vista previa' : 'Detener vista previa';
   const status = { disconnected: 'Vista detenida', connecting: 'Conectando', streaming: 'Transmitiendo' }[state.phase];
   return <View style={{ gap: 8 }}>
     <Text accessibilityLiveRegion="polite">{pair ? status : 'Vista no disponible'}</Text>
-    <View style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
+    <View style={{ width: '100%', maxWidth: compact ? 320 : undefined, alignSelf: 'center',
+      aspectRatio: 16 / 9, backgroundColor: '#121212' }}>
       {streamURL && <Suspense fallback={<ActivityIndicator />}>
         <Video streamURL={streamURL} objectFit="contain" style={{ flex: 1 }} onDimensionsChange={({ nativeEvent }) => {
           dimensionsReported(streamURL, nativeEvent.width, nativeEvent.height);

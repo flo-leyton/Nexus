@@ -23,13 +23,14 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   let rtcImports = 0;
   const nativeView = 'RTCVideoView';
   const dependencies = {
-    react: { lazy: (load) => { loadVideo = load; return {}; } },
-    'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
+    react: { lazy: (load) => { loadVideo = load; return {}; }, useRef: () => ({}), useEffect() {},
+      useCallback: (callback) => callback, useState: (value) => [value] },
+    'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'react-native': { View: 'View' },
     'react-native-paper': {},
     'react-native-webrtc': { RTCView: nativeView },
     '@/services/previewTransport': {},
-    './SessionUI': {},
+    './SessionUI': { sessionStyles: {} },
   };
   const source = fs.readFileSync(path.join(__dirname, '../components/session/ExperimentalPreview.tsx'), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -51,16 +52,17 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(element.props.streamURL, props.streamURL);
   assert.equal(element.props.objectFit, props.objectFit);
   assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
+  const frame = (compact) => exports.NodePreview({ label: 'MAIN', compact }).props.children[1].props.style;
+  assert.equal(frame(true).maxWidth, 320);
+  assert.equal(frame(true).aspectRatio, 16 / 9);
+  assert.equal(frame(false).maxWidth, undefined);
 });
 
-test('NX-10 camera cards keep their identities and original controls across width changes', () => {
-  let dimensions = { width: 1200, height: 800 };
-  let areaWidth = 0;
+test('NX-10 camera cards keep their identities and original controls across orientations', () => {
   const jsx = (type, props, key) => ({ type, props, key });
   const deps = {
-    react: { useState: () => [areaWidth, (width) => { areaWidth = width; }] },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
-    'react-native': { View: 'View', useWindowDimensions: () => dimensions },
+    'react-native': { View: 'View' },
     'react-native-paper': { Button: 'Button', Text: 'Text', useTheme: () => ({ colors: {} }) },
     '@/services/sessionProtocol': { ...protocol, activeTakes: () => [] },
     './SessionUI': { SessionSection: 'Section', SessionActionDock: 'Dock', sessionStyles: {} },
@@ -76,18 +78,18 @@ test('NX-10 camera cards keep their identities and original controls across widt
     preview: `preview:${label}`, photoControl: `photo:${label}`, torchControl: `torch:${label}`, zoomControl: `zoom:${label}`,
     canStart: true, canStop: true, recording: label === 'SIDE' }));
   const actions = [];
-  const props = { session: { members: {} }, cameras, closableTakeIds: ['interrupted'], canStart: true,
+  const props = { session: { members: {} }, cameras, closableTakeIds: ['interrupted'], canStart: true, landscape: true,
     onStart: () => actions.push('general'), onStartCamera: (id) => actions.push(id),
     onStopCamera: (id) => actions.push(`stop:${id}`), onRequestClose: (id) => actions.push(id) };
   const render = () => exports.ControllerTakeView(props).props.children;
   const layout = () => render().find((child) => child?.type === 'Section' && child.props.title === 'Control por cámara').props.children.props;
-  layout().onLayout({ nativeEvent: { layout: { width: 640 } } });
   const wide = layout();
   assert.equal(wide.style.flexDirection, 'row');
-  assert.deepEqual(Array.from(wide.children, (card) => card.props.style[1].width), [314, 314]);
+  assert.deepEqual(Array.from(wide.children, (card) => card.props.style[1].width), ['49%', '49%']);
   const keys = Array.from(wide.children, (card) => card.key);
-  dimensions = { width: 390, height: 800 };
-  layout().onLayout({ nativeEvent: { layout: { width: 360 } } });
+  const wideDock = render().find((x) => x?.type === 'Dock');
+  assert.equal(wideDock.props.compact, true);
+  props.landscape = false;
   const narrow = layout();
   assert.equal(narrow.style.flexDirection, 'column');
   assert.deepEqual(Array.from(narrow.children, (card) => card.key), keys);
@@ -98,7 +100,10 @@ test('NX-10 camera cards keep their identities and original controls across widt
     record.props.onPress();
   }
   const tree = render();
-  tree.find((x) => x?.type === 'Dock').props.children.props.onPress();
+  const narrowDock = tree.find((x) => x?.type === 'Dock');
+  assert.equal(narrowDock.props.compact, false);
+  assert.equal(wideDock.props.children.props.onPress, narrowDock.props.children.props.onPress);
+  narrowDock.props.children.props.onPress();
   tree.flat().find((x) => x?.key === 'interrupted').props.onPress();
   assert.deepEqual(actions, ['MAIN-device', 'stop:SIDE-device', 'general', 'interrupted']);
 });

@@ -45,9 +45,11 @@ export function SessionCanvas({ children, topInset = 0, maxWidth = 760, fullPrev
 }
 
 /** Only controls enter the portal. Never a camera, engine or command owner. */
-export function SessionActionDock({ visible, title, children }: { visible: boolean; title: string; children: ReactNode }) {
+export function SessionActionDock({ visible, title, children, compact = false }: {
+  visible: boolean; title: string; children: ReactNode; compact?: boolean;
+}) {
   const { colors } = useTheme();
-  const { bottom } = useSafeAreaInsets();
+  const { bottom, left, right } = useSafeAreaInsets();
   const { setHeight } = useContext(DockContext);
   useEffect(() => { if (!visible) setHeight(0); return () => setHeight(0); }, [visible, setHeight]);
   if (!visible) return null;
@@ -55,8 +57,10 @@ export function SessionActionDock({ visible, title, children }: { visible: boole
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       <Surface elevation={1} onLayout={(event) => setHeight(Math.ceil(event.nativeEvent.layout.height))}
         style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
-        <View style={{ width: '100%', maxWidth: 760, alignSelf: 'center', padding: 16, paddingBottom: bottom + 12, gap: 10 }}>
-          <Text variant="labelLarge">{title}</Text>
+        <View style={[{ width: '100%', maxWidth: 760, alignSelf: 'center', padding: 16, paddingBottom: bottom + 12, gap: 10 },
+          compact && { maxWidth: 1200, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingTop: 8, paddingBottom: bottom + 8, paddingLeft: left + 20, paddingRight: right + 20 }]}>
+          <Text variant="labelLarge" style={compact ? { flexShrink: 1 } : undefined}>{title}</Text>
           {children}
         </View>
       </Surface>

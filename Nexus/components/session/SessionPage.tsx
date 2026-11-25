@@ -7,14 +7,14 @@ import { SessionCanvas, sessionStyles } from './SessionUI';
 type Props = {
   topInset: number; onBack(): void; header: ReactNode; capture: ReactNode; members: ReactNode; console: ReactNode;
   admission: ReactNode; rejoin: ReactNode; administration: ReactNode; media: ReactNode; imports: ReactNode;
-  fullPreview?: boolean;
+  fullPreview?: boolean; controllerLandscape?: boolean;
 };
 
 /** Slots and keys stay constant across loss/recovery of the verified Session. */
 export function SessionPage(props: Props) {
-  const wide = useWindowDimensions().width >= 1000 && !props.fullPreview;
+  const wide = useWindowDimensions().width >= 1000 && !props.fullPreview && !props.controllerLandscape;
   const hideExtras = props.fullPreview ? { display: 'none' as const } : undefined;
-  return <SessionCanvas topInset={props.topInset} maxWidth={wide ? 1200 : 760} fullPreview={props.fullPreview}>
+  return <SessionCanvas topInset={props.topInset} maxWidth={wide || props.controllerLandscape ? 1200 : 760} fullPreview={props.fullPreview}>
     <Button mode="text" icon="arrow-left" onPress={props.onBack} contentStyle={sessionStyles.touch}
       style={[{ alignSelf: 'flex-start' }, hideExtras]}>Volver a Studio</Button>
     <View style={hideExtras}>{props.header}</View>
