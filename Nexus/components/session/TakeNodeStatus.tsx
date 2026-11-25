@@ -12,7 +12,7 @@ export function TakeNodeStatus({ deviceId, node }: { deviceId: string; node: Tak
     node.phase === 'error' ? 'error' : node.phase === 'disconnected' ? 'warning' : 'neutral';
   return <View style={{ gap: 10, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
     <View style={sessionStyles.between}>
-      <Text variant="titleMedium">{node.role || 'Node'} · …{node.nodeId.slice(-6)}</Text>
+      <Text variant="titleMedium">{node.role || 'Cámara'}</Text>
       <SessionBadge label={takePhaseLabels[node.phase]} tone={tone} />
     </View>
     <Text variant="bodyMedium">REC: {node.startReceived ? 'ACK recibido' : 'sin ACK'} · STOP: {node.stopReceived ? 'ACK recibido' : 'sin ACK'}</Text>
@@ -27,10 +27,10 @@ export function TakeNodeStatus({ deviceId, node }: { deviceId: string; node: Tak
   </View>;
 }
 
-export function TakeHistoryItem({ take }: { take: CoordinatedTake }) {
+export function TakeHistoryItem({ take, number }: { take: CoordinatedTake; number?: number }) {
   const { colors } = useTheme();
-  return <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.outlineVariant, paddingVertical: 12 }}>
-    <Text variant="titleMedium">Toma · …{take.takeId.slice(-6)}</Text>
+  return <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.outlineVariant, paddingVertical: 8 }}>
+    <Text variant="titleMedium">{number ? `Toma ${number}` : 'Toma'}</Text>
     <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
       {Object.keys(take.nodes).length} Nodes · {Object.values(take.nodes).filter((node) => node.phase === 'saved').length} archivos informados como guardados
     </Text>

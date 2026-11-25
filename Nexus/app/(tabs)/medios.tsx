@@ -8,10 +8,11 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { LibraryContents } from '@/components/navigation/LibraryContents';
 import { TakeMediaPanel } from '@/components/TakeMediaPanel';
+import { useMediaViewer } from '@/components/MediaViewer';
 import { captureUploader } from '@/services/captureUpload';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getMediaCatalog } from '@/services/mediaCatalog';
+import { getMediaCatalog, getMediaPlaybackUri } from '@/services/mediaCatalog';
 import type { NexusMediaAsset } from '@/types/media';
 
 export default function MediaLibraryScreen() {
@@ -20,6 +21,7 @@ export default function MediaLibraryScreen() {
   const [assets, setAssets] = useState<NexusMediaAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [problems, setProblems] = useState<string[]>([]);
+  const { open, viewer } = useMediaViewer();
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -45,9 +47,12 @@ export default function MediaLibraryScreen() {
             <ThemedText type="subtitle">La biblioteca está vacía</ThemedText>
             <ThemedText>Graba un clip en un Node o importa una imagen o vídeo desde Studio.</ThemedText>
           </ThemedView>
-        ) : <LibraryContents assets={assets} onSession={id => router.push(`/session/${encodeURIComponent(id)}` as Href)} onOpen={asset => router.push(`/media/${encodeURIComponent(asset.id)}` as Href)} />}
+        ) : <LibraryContents assets={assets} onSession={id => router.push(`/session/${encodeURIComponent(id)}` as Href)}
+          onPlay={(asset) => open(asset.resourceType, () => getMediaPlaybackUri(asset), asset.storage === 'remote')}
+          onOpen={asset => router.push(`/media/${encodeURIComponent(asset.id)}` as Href)} />}
         <TakeMediaPanel />
       </ScrollView>
+      {viewer}
     </ThemedView>
   );
 }

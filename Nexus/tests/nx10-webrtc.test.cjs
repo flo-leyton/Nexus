@@ -83,6 +83,7 @@ test('NX-10 camera cards keep their identities and original controls across orie
     '@/services/sessionProtocol': { ...protocol, activeTakes: () => [] },
     './SessionUI': { SessionSection: 'Section', SessionActionDock: 'Dock', sessionStyles: {} },
     './TakeNodeStatus': {},
+    '../mediaPresentation': { takeNumbers: () => new Map() },
   };
   const source = fs.readFileSync(path.join(__dirname, '../components/session/ControllerTakeView.tsx'), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: {

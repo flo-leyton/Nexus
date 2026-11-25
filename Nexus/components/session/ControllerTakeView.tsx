@@ -4,6 +4,7 @@ import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
 import { activeTakes, takeFinished, type Session } from '@/services/sessionProtocol';
 import { SessionActionDock, SessionBadge, SessionDetails, SessionNotice, SessionSection, sessionStyles } from './SessionUI';
 import { TakeHistoryItem, TakeNodeStatus } from './TakeNodeStatus';
+import { takeNumbers } from '../mediaPresentation';
 
 export type ControllerTakeViewProps = {
   session: Session; nodeCount: number; canStart: boolean; canStop: boolean; landscape?: boolean;
@@ -20,6 +21,8 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
   const { colors } = useTheme();
   const columns = props.landscape && props.cameras.length > 1;
   const take = props.session.take;
+  const numbers = takeNumbers([], props.session);
+  const currentTitle = take ? `Toma ${numbers.get(take.takeId)}` : 'Próxima toma';
   const previous = props.session.takeHistory ?? [];
   const active = previous.filter((entry) => !takeFinished(entry));
   const history = previous.filter(takeFinished);
@@ -67,7 +70,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     </SessionSection>}
     {props.scheduling}
     {take ? <>
-      <View style={sessionStyles.between}><Text variant="titleMedium">Toma · …{take.takeId.slice(-6)}</Text>
+      <View style={sessionStyles.between}><Text variant="titleMedium">{currentTitle}</Text>
         <SessionBadge label={take.closed ? 'Cerrada operativamente' : take.interrupted ? 'Interrumpida' : 'Resultados por Node'} tone={take.interrupted || take.closed ? 'warning' : 'neutral'} />
       </View>
       {take.interrupted && <SessionNotice title="Toma interrumpida" tone="warning"><Text variant="bodyMedium">Detén y comprueba cada original local. Los resultados sin confirmación durable siguen desconocidos. Confirma READY en los Nodes que regresen y cierra esta toma antes de otra.</Text></SessionNotice>}
@@ -76,7 +79,7 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
       <SessionDetails title="Identificador de toma"><Text selectable variant="bodySmall">takeId: {take.takeId}</Text></SessionDetails>
     </> : <Text variant="bodyMedium">Sin toma activa. {props.nodeCount} Nodes conectados considerados para la próxima toma.</Text>}
     {!!active.length && <SessionSection title="Otras tomas activas">
-      {active.map((entry) => <TakeHistoryItem key={entry.takeId} take={entry} />)}
+      {active.map((entry) => <TakeHistoryItem key={entry.takeId} take={entry} number={numbers.get(entry.takeId)} />)}
     </SessionSection>}
     {needsRecovery && <Button mode="outlined" disabled={!props.canStop} onPress={props.onStop}
       contentStyle={sessionStyles.touch}>Solicitar STOP de las tomas pendientes</Button>}
@@ -94,9 +97,9 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
       </Dialog.Actions>
     </Dialog></Portal>}
     {!!history.length && <SessionSection title="Historial de tomas">
-      {history.map((old) => <TakeHistoryItem key={old.takeId} take={old} />)}
+      {history.map((old) => <TakeHistoryItem key={old.takeId} take={old} number={numbers.get(old.takeId)} />)}
     </SessionSection>}
-    <SessionActionDock visible={props.focused} compact={props.landscape} title={take ? `Toma · …${take.takeId.slice(-6)}` : 'Próxima toma'}>
+    <SessionActionDock visible={props.focused} compact={props.landscape} title={currentTitle}>
       <Button mode={recording ? 'contained-tonal' : 'contained'} icon={recording ? 'stop' : 'record-circle'}
         disabled={recording ? !props.canStop : !props.canStart || !!allActive.length}
         onPress={recording ? props.onStop : props.onStart} buttonColor={recording ? undefined : colors.error}

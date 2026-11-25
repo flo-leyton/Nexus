@@ -87,23 +87,27 @@ Para desplegar los datos descriptivos en Render DEV-B hace falta autorización, 
 - **IMPLEMENTADA** · Conservar «Confirmar READY», «Tomar foto» y «Reanudar participación», respetando la recuperación de rol.
 - **IMPLEMENTADA** · Usar avisos operativos breves sin añadir afirmaciones sobre audio.
 
+**VERIFICADA por el operador, 25 de noviembre de 2026.** Aprobó físicamente `e4f8e55`: diseño del Node, herramientas y datos técnicos, participación, Confirmar READY y fotografía. También aprobó `dcb81b5`: grabó con REC local, detuvo con STOP local y reprodujo el original. REC local permanece visible junto a Tomar foto.
+
 ## BLOQUE D — TOMAS, VIDEOS Y FOTOGRAFÍAS
 
-`components/session/LocalCapturesView.tsx`, `components/MediaAssetCard.tsx`, `app/media/[id].tsx` y `app/(tabs)/explore.tsx`. Presentación y gestión del visor. Agrupación y numeración derivadas de las tomas existentes cuando sea posible.
+Biblioteca en `app/(tabs)/medios.tsx` y `components/navigation/LibraryContents.tsx`. Tomas y originales en `components/session/`. El visor compartido en `components/MediaViewer.tsx` conserva las listas montadas y desmonta `LocalVideoPlayer` al cerrar. Los archivos locales siguen pasando por la verificación existente. La numeración se deriva de las tomas disponibles en cada vista y no reemplaza los IDs.
 
-- **PENDIENTE** · Compactar las tarjetas de capturas locales, importadas y remotas.
-- **PENDIENTE** · Mostrar fecha, hora, tamaño y origen del archivo cuando corresponda.
-- **PENDIENTE** · Presentar numeración legible de tomas, sin sustituir sus identificadores internos.
-- **PENDIENTE** · Reproducir videos locales mediante una ventana o visor que se abre al pulsar Reproducir, sin desplazarse hasta el final de la pantalla.
-- **PENDIENTE** · Permitir cerrar el reproductor y volver al mismo punto de la lista.
-- **PENDIENTE** · Reproducir del mismo modo los ángulos remotos subidos a Cloudinary.
-- **PENDIENTE** · Agrupar MAIN y SIDE bajo la misma toma.
-- **PENDIENTE** · Abrir fotografías locales e importadas en una vista ampliada con opción de cerrar.
-- **PENDIENTE** · Preservar proporciones originales.
-- **PENDIENTE** · Ocultar UUID, rutas locales y URL técnicas en desplegables.
-- **PENDIENTE** · Conservar los indicadores relevantes Solo local, Subida confirmada y Archivo no disponible.
-- **PENDIENTE** · Conservar íntegramente Subir a Cloudinary, Guardar en galería y Eliminar de Nexus.
-- **PENDIENTE** · Aplicar criterios visuales consistentes en Biblioteca, Node y Controller.
+- **IMPLEMENTADA** · Compactar las tarjetas de capturas locales, importadas y remotas.
+- **IMPLEMENTADA** · Mostrar fecha, hora, tamaño y origen del archivo cuando corresponda.
+- **IMPLEMENTADA** · Presentar numeración legible de tomas, sin sustituir sus identificadores internos.
+- **IMPLEMENTADA** · Reproducir videos locales mediante una ventana o visor que se abre al pulsar Reproducir, sin desplazarse hasta el final de la pantalla.
+- **IMPLEMENTADA** · Permitir cerrar el reproductor y volver al mismo punto de la lista.
+- **IMPLEMENTADA** · Reproducir del mismo modo los ángulos remotos subidos a Cloudinary.
+- **IMPLEMENTADA** · Agrupar MAIN y SIDE bajo la misma toma.
+- **IMPLEMENTADA** · Abrir fotografías locales e importadas en una vista ampliada con opción de cerrar.
+- **IMPLEMENTADA** · Preservar proporciones originales.
+- **IMPLEMENTADA** · Ocultar UUID, rutas locales y URL técnicas en desplegables.
+- **IMPLEMENTADA** · Conservar los indicadores relevantes Solo local, Subida confirmada y Archivo no disponible.
+- **IMPLEMENTADA** · Conservar íntegramente Subir a Cloudinary, Guardar en galería y Eliminar de Nexus.
+- **IMPLEMENTADA** · Aplicar criterios visuales consistentes en Biblioteca, Node y Controller.
+
+Pendiente de prueba física en Android. Comprobar apertura del archivo seleccionado, reproducción local y remota, fotos con proporción original, cierre con Atrás y retorno al mismo desplazamiento. Verificar también galería, eliminación y subida. El zoom por gestos de fotografías queda pendiente. Los ángulos sin fecha de captura en la referencia muestran los datos disponibles.
 
 ## BLOQUE E — IDENTIDAD VISUAL DE DEV-A
 

@@ -1,27 +1,30 @@
 import type { ReactNode } from 'react';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
 import type { LocalCapture } from '@/types/capture';
-import { SessionBadge, SessionDetails, SessionNotice, sessionStyles } from './SessionUI';
+import type { Session } from '@/services/sessionProtocol';
+import { mediaDate, takeNumbers } from '../mediaPresentation';
+import { formatBytes } from '../MediaAssetCard';
+import { SessionDetails, SessionNotice, sessionStyles } from './SessionUI';
 
-export function LocalCapturesView({ captures, problems, busy, onPlay, renderUpload, player }: {
+export function LocalCapturesView({ captures, problems, busy, onPlay, renderUpload, session }: {
   captures: LocalCapture[]; problems: string[]; busy: boolean; onPlay(capture: LocalCapture): void;
-  renderUpload(capture: LocalCapture): ReactNode; player: ReactNode;
+  renderUpload(capture: LocalCapture): ReactNode; session?: Session;
 }) {
   const { colors } = useTheme();
+  const numbers = takeNumbers([...captures].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .flatMap(({ takeId }) => takeId ? [takeId] : []), session);
   return <View style={sessionStyles.stack}>
     <Text accessibilityRole="header" variant="titleMedium">Originales de este teléfono</Text>
-    <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>Originales conservados en la aplicación. La subida es manual.</Text>
     {!captures.length && <Text variant="bodyMedium">No hay capturas locales verificadas en esta sesión.</Text>}
     {problems.map((problem, i) => <SessionNotice key={i} title={problem} tone="error" />)}
-    {captures.map((capture) => <View key={capture.id} style={{ gap: 12, paddingVertical: 14, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
-      <View style={sessionStyles.between}><Text variant="titleMedium">{capture.photoId ? 'Foto' : capture.takeId ? `Toma · …${capture.takeId.slice(-6)}` : 'Prueba local · sin Take'}</Text>
-        <SessionBadge label="Original local" />
-      </View>
-      <Text variant="bodyMedium">{new Date(capture.createdAt).toLocaleString()} · {(capture.bytes / 1024 / 1024).toFixed(2)} MB</Text>
-      {!!capture.photoId && <Image source={{ uri: capture.localUri }} resizeMode="contain" style={{ width: '100%', height: 120 }} />}
+    {captures.map((capture) => <View key={capture.id} style={{ gap: 6, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.outlineVariant }}>
+      <Text variant="titleMedium">{capture.photoId ? 'Foto' : capture.takeId ? `Toma ${numbers.get(capture.takeId)}` : 'Grabación local'}</Text>
+      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+        {[mediaDate(capture.createdAt), session?.members[capture.deviceId]?.role || 'Este teléfono', formatBytes(capture.bytes)].filter(Boolean).join(' · ')}
+      </Text>
       <Button mode="outlined" icon={capture.photoId ? 'image-outline' : 'play-outline'} disabled={busy} onPress={() => onPlay(capture)}
-        contentStyle={sessionStyles.touch} style={sessionStyles.control}>{capture.photoId ? 'Ver foto' : 'Reproducir vídeo local'}</Button>
+        contentStyle={sessionStyles.touch} style={sessionStyles.control}>{capture.photoId ? 'Ver foto' : 'Reproducir'}</Button>
       {renderUpload(capture)}
       <SessionDetails title="Identificadores y archivo">
         <Text selectable variant="bodySmall">{capture.photoId ? 'photoId' : 'Clip'}: {capture.id} · Node: {capture.nodeId}</Text>
@@ -29,6 +32,5 @@ export function LocalCapturesView({ captures, problems, busy, onPlay, renderUplo
         <Text selectable variant="bodySmall">{capture.localUri}</Text>
       </SessionDetails>
     </View>)}
-    {player}
   </View>;
 }

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Linking } from 'react-native';
 import { CaptureUploadView } from './session/CaptureUploadView';
+import { useMediaViewer } from './MediaViewer';
 import { captureUploader } from '@/services/captureUpload';
 import { getMediaAssetById } from '@/services/mediaCatalog';
 import { type LocalCaptureMediaAsset } from '@/types/media';
 
-export function CaptureUploadControls({ id, disabled = false }: { id: string; disabled?: boolean }) {
+export function CaptureUploadControls({ id, disabled = false, compact = false }: { id: string; disabled?: boolean; compact?: boolean }) {
   const [asset, setAsset] = useState<LocalCaptureMediaAsset | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const { open, viewer } = useMediaViewer(!disabled);
   useEffect(() => {
     let active = true, revision = 0;
     const refresh = () => {
@@ -31,7 +32,10 @@ export function CaptureUploadControls({ id, disabled = false }: { id: string; di
   };
   if (!asset) return null;
   const uploaded = asset.upload.state === 'uploaded';
-  return <CaptureUploadView asset={asset} busy={busy} disabled={disabled} notice={notice}
+  return <><CaptureUploadView asset={asset} busy={busy} disabled={disabled} notice={notice} compact={compact}
     onUpload={() => run(uploaded)}
-    onOpenRemote={() => { if (asset.upload.state === 'uploaded') void Linking.openURL(asset.upload.url).catch(() => setNotice('No se pudo abrir el vídeo remoto.')); }} />;
+    onOpenRemote={() => {
+      const { upload } = asset;
+      if (upload.state === 'uploaded') open(asset.resourceType, async () => upload.url, true);
+    }} />{viewer}</>;
 }

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Text } from 'react-native-paper';
 
 import { formatBytes } from '@/components/MediaAssetCard';
+import { useMediaViewer } from '@/components/MediaViewer';
 import { SessionPage } from '@/components/session/SessionPage';
 import { useExperimentalPreview } from '@/components/session/ExperimentalPreview';
 import { SessionSection, SessionDetails, sessionStyles } from '@/components/session/SessionUI';
@@ -25,7 +26,7 @@ import { TakeMediaPanel } from '@/components/TakeMediaPanel';
 import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { uploadMediaAsset } from '@/services/cloudinary';
-import { getMediaAssetsBySession, saveMediaAsset } from '@/services/mediaCatalog';
+import { getMediaAssetsBySession, getMediaPlaybackUri, saveMediaAsset } from '@/services/mediaCatalog';
 import { connectSocket } from '@/services/socket';
 import { activeTakes, type JoinRequest } from '@/services/sessionProtocol';
 import type { RemoteMediaAsset } from '@/types/media';
@@ -42,6 +43,7 @@ export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sessionId = Array.isArray(id) ? id[0] : id;
   const insets = useSafeAreaInsets();
+  const { open: openMedia, viewer: mediaViewer } = useMediaViewer();
   const [selected, setSelected] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [status, setStatus] = useState<UploadState>('idle');
   const [message, setMessage] = useState('Selecciona una imagen o video para comenzar.');
@@ -279,7 +281,7 @@ export default function SessionScreen() {
 
   if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
-  return <SessionPage topInset={insets.top} fullPreview={fullPreview} controllerLandscape={controllerLandscape} onBack={() => router.back()}
+  return <><SessionPage topInset={insets.top} fullPreview={fullPreview} controllerLandscape={controllerLandscape} onBack={() => router.back()}
     header={<><SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
       name={session?.name} description={session?.description} createdAt={session?.createdAt}
       role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
@@ -324,10 +326,10 @@ export default function SessionScreen() {
         {snapshot?.mediaPersistenceError && <Text variant="bodyMedium">{snapshot.mediaPersistenceError}</Text>}
         <TakeMediaPanel session={session} />
       </>}
-      {!!deviceId && <LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} />}
+      {!!deviceId && <LocalCapturesPanel key={`${sessionId}-${captureRevision}`} sessionId={sessionId} deviceId={deviceId} busy={captureBusy} session={session} />}
       <Text variant="titleMedium">Medios importados y disponibles</Text>
       {!media.length ? <Text variant="bodyMedium">Aún no hay medios en esta sesión.</Text> : media.map((asset) =>
-        <SessionImportedMediaRow key={asset.id} asset={asset} onPress={() => router.push(`/media/${asset.id}` as Href)} />)}
+        <SessionImportedMediaRow key={asset.id} asset={asset} onPress={() => openMedia(asset.resourceType, () => getMediaPlaybackUri(asset), true)} />)}
     </SessionSection>}
     imports={!isController && (session?.members[deviceId]?.kind === 'node' || localNode?.sessionId === sessionId) &&
       <SessionImportView selected={selected} status={status} message={message} hasLastSaved={!!lastSaved}
@@ -348,5 +350,5 @@ export default function SessionScreen() {
             'Cierre pendiente. Espera el guardado de los videos. Si una cámara quedó desconectada, revisa su original y cierra la toma interrumpida.');
         } catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
       }} />}
-  />;
+  />{mediaViewer}</>;
 }

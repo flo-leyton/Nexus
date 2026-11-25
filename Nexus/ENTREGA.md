@@ -128,6 +128,10 @@ El 25 de noviembre de 2026 el operador aprobó físicamente `76e058f`. Confirmó
 
 El 25 de noviembre de 2026 el operador comunicó la aprobación física de la parte visual de `23eda26`. También confirmó que en `cf8a1f8` pasaron nombre y descripción de sesión, fecha automática, nombre del teléfono, aceptación del Node, asignación de rol y READY. La prueba de `cf8a1f8` se realizó en LAN con el emulador RTDB y el registro aislado `nexusStudio/relayDevBBlockB`. El [plan UX/UI](PLAN_UX_NX10.md) recoge las condiciones pendientes para Render DEV-B.
 
+### NX-10 · Bloque C de UX/UI
+
+El 25 de noviembre de 2026 el operador aprobó físicamente `e4f8e55` en diseño del Node, herramientas de cámara, datos técnicos, participación, Confirmar READY y fotografía. También aprobó `dcb81b5` tras grabar, detener y reproducir el video original con REC local y STOP local. El acceso a REC local permanece visible junto a Tomar foto.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

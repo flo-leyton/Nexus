@@ -6,7 +6,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { Text } from 'react-native-paper';
 
-export function LocalVideoPlayer({ uri, remote = false }: { uri: string; remote?: boolean }) {
+export function LocalVideoPlayer({ uri, remote = false, height = 240 }: { uri: string; remote?: boolean; height?: number }) {
   const player = useVideoPlayer(uri);
   const { status, error } = useEvent(player, 'statusChange', { status: player.status });
   const [trace] = useState(() => createPlaybackDiagnostics(remote));
@@ -15,9 +15,9 @@ export function LocalVideoPlayer({ uri, remote = false }: { uri: string; remote?
   return <View style={styles.panel} onLayout={__DEV__ ? event => {
     trace('layout', { width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height });
   } : undefined}>
-    <VideoView player={player} nativeControls contentFit="contain" surfaceType="textureView" style={styles.video} />
-    <Text variant="bodyMedium">Reproductor {remote ? 'remoto (Internet)' : 'local'}: {status === 'readyToPlay' ? 'Listo para reproducir; pulsa ▶' : status === 'loading' ? 'Cargando vídeo…' : status}</Text>
-    {error && <Text variant="bodyMedium">No se pudo reproducir: {error.message}</Text>}
+    <VideoView player={player} nativeControls contentFit="contain" surfaceType="textureView" style={[styles.video, { height }]} />
+    {status === 'loading' && <Text variant="bodyMedium">Cargando vídeo…</Text>}
+    {!!error && <Text accessibilityLiveRegion="polite" variant="bodyMedium">No se pudo reproducir el vídeo.</Text>}
   </View>;
 }
-const styles = StyleSheet.create({ panel: { gap: 10 }, video: { width: '100%', height: 240, borderRadius: 12, overflow: 'hidden' } });
+const styles = StyleSheet.create({ panel: { gap: 8 }, video: { width: '100%', borderRadius: 12, overflow: 'hidden' } });

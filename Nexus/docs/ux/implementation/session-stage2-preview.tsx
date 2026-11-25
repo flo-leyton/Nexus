@@ -80,11 +80,11 @@ function Preview() {
       'demo-device-02': { deviceId: 'demo-device-02', nodeId: 'demo-node-02', kind: 'node', role: 'Cámara lateral', online: !partial && !interrupted, readiness } }, take,
     takeHistory: saved ? [{ takeId: 'demo-take-6C90', startMessageId: 'old-rec', stopMessageId: 'old-stop', nodes: { 'demo-device-01': result('demo-node-01', 'Cámara principal', 'saved') } }] : [] };
   const media = <SessionSection title="Tomas y medios" description="QA · datos sintéticos">
-    <TakeMediaView localOnly={false} error="" groups={new Map([['demo-take', [
+    <TakeMediaView error="" groups={new Map([['demo-take', [
       { sessionId: 'demo-session', angle: { clipId: 'demo-clip-01', takeId: 'demo-take-7F21', deviceId: 'demo-device-01', nodeId: 'demo-node-01', role: 'Cámara principal', bytes: 24000000, revision: 1, upload: { state: 'uploaded', publicId: 'demo', url: 'https://res.cloudinary.com/demo/video/upload/demo.mp4' } } },
       { sessionId: 'demo-session', angle: { clipId: 'demo-clip-02', takeId: 'demo-take-7F21', deviceId: 'demo-device-02', nodeId: 'demo-node-02', role: 'Cámara lateral', bytes: 23000000, revision: 1, upload: { state: 'local' } } },
-    ]]])} onPlay={() => action('PLAY-remote')} player={null} />
-    <LocalCapturesView captures={[clip]} problems={[]} busy={false} onPlay={() => action('PLAY-local')} player={null}
+    ]]])} onPlay={() => action('PLAY-remote')} />
+    <LocalCapturesView captures={[clip]} problems={[]} busy={false} onPlay={() => action('PLAY-local')}
       renderUpload={() => <CaptureUploadView asset={asset} busy={false} disabled={false} notice="" onUpload={() => action('UPLOAD-retry')} onOpenRemote={() => action('OPEN-remote')} />} />
     <SessionImportedMediaRow asset={{ id: 'demo-import', storage: 'remote', source: 'import', resourceType: 'video', publicId: 'demo-import', url: 'https://res.cloudinary.com/demo/video/upload/import.mp4', sessionId: 'demo-session', createdAt: '2026-11-16T12:00:00Z', fileName: 'referencia.mp4', bytes: 1400000 }} onPress={() => action('OPEN-import')} />
   </SessionSection>;
