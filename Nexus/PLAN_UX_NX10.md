@@ -33,6 +33,8 @@ La verificación de identidad de tarjetas y aislamiento de transportes es automa
 
 El operador confirmó que la presentación vertical y los controles por cámara funcionan. La primera revisión horizontal reveló una consola demasiado estrecha y una barra inferior mal situada. La corrección da a la consola todo el ancho, iguala las columnas, limita cada visor a 320 × 180 y compacta la barra general. Queda pendiente volver a probar esta revisión en la tablet.
 
+La segunda prueba física confirmó las dos columnas y detectó tarjetas todavía grandes. El ajuste compacto en horizontal reduce los espacios, agrupa REC/STOP, Foto y Linterna en una fila y pone el zoom debajo. Representa la conexión con texto hasta que WebRTC entrega la URL del flujo. El visor ocupa hasta 256 × 144 dp y desaparece al detener esa vista. La revisión física del ajuste compacto sigue pendiente.
+
 ## BLOQUE B — STUDIO, SESIONES Y SOLICITUDES
 
 Studio y sesión en `components/studio/`, `app/session/[id].tsx` y `components/session/`. Presentación para listas y estados. Nombre, descripción y fecha pueden requerir campos persistentes compatibles en `sessionProtocol.ts`, `sessionClient.ts` y `server/sessionSchema.js`.

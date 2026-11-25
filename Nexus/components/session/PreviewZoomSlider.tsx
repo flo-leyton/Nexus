@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { View, type GestureResponderEvent } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
-export function PreviewZoomSlider({ percent, disabled, onChange, label = 'Zoom de la cámara', overlay = true }: {
-  percent: number | null; disabled: boolean; onChange(value: number): void; label?: string; overlay?: boolean;
+export function PreviewZoomSlider({ percent, disabled, onChange, label = 'Zoom de la cámara', overlay = true, compact = false }: {
+  percent: number | null; disabled: boolean; onChange(value: number): void; label?: string; overlay?: boolean; compact?: boolean;
 }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
@@ -14,7 +14,7 @@ export function PreviewZoomSlider({ percent, disabled, onChange, label = 'Zoom d
   const scrub = (event: GestureResponderEvent) => {
     if (width > 0) setValue(event.nativeEvent.locationX / width * 100);
   };
-  return <View style={{ borderRadius: 16, paddingHorizontal: 16, paddingTop: 8,
+  return <View style={{ borderRadius: 16, paddingHorizontal: compact ? 8 : 16, paddingTop: compact ? 4 : 8,
     backgroundColor: overlay ? '#000B' : colors.surfaceVariant }}>
     <Text variant="labelMedium" style={{ color: overlay ? '#FFF' : colors.onSurfaceVariant }}>Zoom · {valueText}</Text>
     <View accessible accessibilityRole="adjustable" accessibilityLabel={label}

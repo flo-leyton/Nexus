@@ -5,9 +5,9 @@ import type { getSessionService } from '@/services/session';
 import type { ZoomValue } from '@/services/sessionProtocol';
 import { PreviewZoomSlider } from './PreviewZoomSlider';
 
-export function RemoteZoomControl({ service, sessionId, nodeId, deviceId, disabled, label }: {
+export function RemoteZoomControl({ service, sessionId, nodeId, deviceId, disabled, label, compact }: {
   service: Awaited<ReturnType<typeof getSessionService>>;
-  sessionId: string; nodeId: string; deviceId: string; disabled: boolean; label: string;
+  sessionId: string; nodeId: string; deviceId: string; disabled: boolean; label: string; compact?: boolean;
 }) {
   const [confirmed, setConfirmed] = useState<ZoomValue | null>(null);
   const [status, setStatus] = useState('');
@@ -96,7 +96,7 @@ export function RemoteZoomControl({ service, sessionId, nodeId, deviceId, disabl
   }, [deviceId, disabled, nodeId, service, sessionId]);
 
   return <>
-    <PreviewZoomSlider overlay={false} label={`Zoom de ${label}`} percent={confirmed?.percent ?? null}
+    <PreviewZoomSlider overlay={false} compact={compact} label={`Zoom de ${label}`} percent={confirmed?.percent ?? null}
       disabled={disabled || !confirmed} onChange={(value) => queue.current?.(value)} />
     {!!status && <Text variant="labelSmall" accessibilityLiveRegion="polite">{status}</Text>}
   </>;

@@ -82,11 +82,11 @@ export function ControllerTakePanel({ service, session, closingSession = false, 
         pair={previewTargets.find(({ pair }) => pair.nodeId === camera.nodeId)?.pair} label={camera.label} compact={landscape} />,
       zoomControl: camera.nodeId && <RemoteZoomControl key={`${session.sessionId}:${camera.nodeId}`} service={service}
         sessionId={session.sessionId} nodeId={camera.nodeId} deviceId={camera.deviceId} label={camera.label}
-        disabled={!focused || closingSession} />,
+        disabled={!focused || closingSession} compact={landscape} />,
       photoControl: camera.nodeId && <RemotePhotoControl key={`photo:${camera.nodeId}`} service={service} sessionId={session.sessionId}
-        nodeId={camera.nodeId} disabled={!enabled || !camera.ready} label={camera.label} />,
+        nodeId={camera.nodeId} disabled={!enabled || !camera.ready} label={camera.label} compact={landscape} />,
       torchControl: camera.nodeId && <RemoteTorchControl key={`torch:${camera.nodeId}`} service={service} sessionId={session.sessionId}
-        nodeId={camera.nodeId} online={camera.online} disabled={closingSession} label={camera.label} />,
+        nodeId={camera.nodeId} online={camera.online} disabled={closingSession} label={camera.label} compact={landscape} />,
     }))}
     closableTakeIds={pending ? [] : closableTakes.map((take) => take.takeId)}
     notice={notice} pending={pending} focused={focused} confirmingClose={!!takeToClose}

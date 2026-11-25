@@ -21,10 +21,11 @@ const signal = (sender, session, target, nodeId, connectionId, details) =>
 test('NX-10 lazy preview resolves to a React wrapper that renders the native host view', async () => {
   let loadVideo;
   let rtcImports = 0;
+  let previewState;
   const nativeView = 'RTCVideoView';
   const dependencies = {
     react: { lazy: (load) => { loadVideo = load; return {}; }, useRef: () => ({}), useEffect() {},
-      useCallback: (callback) => callback, useState: (value) => [value] },
+      useCallback: (callback) => callback, useState: (value) => [previewState ?? value] },
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'react-native': { View: 'View' },
     'react-native-paper': {},
@@ -52,10 +53,22 @@ test('NX-10 lazy preview resolves to a React wrapper that renders the native hos
   assert.equal(element.props.streamURL, props.streamURL);
   assert.equal(element.props.objectFit, props.objectFit);
   assert.equal(element.props.onDimensionsChange, props.onDimensionsChange);
-  const frame = (compact) => exports.NodePreview({ label: 'MAIN', compact }).props.children[1].props.style;
-  assert.equal(frame(true).maxWidth, 320);
-  assert.equal(frame(true).aspectRatio, 16 / 9);
-  assert.equal(frame(false).maxWidth, undefined);
+  const frame = (compact) => exports.NodePreview({ label: 'MAIN', pair: {}, compact }).props.children[1];
+  assert.equal(frame(true), false);
+  assert.equal(frame(false).props.style.maxWidth, undefined);
+  previewState = { phase: 'connecting' };
+  assert.equal(frame(true), false);
+  previewState = { phase: 'connecting', streamURL: 'remote-stream' };
+  const compactFrame = frame(true);
+  const video = (frameNode) => frameNode.props.children.props.children;
+  assert.equal(compactFrame.props.style.maxWidth, 256);
+  assert.equal(compactFrame.props.style.aspectRatio, 16 / 9);
+  assert.equal(video(compactFrame).props.objectFit, 'contain');
+  previewState = { phase: 'streaming', streamURL: 'remote-stream' };
+  assert.equal(video(frame(false)).type, video(compactFrame).type);
+  assert.equal(video(frame(false)).props.streamURL, 'remote-stream');
+  previewState = { phase: 'disconnected' };
+  assert.equal(frame(true), false);
 });
 
 test('NX-10 camera cards keep their identities and original controls across orientations', () => {
@@ -86,6 +99,8 @@ test('NX-10 camera cards keep their identities and original controls across orie
   const wide = layout();
   assert.equal(wide.style.flexDirection, 'row');
   assert.deepEqual(Array.from(wide.children, (card) => card.props.style[1].width), ['49%', '49%']);
+  assert.equal(wide.style.alignItems, 'flex-start');
+  assert.equal(wide.children[0].props.children[2].props.style.flexDirection, 'row');
   const keys = Array.from(wide.children, (card) => card.key);
   const wideDock = render().find((x) => x?.type === 'Dock');
   assert.equal(wideDock.props.compact, true);
@@ -94,7 +109,9 @@ test('NX-10 camera cards keep their identities and original controls across orie
   assert.equal(narrow.style.flexDirection, 'column');
   assert.deepEqual(Array.from(narrow.children, (card) => card.key), keys);
   for (const [index, card] of narrow.children.entries()) {
-    const [, preview, record, photo, torch, zoom] = card.props.children;
+    const [, preview, actionsRow, zoom] = card.props.children;
+    assert.equal(actionsRow.props.style.flexDirection, 'column');
+    const [record, photo, torch] = actionsRow.props.children.map((cell) => cell.props.children);
     const { label } = cameras[index];
     assert.deepEqual([preview, photo, torch, zoom], [`preview:${label}`, `photo:${label}`, `torch:${label}`, `zoom:${label}`]);
     record.props.onPress();

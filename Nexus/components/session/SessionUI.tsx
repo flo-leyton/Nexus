@@ -16,6 +16,8 @@ export const sessionStyles = StyleSheet.create({
   between: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   control: { borderRadius: StudioShape.control },
   touch: { minHeight: StudioShape.touchTarget },
+  compactTouch: { minHeight: 44 },
+  compactLabel: { marginHorizontal: 8, marginVertical: 6 },
   flex: { flex: 1, minWidth: 120 },
   preview: { width: '100%', aspectRatio: 4 / 3, borderRadius: 12, overflow: 'hidden' },
 });

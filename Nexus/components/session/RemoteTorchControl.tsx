@@ -4,13 +4,14 @@ import { Button, Text } from 'react-native-paper';
 import type { getSessionService } from '@/services/session';
 import { sessionStyles } from './SessionUI';
 
-export function RemoteTorchControl({ service, sessionId, nodeId, online, disabled, label }: {
+export function RemoteTorchControl({ service, sessionId, nodeId, online, disabled, label, compact = false }: {
   service: Awaited<ReturnType<typeof getSessionService>>;
   sessionId: string;
   nodeId: string;
   online: boolean;
   disabled: boolean;
   label: string;
+  compact?: boolean;
 }) {
   const [request, setRequest] = useState<{ enabled: boolean; status: string } | null>(null);
   const [requestedOn, setRequestedOn] = useState(false);
@@ -57,13 +58,16 @@ export function RemoteTorchControl({ service, sessionId, nodeId, online, disable
     }
   };
   const action = online && requestedOn ? 'Apagar linterna' : 'Encender linterna';
-  return <View style={sessionStyles.stack}>
-    <Text variant="bodyMedium" accessibilityLiveRegion="polite">
+  const status = (!compact || request || !online) && <Text variant={compact ? 'bodySmall' : 'bodyMedium'} accessibilityLiveRegion="polite">
       {!online ? 'Linterna · cámara desconectada'
         : request ? `Última orden · ${request.enabled ? 'encender' : 'apagar'} · ${request.status}` : 'Linterna · sin orden reciente'}
-    </Text>
+    </Text>;
+  return <View style={compact ? { gap: 4 } : sessionStyles.stack}>
+    {!compact && status}
     <Button mode="outlined" icon={online && requestedOn ? 'flashlight-off' : 'flashlight'}
       accessibilityLabel={`${action} de ${label}`} disabled={!online || disabled || !!pending.current}
-      onPress={() => send(!requestedOn)} contentStyle={sessionStyles.touch}>{action}</Button>
+      onPress={() => send(!requestedOn)} contentStyle={compact ? sessionStyles.compactTouch : sessionStyles.touch}
+      labelStyle={compact ? sessionStyles.compactLabel : undefined}>{compact ? 'Linterna' : action}</Button>
+    {compact && status}
   </View>;
 }

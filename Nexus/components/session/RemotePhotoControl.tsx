@@ -4,9 +4,9 @@ import { sessionErrorMessage } from '@/hooks/use-studio-session';
 import type { getSessionService } from '@/services/session';
 import { sessionStyles } from './SessionUI';
 
-export function RemotePhotoControl({ service, sessionId, nodeId, disabled, label }: {
+export function RemotePhotoControl({ service, sessionId, nodeId, disabled, label, compact = false }: {
   service: Awaited<ReturnType<typeof getSessionService>>;
-  sessionId: string; nodeId: string; disabled: boolean; label: string;
+  sessionId: string; nodeId: string; disabled: boolean; label: string; compact?: boolean;
 }) {
   const [status, setStatus] = useState('');
   const request = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -35,7 +35,8 @@ export function RemotePhotoControl({ service, sessionId, nodeId, disabled, label
   }, [service, sessionId, nodeId]);
   return <>
     <Button mode="outlined" icon="camera-outline" accessibilityLabel={`Foto de ${label}`}
-      disabled={disabled || !!request.current} contentStyle={sessionStyles.touch} onPress={() => {
+      disabled={disabled || !!request.current} contentStyle={compact ? sessionStyles.compactTouch : sessionStyles.touch}
+      labelStyle={compact ? sessionStyles.compactLabel : undefined} onPress={() => {
         if (disabled || request.current) return;
         try {
           const id = service.requestPhoto(sessionId, nodeId);

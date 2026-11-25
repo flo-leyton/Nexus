@@ -39,21 +39,28 @@ export function ControllerTakeView(props: ControllerTakeViewProps) {
     {!props.canStart && !take && <Text variant="bodyMedium">Acepta los Nodes y prepara sus cámaras antes de REC.</Text>}
     {!!props.cameras.length && <SessionSection title="Control por cámara">
       <View style={{ rowGap: 12, flexDirection: columns ? 'row' : 'column', flexWrap: columns ? 'wrap' : 'nowrap',
-        justifyContent: columns ? 'space-between' : undefined }}>
+        justifyContent: columns ? 'space-between' : undefined, alignItems: columns ? 'flex-start' : undefined }}>
         {props.cameras.map((camera) => <View key={camera.nodeId ?? camera.deviceId}
           style={[sessionStyles.stack, { minWidth: 0, width: columns ? '49%' : '100%',
-            padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}>
+            padding: props.landscape ? 8 : 12, gap: props.landscape ? 6 : 12,
+            borderRadius: 12, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}>
           <View style={sessionStyles.between}><Text variant="titleMedium">{camera.label}</Text>
             <SessionBadge label={camera.status} />
           </View>
           {camera.preview}
-          <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
-            disabled={camera.recording ? !camera.canStop : !camera.canStart}
-            accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
-            onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
-            contentStyle={sessionStyles.touch}>{camera.recording ? 'STOP' : 'REC'}</Button>
-          {camera.photoControl}
-          {camera.torchControl}
+          <View style={{ flexDirection: props.landscape ? 'row' : 'column', alignItems: props.landscape ? 'flex-start' : 'stretch',
+            gap: props.landscape ? 6 : 12 }}>
+            <View style={props.landscape ? { flex: 1, minWidth: 0 } : undefined}>
+              <Button mode="outlined" icon={camera.recording ? 'stop' : 'record-circle'}
+                disabled={camera.recording ? !camera.canStop : !camera.canStart}
+                accessibilityLabel={`${camera.recording ? 'STOP' : 'REC'} ${camera.label}`}
+                onPress={() => camera.recording ? props.onStopCamera(camera.deviceId) : props.onStartCamera(camera.deviceId)}
+                contentStyle={props.landscape ? sessionStyles.compactTouch : sessionStyles.touch}
+                labelStyle={props.landscape ? sessionStyles.compactLabel : undefined}>{camera.recording ? 'STOP' : 'REC'}</Button>
+            </View>
+            <View style={props.landscape ? { flex: 1, minWidth: 0 } : undefined}>{camera.photoControl}</View>
+            <View style={props.landscape ? { flex: 1, minWidth: 0 } : undefined}>{camera.torchControl}</View>
+          </View>
           {camera.zoomControl}
         </View>)}
       </View>
