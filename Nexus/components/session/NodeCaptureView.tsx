@@ -31,23 +31,11 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
     style={sessionStyles.control} contentStyle={sessionStyles.touch}>{r.cameraPermission === 'granted' ? 'Volver a preparar cámara' : 'Comprobar / conceder permiso'}</Button>;
   return <View style={full ? { flex: 1 } : { gap: 8 }}>
     {!full && <View style={sessionStyles.between}>
-      <Text accessibilityRole="header" variant="titleMedium">Cámara del Node</Text>
+      <Text accessibilityRole="header" variant="titleLarge">Cámara</Text>
       <View style={sessionStyles.row} accessibilityLiveRegion="polite">
-        {p.phase !== 'ready' && <SessionBadge label={captureStatus} tone={p.phase === 'recording' ? 'recording' : p.phase === 'error' ? 'error' : p.phase === 'saved' ? 'success' : 'neutral'} />}
-        {!props.busy && <SessionBadge label={ready ? 'READY' : 'NO LISTO'} tone={ready ? 'success' : 'warning'} />}
+        {(p.phase !== 'ready' || !!props.photoStatus) && <SessionBadge label={captureStatus} tone={p.phase === 'recording' ? 'recording' : p.phase === 'error' ? 'error' : p.phase === 'saved' ? 'success' : 'neutral'} />}
       </View>
     </View>}
-    {!full && (needsSaveRetry || captureError || !props.accepted || props.reportError || r.cameraPermission !== 'granted') &&
-      <View key="capture-feedback" style={sessionStyles.stack}>
-        {(needsSaveRetry || captureError) && <SessionNotice title={needsSaveRetry ? 'El clip aún no está guardado' : captureError} tone="error">
-          {needsSaveRetry && <><Text variant="bodyMedium">Conserva esta pantalla y reintenta el guardado.</Text>
-            {!!captureError && <Text variant="bodyMedium">{captureError}</Text>}</>}
-        </SessionNotice>}
-        {!props.accepted && <SessionNotice title="Membresía no confirmada" tone="warning"><Text variant="bodyMedium">Una captura ya activa puede continuar. Puedes detener y guardar aquí; reanuda tu participación antes de iniciar otra.</Text></SessionNotice>}
-        {!!props.reportError && <SessionNotice title={props.reportError} tone="warning" />}
-        {r.cameraPermission !== 'granted' && prepareControl}
-        {!p.canAskAgain && r.cameraPermission !== 'granted' && <Text variant="bodyMedium">Concede permiso de cámara en los ajustes del teléfono y vuelve a la Session.</Text>}
-      </View>}
     <View key="preview" onLayout={props.onPreviewLayout} style={full
       ? { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', overflow: 'hidden' }
       : { backgroundColor: colors.surfaceVariant, borderRadius: 12, overflow: 'hidden' }}>
@@ -86,22 +74,34 @@ export function NodeCaptureView(props: NodeCaptureViewProps) {
     {!full && <View key="actions" style={sessionStyles.stack}>
       {p.phase === 'recording' ? <Button mode="contained" icon="stop" onPress={props.onStop}
         buttonColor={colors.error} textColor={colors.onError} style={sessionStyles.control} contentStyle={sessionStyles.touch}>Detener y guardar</Button> :
-        needsSaveRetry ? <Button mode="contained-tonal" icon="refresh" onPress={props.onRetrySave}
-          style={sessionStyles.control} contentStyle={sessionStyles.touch}>Reintentar guardado</Button> :
-          <Button mode="outlined" icon="record-circle-outline" disabled={!props.canRecord} onPress={props.onRecord}
-            style={sessionStyles.control} contentStyle={sessionStyles.touch}>Prueba local · sin audio</Button>}
+        needsSaveRetry && <Button mode="contained-tonal" icon="refresh" onPress={props.onRetrySave}
+          style={sessionStyles.control} contentStyle={sessionStyles.touch}>Reintentar guardado</Button>}
       {props.requiresConfirmation && <Button mode="contained" icon="check" disabled={props.confirmDisabled} onPress={props.onConfirmReady}
-        style={sessionStyles.control} contentStyle={sessionStyles.touch}>Confirmar READY para nueva toma</Button>}
-      {props.onPhoto && <Button mode="outlined" icon="camera-outline" disabled={!props.canRecord || !!props.photoStatus}
+        style={sessionStyles.control} contentStyle={sessionStyles.touch}>Confirmar READY</Button>}
+      {props.onPhoto && <Button mode="contained-tonal" icon="camera-outline" disabled={!props.canRecord || !!props.photoStatus}
         onPress={props.onPhoto} contentStyle={sessionStyles.touch}>Tomar foto</Button>}
     </View>}
-    {!full && <SessionDetails title="Detalles de cámara y toma">
+    {!full && (needsSaveRetry || captureError || !props.accepted || props.reportError || r.cameraPermission !== 'granted') &&
+      <View key="capture-feedback" style={sessionStyles.stack}>
+        {(needsSaveRetry || captureError) && <SessionNotice title={needsSaveRetry ? 'El clip aún no está guardado' : captureError} tone="error">
+          {needsSaveRetry && <><Text variant="bodyMedium">Conserva esta pantalla y reintenta el guardado.</Text>
+            {!!captureError && <Text variant="bodyMedium">{captureError}</Text>}</>}
+        </SessionNotice>}
+        {!props.accepted && <SessionNotice title="Participación sin confirmar" tone="warning"><Text variant="bodyMedium">Si estás grabando, puedes detener y guardar aquí. Reanuda tu participación antes de otra toma.</Text></SessionNotice>}
+        {!!props.reportError && <SessionNotice title={props.reportError} tone="warning" />}
+        {r.cameraPermission !== 'granted' && prepareControl}
+        {!p.canAskAgain && r.cameraPermission !== 'granted' && <Text variant="bodyMedium">Concede permiso de cámara en los ajustes del teléfono y vuelve a la Session.</Text>}
+      </View>}
+    {!full && <SessionDetails title="Herramientas de cámara">
+      {r.cameraPermission === 'granted' && prepareControl}
+      {p.phase !== 'recording' && !needsSaveRetry && <Button mode="outlined" icon="record-circle-outline"
+        disabled={!props.canRecord} onPress={props.onRecord} contentStyle={sessionStyles.touch}>Prueba local</Button>}
+    </SessionDetails>}
+    {!full && <SessionDetails title="Datos técnicos de cámara">
       {!!props.reasons.length && <Text variant="bodyMedium">{props.reasons.join(' · ')}</Text>}
       <Text variant="bodyMedium">Permiso: {r.cameraPermission} · Cámara: {r.cameraAvailable === null ? 'sin comprobar' : r.cameraAvailable ? 'disponible' : 'no disponible'} · Motor: {props.busy ? 'ocupado' : r.enginePrepared ? 'preparado' : 'sin preparar'}</Text>
       {props.takeId && <Text selectable variant="bodySmall">takeId: {props.takeId}</Text>}
-      {r.cameraPermission === 'granted' && prepareControl}
       {props.isWeb && <Text variant="bodyMedium">La captura persistente se prueba en Android o iOS.</Text>}
-      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Al salir a segundo plano se intenta detener y guardar. No se graba en segundo plano.</Text>
     </SessionDetails>}
   </View>;
 }

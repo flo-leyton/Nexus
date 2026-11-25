@@ -48,3 +48,37 @@ test('Studio presents one pending notice and keeps session identity in technical
   const failed = nodes(exports.StudioHome({ ...props, failed: true, notice: 'Error de ingreso' }));
   assert.deepEqual(failed.filter((item) => item?.type === 'Status').map((item) => item.props.message), ['Error de ingreso']);
 });
+
+test('Node keeps camera and recovery callbacks available while putting local recording in diagnostics', () => {
+  const jsx = (type, props, key) => ({ type, props, key });
+  const deps = {
+    'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
+    'react-native': { View: 'View', StyleSheet: {} },
+    'react-native-paper': { Button: 'Button', Text: 'Text', useTheme: () => ({ colors: {} }) },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0 }) },
+    './SessionUI': { SessionDetails: 'Details', SessionBadge: 'Badge', SessionNotice: 'Notice', sessionStyles: {} },
+    './PreviewZoomSlider': {},
+  };
+  const source = fs.readFileSync('components/session/NodeCaptureView.tsx', 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, require: (name) => deps[name] });
+  const camera = { type: 'CameraView' };
+  const props = { camera, accepted: true, reasons: [], requiresConfirmation: true, canRecord: true,
+    preparation: { phase: 'ready', readiness: { cameraPermission: 'granted' } },
+    onStop() {}, onRecord() {}, onPrepare() {}, onPhoto() {}, onConfirmReady() {}, onRetrySave() {} };
+  const render = (overrides) => exports.NodeCaptureView({ ...props, ...overrides }).props.children;
+  const normal = render();
+  const preview = (tree) => tree.find((item) => item?.key === 'preview');
+  const actions = (tree) => tree.find((item) => item?.key === 'actions').props.children.filter(Boolean);
+  assert.equal(preview(normal).props.children[0], camera);
+  assert.equal(preview(render({ fullPreview: true })).props.children[0], camera);
+  assert.equal(actions(normal).some((item) => item.props.onPress === props.onRecord), false);
+  const tools = normal.find((item) => item?.props?.title === 'Herramientas de cámara');
+  assert.deepEqual(Array.from(tools.props.children, (item) => item.props.onPress), [props.onPrepare, props.onRecord]);
+  assert.deepEqual(Array.from(actions(normal), (item) => item.props.onPress), [props.onConfirmReady, props.onPhoto]);
+  assert.equal(actions(render({ accepted: false, preparation: { ...props.preparation, phase: 'recording' } }))[0].props.onPress, props.onStop);
+  assert.equal(actions(render({ preparation: { ...props.preparation, pendingSave: true } }))[0].props.onPress, props.onRetrySave);
+});

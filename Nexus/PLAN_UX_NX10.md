@@ -70,21 +70,22 @@ El dispositivo publica nombre y modelo con la presencia existente de Expo Device
 - **IMPLEMENTADA** · Mostrar solo una causa breve y real cuando una cámara no está lista.
 - **IMPLEMENTADA** · Conservar diagnóstico técnico en apartados expandibles.
 
-La revisión física de los datos descriptivos queda pendiente. Para desplegarlos en Render DEV-B hace falta autorización, publicar el commit y verificar la configuración de `nexusStudio/relayDevB` antes del despliegue manual. El formato durable sigue siendo compatible y carece de migración. El relay anterior serializa solo sus campos conocidos, por lo que un rollback después de guardar datos descriptivos podría perder esos campos. Antes de desplegar, acordar una reversión que preserve metadatos (por ejemplo, una revisión de rollback que conserve el serializador actualizado).
+**VERIFICADA por el operador, 25 de noviembre de 2026.** Probó `cf8a1f8` en LAN con el emulador RTDB y el registro aislado `nexusStudio/relayDevBBlockB`. Confirmó nombre y descripción de sesión, fecha automática de creación, nombre del dispositivo, aceptación, rol y READY. Esta evidencia corresponde al entorno LAN.
+
+Para desplegar los datos descriptivos en Render DEV-B hace falta autorización, publicar el commit y verificar la configuración de `nexusStudio/relayDevB` antes del despliegue manual. El formato durable sigue siendo compatible y carece de migración. El relay anterior serializa solo sus campos conocidos, por lo que un rollback después de guardar datos descriptivos podría perder esos campos. Antes de desplegar, acordar una reversión que preserve metadatos (por ejemplo, una revisión de rollback que conserve el serializador actualizado).
 
 ## BLOQUE C — INTERFAZ DEL NODE
 
-`NodeReadinessPanel.tsx`, `components/session/NodeCaptureView.tsx` y `app/session/[id].tsx`. Presentación y ubicación del diagnóstico. Preservar preparación y recuperación de cámara.
+`components/session/NodeCaptureView.tsx`, `components/session/NodeParticipation.tsx` y `app/session/[id].tsx`. La cámara y sus acciones preceden los avisos de recuperación. «Herramientas de cámara» conserva la preparación y la prueba local. «Datos técnicos de cámara» reúne permisos, motor e identificador de toma. «Participación» utiliza el nombre o modelo local del teléfono y muestra solo los datos del propio Node. Falta la revisión física del Bloque C.
 
-- **PENDIENTE** · Dar protagonismo a la vista de cámara.
-- **PENDIENTE** · Retirar «Prueba local» de la pantalla principal, preservando la función en herramientas de diagnóstico si todavía es necesaria.
-- **PENDIENTE** · Simplificar «Detalles de cámara y toma».
-- **PENDIENTE** · Mantener «Volver a preparar cámara» y las herramientas de recuperación.
-- **PENDIENTE** · Reducir la sección «Participación» a información útil del propio Node: nombre del teléfono, rol, sesión y estado de conexión.
-- **PENDIENTE** · Evitar listar todos los identificadores y datos técnicos de los demás dispositivos.
-- **PENDIENTE** · Conservar «Confirmar READY», «Tomar foto» y «Reanudar participación», respetando la recuperación de rol cuando corresponda.
-- **PENDIENTE** · No añadir un aviso permanente de «Grabación sin audio» a la interfaz principal.
-- **PENDIENTE** · No mostrar afirmaciones engañosas sobre capacidades de audio.
+- **IMPLEMENTADA** · Dar protagonismo a la vista de cámara.
+- **IMPLEMENTADA** · Retirar «Prueba local» de la pantalla principal, preservando la función en herramientas de diagnóstico.
+- **IMPLEMENTADA** · Simplificar «Detalles de cámara y toma».
+- **IMPLEMENTADA** · Mantener «Volver a preparar cámara» y las herramientas de recuperación.
+- **IMPLEMENTADA** · Reducir «Participación» al nombre del teléfono, rol, sesión y estado de conexión y READY.
+- **IMPLEMENTADA** · Mostrar solo los identificadores técnicos del propio Node, en un desplegable.
+- **IMPLEMENTADA** · Conservar «Confirmar READY», «Tomar foto» y «Reanudar participación», respetando la recuperación de rol.
+- **IMPLEMENTADA** · Usar avisos operativos breves sin añadir afirmaciones sobre audio.
 
 ## BLOQUE D — TOMAS, VIDEOS Y FOTOGRAFÍAS
 

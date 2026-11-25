@@ -126,7 +126,7 @@ El 25 de noviembre de 2026 el operador aprobó físicamente `76e058f`. Confirmó
 
 ### NX-10 · Bloque B de UX/UI
 
-El 25 de noviembre de 2026 el operador comunicó la aprobación física de la parte visual de `23eda26`. La ampliación posterior permite editar el nombre y la descripción desde el Controller, asigna la fecha de creación en el relay para sesiones nuevas y utiliza la etiqueta del teléfono cuando el relay recibe ese dato en la conexión autenticada. Las sesiones anteriores conservan el código, los permisos y la ausencia de una fecha inicial desconocida. Falta probar físicamente la ampliación. El [plan UX/UI](PLAN_UX_NX10.md) recoge las condiciones para llevarla a Render DEV-B.
+El 25 de noviembre de 2026 el operador comunicó la aprobación física de la parte visual de `23eda26`. También confirmó que en `cf8a1f8` pasaron nombre y descripción de sesión, fecha automática, nombre del teléfono, aceptación del Node, asignación de rol y READY. La prueba de `cf8a1f8` se realizó en LAN con el emulador RTDB y el registro aislado `nexusStudio/relayDevBBlockB`. El [plan UX/UI](PLAN_UX_NX10.md) recoge las condiciones pendientes para Render DEV-B.
 
 ### NX-08 · Gestión de originales locales
 

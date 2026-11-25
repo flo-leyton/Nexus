@@ -9,7 +9,7 @@ import { Button, Text } from 'react-native-paper';
 import { formatBytes } from '@/components/MediaAssetCard';
 import { SessionPage } from '@/components/session/SessionPage';
 import { useExperimentalPreview } from '@/components/session/ExperimentalPreview';
-import { SessionSection, SessionDetails, sessionStyles, sessionStateLabel } from '@/components/session/SessionUI';
+import { SessionSection, SessionDetails, sessionStyles } from '@/components/session/SessionUI';
 import { SessionAdmissionView, SessionCloseView } from '@/components/session/SessionAdmissionView';
 import { SessionImportView } from '@/components/session/SessionImportView';
 import { SessionImportedMediaRow } from '@/components/session/SessionImportedMediaRow';
@@ -18,6 +18,7 @@ import { NodeRoleEditor } from '@/components/NodeRoleEditor';
 import { SessionHeader } from '@/components/session/SessionHeader';
 import { SessionDescriptionEditor } from '@/components/session/SessionDescriptionEditor';
 import { SessionMemberRow } from '@/components/session/SessionMemberRow';
+import { NodeParticipation } from '@/components/session/NodeParticipation';
 import { LocalCapturesPanel } from '@/components/LocalCapturesPanel';
 import { ControllerTakePanel } from '@/components/ControllerTakePanel';
 import { TakeMediaPanel } from '@/components/TakeMediaPanel';
@@ -305,17 +306,12 @@ export default function SessionScreen() {
           {Object.values(session.members).filter((member) => member.kind === 'controller').map((member) =>
             <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
         </SessionDetails>
-      </> : <>
-        <Text variant="bodyMedium">Estado de la sesión: {sessionStateLabel[session.state]}</Text>
-        <Text variant="bodyMedium">Ingreso aceptado · Node · rol: {session.members[deviceId]?.role}</Text>
+      </> : session.members[deviceId]?.kind === 'node' && <NodeParticipation session={session} member={session.members[deviceId]} connected={connected}>
         {session.members[deviceId]?.online === false && <Button mode="contained-tonal" disabled={captureBusy} onPress={() => {
           try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
           catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
         }} contentStyle={sessionStyles.touch}>Reanudar participación · conservar rol</Button>}
-        <SessionDetails title="Miembros aceptados">
-          {Object.values(session.members).map((member) => <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
-        </SessionDetails>
-      </>}
+      </NodeParticipation>}
     </SessionSection>}
     console={isController && service && session && (cameraMembers.length > 0 || !!session.take || !!session.takeHistory?.length) &&
       <ControllerTakePanel service={service} session={session} closingSession={closingSession}
