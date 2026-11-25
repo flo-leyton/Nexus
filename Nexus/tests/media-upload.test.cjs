@@ -129,12 +129,12 @@ test('H3.2: manual H1 clip uploads without fabricating Take membership or notify
   assert.equal(h.asset.takeId, null);
 });
 
-function adapterFixture() {
+function adapterFixture(os = 'android') {
   const calls = [];
   const state = { size: 256, exists: true, response: { status: 200, body: JSON.stringify({ public_id: 'nexus/stable',
     secure_url: 'https://res.cloudinary.com/test/video/upload/nexus/stable.mp4', resource_type: 'video', bytes: 256 }) } };
   const adapter = load('../services/cloudinary.ts', {
-    'expo-crypto': { randomUUID: () => 'import-id' }, 'expo/fetch': {}, 'react-native': { Platform: { OS: 'android' } },
+    'expo-crypto': { randomUUID: () => 'import-id' }, 'expo/fetch': {}, 'react-native': { Platform: { OS: os } },
     './sessionProtocol': protocol, 'expo-file-system/legacy': {
       FileSystemUploadType: { MULTIPART: 1 }, getInfoAsync: async () => ({ exists: state.exists, size: state.size, isDirectory: false }),
       uploadAsync: async (...args) => { calls.push(args); if (state.error) throw state.error; return state.response; },
@@ -195,13 +195,31 @@ test('H3 regression: upload diagnostics identify the failing field rather than b
   }
 });
 
-test('H3.2 adapter: verifies original existence, bytes and 80 MB limit before HTTP', async () => {
+test('H3.2 adapter: verifies original existence and byte count before HTTP', async () => {
   const h = adapterFixture(); h.state.exists = false;
   await assert.rejects(h.upload(), /no existe/);
   h.state.exists = true; h.state.size = 0; await assert.rejects(h.upload(), /vacío/);
   h.state.size = 257; await assert.rejects(h.upload(), /tamaño/);
-  h.state.size = 81 * 1024 * 1024; h.input.expectedBytes = h.state.size;
-  await assert.rejects(h.upload(), /80 MB/); assert.equal(h.calls.length, 0);
+  assert.equal(h.calls.length, 0);
+});
+
+test('Android original videos stream from their URI up to 100 MB; other routes retain their limits', async () => {
+  const h = adapterFixture();
+  for (const size of [Math.ceil(94.2 * 1024 * 1024), 100_000_000]) {
+    h.state.size = h.input.expectedBytes = size;
+    await h.upload();
+    assert.equal(h.calls.at(-1)[1], h.input.uri);
+    assert.equal(h.calls.at(-1)[2].uploadType, 1);
+  }
+  h.state.size = h.input.expectedBytes = 100_000_001;
+  await assert.rejects(h.upload(), /100 MB/);
+  await assert.rejects(h.adapter.uploadMediaAsset({ ...h.input, source: 'import' }), /80 MB/);
+  await assert.rejects(h.adapter.uploadMediaAsset({ ...h.input, resourceType: 'image', mimeType: 'image/jpeg' }), /80 MB/);
+  assert.equal(h.calls.length, 2);
+  const ios = adapterFixture('ios');
+  ios.state.size = ios.input.expectedBytes = 95_000_000;
+  await assert.rejects(ios.upload(), /80 MB/);
+  assert.equal(ios.calls.length, 0);
 });
 
 test('H3.2 adapter: no success on timeout or invalid response; generated remote ID is authoritative', async () => {

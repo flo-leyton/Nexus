@@ -6,12 +6,14 @@ import type { getSessionService } from '@/services/session';
 import type { SessionSnapshot } from '@/services/sessionClient';
 
 type Service = Awaited<ReturnType<typeof getSessionService>>;
-export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false, pendingInParent = false }: {
-  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean; consoleMode?: boolean; pendingInParent?: boolean;
+export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = false, pendingInParent = false, scope }: {
+  service: Service; snapshot: SessionSnapshot; deviceId: string; blocked?: boolean; pendingInParent?: boolean;
+  scope?: { sessionId: string; confirmed: boolean; canResume: boolean };
 }) {
   const request = useRef<string | null>(null);
   const target = useRef<string | null>(null);
   const [notice, setNotice] = useState('');
+  const scopedSessionId = scope?.sessionId;
   useEffect(() => {
     let connectedBefore = service.getSnapshot().connection === 'Connected';
     return service.subscribe((state) => {
@@ -21,7 +23,7 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
     const event = state.lastEvent;
     if (!event) return;
     if (event.type === 'SESSION_SNAPSHOT' && event.sessionId === target.current && event.payload.session.members[deviceId]?.kind === 'node' && event.payload.session.members[deviceId]?.online !== false) {
-      request.current = null; setNotice('Participación autorizada. Abre la Session, prepara la cámara y confirma READY si se solicita.');
+      request.current = null; setNotice(scopedSessionId ? 'Participación confirmada.' : 'Participación autorizada. Abre la Session, prepara la cámara y confirma READY si se solicita.');
     } else if (event.payload.requestId === request.current) {
       if (event.type === 'SESSION_JOIN_PENDING') setNotice('');
       if (event.type === 'SESSION_JOIN_REJECTED' || event.type === 'SESSION_ERROR') {
@@ -32,22 +34,28 @@ export function RejoinSessionPanel({ service, snapshot, deviceId, blocked = fals
       request.current = null; setNotice('La sesión finalizó. Ingresa a otra mediante su código.');
     }
     });
-  }, [service, deviceId]);
-  const last = snapshot.lastNodeSession;
-  const isMember = last && !!snapshot.sessions[last.sessionId]?.members[deviceId] && snapshot.sessions[last.sessionId]?.members[deviceId]?.online !== false;
+  }, [service, deviceId, scopedSessionId]);
+  const remembered = snapshot.lastNodeSession;
+  const last = !scope || remembered?.sessionId === scope.sessionId ? remembered : null;
+  const isMember = scope?.confirmed ?? (last && !!snapshot.sessions[last.sessionId]?.members[deviceId] && snapshot.sessions[last.sessionId]?.members[deviceId]?.online !== false);
   const connected = snapshot.connection === 'Connected';
   const disabled = !connected || snapshot.joinInFlight || blocked;
-  const pending = !pendingInParent && Object.values(snapshot.pending).some((requests) => requests.some((item) => item.deviceId === deviceId));
-  if ((!last || isMember) && !notice && !pending && !snapshot.historyError) return null;
-  return <RejoinSessionView last={last} showLast={!!last && !isMember} disabled={!!disabled} connected={connected} blocked={blocked}
+  const pending = !pendingInParent && Object.entries(snapshot.pending).some(([id, requests]) =>
+    (!scope || scope.sessionId === id) && requests.some((item) => item.deviceId === deviceId));
+  const showRecovery = !isMember && !(scope && pending) && (!!last || scope?.canResume === true);
+  if (!showRecovery && !notice && !pending && !snapshot.historyError) return null;
+  return <RejoinSessionView last={last} showRecovery={showRecovery} compact={!!scope} disabled={!!disabled} connected={connected} blocked={blocked}
     pending={pending} notice={notice} historyError={snapshot.historyError}
     onResume={() => {
-      try { target.current = last!.sessionId; request.current = service.resumeSession(last!.sessionId); setNotice('Verificando participación persistida…'); }
+      const id = scope?.sessionId ?? last?.sessionId;
+      if (!id) return;
+      try { target.current = id; request.current = service.resumeSession(id); setNotice('Verificando participación persistida…'); }
       catch (error) { setNotice(sessionErrorMessage(error)); }
     }}
     onRejoin={() => {
-      if (request.current || service.getSnapshot().joinInFlight) return;
-      try { target.current = last!.sessionId; request.current = service.requestRejoin(); setNotice('Enviando solicitud de reingreso…'); }
+      const current = service.getSnapshot();
+      if (!last || current.lastNodeSession?.sessionId !== last.sessionId || request.current || current.joinInFlight) return;
+      try { target.current = last.sessionId; request.current = service.requestRejoin(); setNotice('Enviando solicitud de reingreso…'); }
       catch (error) { setNotice(sessionErrorMessage(error)); }
     }} />;
 }

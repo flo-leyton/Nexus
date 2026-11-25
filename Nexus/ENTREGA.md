@@ -168,6 +168,12 @@ En la APK de `b67bfba` el operador comparó la cámara vertical del Node con la 
 
 Para diagnosticar una APK que incluya el ajuste, habilitar `DEBUG` para `NexusNx10Preview` y `NexusNx10Bridge` con `adb shell setprop log.tag.NexusNx10Preview DEBUG` y `adb shell setprop log.tag.NexusNx10Bridge DEBUG`. Las líneas por cuadro se cruzan por `ts_ns` en el mismo Node. En el Controller, `EXPO_PUBLIC_NEXUS_NX10_TRACE=1` muestra `rtcview-dimensions` al cambiar la resolución y `frameSize` en las muestras RTP cuando WebRTC informa esas métricas. Las dimensiones por sí solas no establecen si el contenido está derecho. Usar una flecha y un círculo en ambos Nodes, en vertical y horizontal, y comprobar las dos vistas activas antes de repetir REC/STOP y verificar los originales.
 
+### NX-10 · Límite de subida y recuperación del Node
+
+El operador confirmó físicamente la corrección de orientación de WebRTC y los metadatos del Bloque B. La subida que Nexus rechazaba antes de contactar a Cloudinary era un original de 94,2 MB. Android sube los videos originales por URI mediante el multipart nativo de OkHttp, así que el límite de esa ruta pasa a 100 000 000 bytes. Importaciones, fotos, web e iOS conservan el límite previo. Los estados de reintento y la publicación de la referencia siguen su flujo actual. La aceptación del archivo real por la cuenta y el preset queda pendiente.
+
+Participación concentra arriba de Cámara la confirmación, reanudación y solicitud de reingreso de la sesión abierta, con un solo desplegable técnico. La conexión al relay se muestra por separado del estado de membresía. La cámara conserva su clave y sus acciones. Para revisar en Android, recargar Metro con el relay aislado de 8083, intentar la subida del original y probar recuperación con el relay conectado y el Node todavía sin confirmar.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

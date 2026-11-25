@@ -31,6 +31,7 @@ type CloudinaryUploadResponse = {
 };
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
+const MAX_ANDROID_CAPTURE_VIDEO_BYTES = 100_000_000;
 
 function requiredPublicEnv(name: string, value: string | undefined) {
   const normalized = value?.trim();
@@ -101,9 +102,11 @@ async function uploadFromNative(
   }
   if (!info.exists || info.isDirectory || !Number.isFinite(info.size) || info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado no existe, está vacío o no puede leerse.');
   if (input.expectedBytes !== undefined && info.size !== input.expectedBytes) throw new Error('LOCAL FILE ERROR: el tamaño del original cambió desde su verificación.');
-  if (typeof info.size === 'number' && info.size <= 0) throw new Error('LOCAL FILE ERROR: el archivo seleccionado está vacío.');
-  if (typeof info.size === 'number' && info.size > MAX_UPLOAD_BYTES) {
-    throw new Error('LOCAL FILE ERROR: el archivo supera el máximo de 80 MB.');
+  // Android's native multipart implementation streams the file with OkHttp.
+  const largerVideo = Platform.OS === 'android' && input.source === 'capture' &&
+    input.resourceType !== 'image' && mimeType.startsWith('video/');
+  if (info.size > (largerVideo ? MAX_ANDROID_CAPTURE_VIDEO_BYTES : MAX_UPLOAD_BYTES)) {
+    throw new Error(`LOCAL FILE ERROR: el archivo supera el máximo de ${largerVideo ? 100 : 80} MB.`);
   }
 
   const response = await FileSystem.uploadAsync(endpoint, input.uri, {

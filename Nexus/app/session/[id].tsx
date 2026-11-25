@@ -4,13 +4,13 @@ import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-ro
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Text } from 'react-native-paper';
+import { Text } from 'react-native-paper';
 
 import { formatBytes } from '@/components/MediaAssetCard';
 import { useMediaViewer } from '@/components/MediaViewer';
 import { SessionPage } from '@/components/session/SessionPage';
 import { useExperimentalPreview } from '@/components/session/ExperimentalPreview';
-import { SessionSection, SessionDetails, sessionStyles } from '@/components/session/SessionUI';
+import { SessionSection, SessionDetails } from '@/components/session/SessionUI';
 import { SessionAdmissionView, SessionCloseView } from '@/components/session/SessionAdmissionView';
 import { SessionImportView } from '@/components/session/SessionImportView';
 import { SessionImportedMediaRow } from '@/components/session/SessionImportedMediaRow';
@@ -281,10 +281,21 @@ export default function SessionScreen() {
 
   if (!sessionId) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Sesión no válida.</Text></View>;
 
+  const cachedSession = snapshot?.sessions[sessionId];
+  const cachedMember = cachedSession?.members[deviceId];
+  const nodeMember = cachedMember?.kind === 'node' ? cachedMember : undefined;
+  const lastNodeSession = snapshot?.lastNodeSession;
+  const remembered = lastNodeSession?.sessionId === sessionId ? lastNodeSession : undefined;
+  const retainedNode = localNode?.sessionId === sessionId ? localNode : undefined;
+  const showParticipation = !isController && !!(nodeMember || remembered || retainedNode ||
+    snapshot?.pending[sessionId]?.some((request) => request.deviceId === deviceId));
+  const nodeSessionClosed = sessionClosed || cachedSession?.state === 'closed';
+  const nodeConfirmed = connected && session?.members[deviceId]?.kind === 'node' && session.members[deviceId].online !== false;
+
   return <><SessionPage topInset={insets.top} fullPreview={fullPreview} controllerLandscape={controllerLandscape} onBack={() => router.back()}
-    header={<><SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
+    header={!showParticipation && <><SessionHeader sessionId={sessionId} deviceId={deviceId} code={session?.code}
       name={session?.name} description={session?.description} createdAt={session?.createdAt}
-      role={session ? isController ? 'Controller' : 'Node' : undefined} compact={!!localNode && localNode.sessionId === sessionId}
+      role={session ? isController ? 'Controller' : 'Node' : undefined}
       connected={connected} connectionLabel={connectionLabel(snapshot?.connection)}
       notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket} />
       {isController && service && session?.supportsSessionDetails && session.state !== 'closed' &&
@@ -296,8 +307,16 @@ export default function SessionScreen() {
       fullPreview={fullPreview} onPreviewChange={(expanded) => setFullPreviewNodeId(expanded ? localNode.nodeId : null)}
       accepted={session?.members[deviceId]?.nodeId === localNode.nodeId && session?.members[deviceId]?.online !== false && session?.state !== 'closed'}
       sessionClosed={sessionClosed} onBusyChange={setCaptureBusy} onSaved={captureSaved} />}
-    members={session && <SessionSection title={isController ? 'Dispositivos de la sesión' : 'Participación'}>
-      {isController ? <>
+    members={showParticipation ? <SessionSection title="Participación">
+      <NodeParticipation session={cachedSession} member={nodeMember} sessionId={sessionId} deviceId={deviceId}
+        nodeId={nodeMember?.nodeId ?? retainedNode?.nodeId} code={remembered?.code} connected={connected}
+        connectionLabel={connectionLabel(snapshot?.connection)} confirmed={nodeConfirmed} closed={nodeSessionClosed}
+        notice={serviceError || sessionNotice} error={sessionFailed || !!serviceError} onRefresh={refresh} onConnect={connectSocket}>
+        {!nodeSessionClosed && service && snapshot && <RejoinSessionPanel key={sessionId} service={service} snapshot={snapshot}
+          deviceId={deviceId} blocked={captureBusy}
+          scope={{ sessionId, confirmed: nodeConfirmed, canResume: !!(nodeMember || retainedNode) }} />}
+      </NodeParticipation>
+    </SessionSection> : isController && session && <SessionSection title="Dispositivos de la sesión">
         {!cameraMembers.length && <Text variant="bodyMedium">Aún no hay cámaras. Comparte el código de sesión para agregarlas.</Text>}
         {cameraMembers.map((member) => <View key={member.deviceId} style={{ paddingVertical: 6 }}>
           <SessionMemberRow member={member} connected={connected} isSelf={member.deviceId === deviceId}>
@@ -308,18 +327,10 @@ export default function SessionScreen() {
           {Object.values(session.members).filter((member) => member.kind === 'controller').map((member) =>
             <SessionMemberRow key={member.deviceId} member={member} connected={connected} isSelf={member.deviceId === deviceId} />)}
         </SessionDetails>
-      </> : session.members[deviceId]?.kind === 'node' && <NodeParticipation session={session} member={session.members[deviceId]} connected={connected}>
-        {session.members[deviceId]?.online === false && <Button mode="contained-tonal" disabled={captureBusy} onPress={() => {
-          try { refreshId.current = service!.resumeSession(sessionId); setSessionNotice('Verificando y reanudando participación…'); }
-          catch (cause) { setSessionNotice(sessionErrorMessage(cause)); }
-        }} contentStyle={sessionStyles.touch}>Reanudar participación · conservar rol</Button>}
-      </NodeParticipation>}
     </SessionSection>}
     console={isController && service && session && (cameraMembers.length > 0 || !!session.take || !!session.takeHistory?.length) &&
       <ControllerTakePanel service={service} session={session} closingSession={closingSession}
       previewTargets={preview.targets} previewEnabled={preview.enabled} landscape={controllerLandscape} />}
-    rejoin={(!session || session.members[deviceId]?.online === false) && service && snapshot &&
-      <RejoinSessionPanel consoleMode service={service} snapshot={snapshot} deviceId={deviceId} blocked={captureBusy} />}
     admission={isController && session && <SessionAdmissionView requests={snapshot?.pending[sessionId] ?? []} deciding={deciding} onDecision={decide} />}
     media={<SessionSection title="Tomas y medios" description="Resultados de toma, originales locales y referencias remotas tienen fuentes diferentes.">
       {isController && session && <>

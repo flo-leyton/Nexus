@@ -96,8 +96,12 @@ function Preview() {
           notice={offline ? 'Sin relay. La captura local puede continuar.' : 'Escena aislada de componentes reales.'} error={offline} onConnect={() => action('CONNECT')} onRefresh={() => action('REFRESH')} />
       </View>}
       capture={node && <NodeOwnerProbe key="demo-node-01" scenario={scenario} onAction={action} />}
-      members={!offline && scenario !== 'media' && <SessionSection title={node ? 'Participación' : 'Dispositivos de la sesión'}>
-        {node ? <Text variant="bodyMedium">Node · Cámara principal</Text> : <>
+      members={scenario !== 'media' && <SessionSection title={node ? 'Participación' : 'Dispositivos de la sesión'}>
+        {node ? <>
+          <Text variant="bodyMedium">Node · Cámara principal</Text>
+          {offline && <RejoinSessionView last={{ code: 'K7M2Q9', sessionId: 'demo-session' }} showRecovery compact disabled
+            connected={false} blocked pending={false} notice="" historyError={null} onResume={() => action('RESUME')} onRejoin={() => action('REJOIN')} />}
+        </> : <>
           <Text variant="bodyMedium">{partial || interrupted ? 1 : 2} / 2 Nodes online</Text>
           {Object.values(session.members).filter(m => m.kind === 'node').map(member => <SessionMemberRow key={member.deviceId} member={member} connected isSelf={false}>
             {member.online && <NodeRoleEditorView compact deviceId={member.deviceId} draft={draft} busy={rolePending} notice={rolePending ? 'Esperando ACK del Node…' : ''} onChange={setDraft} onAssign={() => { action('ROLE'); setRolePending(true); }} />}
@@ -109,7 +113,6 @@ function Preview() {
         pending={pending} notice={pending ? 'Esperando respuesta del relay…' : ''} confirmingClose={confirmTake} focused
         onStart={() => { action('REC'); setScenario('controller-pending'); }} onStop={() => action('STOP')} onStartCamera={() => action('REC')} onStopCamera={() => action('STOP')} onRequestClose={() => setConfirmTake(true)} onClose={() => action('CLOSE-take')} onCancelClose={() => setConfirmTake(false)} />}
       admission={!node && <SessionAdmissionView requests={[{ deviceId: 'demo-applicant-03', requestId: 'demo-request', online: scenario !== 'admission-offline' }]} deciding={{}} onDecision={(_r, accept) => action(accept ? 'ACCEPT' : 'REJECT')} />}
-      rejoin={offline && <RejoinSessionView last={{ code: 'K7M2Q9', sessionId: 'demo-session' }} showLast disabled connected={false} blocked pending={false} notice="" historyError={null} onResume={() => action('RESUME')} onRejoin={() => action('REJOIN')} />}
       media={showMedia ? media : <SessionSection title="Tomas y medios"><Text variant="bodyMedium">No hay referencias o capturas nuevas en esta escena.</Text></SessionSection>}
       imports={<SessionImportView selected={scenario === 'import' ? { uri: 'file:///synthetic/selection.mp4', width: 1920, height: 1080, type: 'video', fileName: 'seleccion.mp4', fileSize: 6000000 } : null}
         status={scenario === 'import' ? 'selected' : 'idle'} message="Imágenes o vídeos de hasta 80 MB." hasLastSaved={false} onSelect={() => action('SELECT')} onUpload={() => action('IMPORT-upload')} onOpenLast={() => action('OPEN-last')} />}

@@ -119,3 +119,43 @@ test('Node keeps local REC and STOP visible with the original camera and recover
   assert.equal(stop.props.onPress, props.onStop);
   assert.equal(actions(render({ preparation: { ...props.preparation, pendingSave: true } }))[0].props.onPress, props.onRetrySave);
 });
+
+test('Node recovery stays above the keyed camera and never requests reentry to another session', () => {
+  const jsx = (type, props) => ({ type, props });
+  const deps = {
+    'react/jsx-runtime': { jsx },
+    react: { useEffect() {}, useRef: (current) => ({ current }), useState: (value) => [value, () => {}] },
+    './session/RejoinSessionView': { RejoinSessionView: 'Recovery' },
+    '@/hooks/use-studio-session': {},
+  };
+  const source = fs.readFileSync('components/RejoinSessionPanel.tsx', 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, require: (name) => deps[name] });
+  const calls = [];
+  const snapshot = { connection: 'Connected', sessions: {}, pending: {},
+    lastNodeSession: { sessionId: 'other', code: 'ABC123' } };
+  const service = { getSnapshot: () => snapshot, resumeSession: (id) => calls.push(id), requestRejoin: () => calls.push('rejoin') };
+  const scope = { sessionId: 'open', confirmed: false, canResume: true };
+  const render = (overrides = {}) => exports.RejoinSessionPanel({ service, snapshot, deviceId: 'node', scope, ...overrides });
+  const active = render().props;
+  assert.equal(active.last, null);
+  assert.equal(active.showRecovery, true);
+  active.onRejoin();
+  active.onResume();
+  assert.deepEqual(calls, ['open']);
+  assert.equal(render({ blocked: true }).props.disabled, true);
+  assert.equal(render({ scope: { ...scope, confirmed: true } }), null);
+  snapshot.lastNodeSession = { sessionId: 'open', code: 'DEF456' };
+  render().props.onRejoin();
+  assert.deepEqual(calls, ['open', 'rejoin']);
+  snapshot.pending.open = [{ deviceId: 'node' }];
+  assert.equal(render().props.showRecovery, false);
+  assert.equal(render().props.pending, true);
+  const route = fs.readFileSync('app/session/[id].tsx', 'utf8');
+  assert.match(route, /members=\{showParticipation[\s\S]*?<NodeParticipation[\s\S]*?<RejoinSessionPanel/);
+  assert.match(route, /<NodeReadinessPanel key=\{localNode\.nodeId\}/);
+  assert.doesNotMatch(route, /rejoin=\{|conservar rol<\/Button>/);
+});
