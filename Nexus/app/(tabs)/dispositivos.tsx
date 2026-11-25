@@ -1,5 +1,4 @@
-import { router } from 'expo-router';
-import { Button, Text } from 'react-native-paper';
+import { Button } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
@@ -35,10 +34,6 @@ export default function DevicesScreen() {
             <ThemedText type="subtitle">Dispositivo remoto</ThemedText>
             <ThemedText>Esperando otro dispositivo...</ThemedText>
           </ThemedView>}
-        <Text variant="titleMedium">Herramientas heredadas A/B</Text>
-        <Text>Pruebas de diagnostico. A/B no asigna roles MAIN/SIDE de Session. El control remoto exige Controller y un unico Node autorizado en una unica Session.</Text>
-        <Button mode="outlined" icon="vibrate" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/vibracion')}>Vibracion A/B</Button>
-        <Button mode="outlined" icon="flashlight" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/linterna')}>Linterna A/B</Button>
         <ThemedText style={styles.note}>La informacion se actualiza al abrir esta pantalla y cada 30 segundos mientras la app esta activa y conectada.</ThemedText>
       </ScrollView>
     </ThemedView>

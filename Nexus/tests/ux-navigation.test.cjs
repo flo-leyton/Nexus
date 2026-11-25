@@ -23,12 +23,21 @@ test('UX adaptive rail retains the same destination keys and routes at the break
 });
 test('UX route access preserves contextual production, deep links and H4-only legacy controls',()=>{
  const read=p=>fs.readFileSync(p,'utf8');
- assert.ok(read('app/(tabs)/dispositivos.tsx').includes("router.push('/vibracion')"));
- assert.ok(read('app/(tabs)/dispositivos.tsx').includes("router.push('/linterna')"));
- assert.ok(read('app/(tabs)/explore.tsx').includes("router.push('/notifications-test')"));
- assert.ok(read('app/(tabs)/explore.tsx').includes("router.push('/modal')"));
+ assert.doesNotMatch(read('app/(tabs)/dispositivos.tsx'),/Herramientas heredadas|router\.push\('\/(vibracion|linterna)'/);
+ assert.doesNotMatch(read('app/(tabs)/explore.tsx'),/Prueba de notificaciones|modal heredado|Firebase listo/);
  for(const p of ['app/session/[id].tsx','app/media/[id].tsx','app/(tabs)/linterna.tsx','app/(tabs)/vibracion.tsx'])assert.ok(fs.existsSync(p));
  assert.match(read('app/(tabs)/vibracion.tsx'),/selectedRole === 'A' && isConnected/);
  assert.match(read('app/session/[id].tsx'),/usePreventRemove/);
  assert.doesNotMatch(read('components/navigation/ConsoleNavigation.tsx'),/startTake|stopTake|closeSession|CaptureEngine/);
+});
+test('UX account links to About and retains identity recovery in technical details',()=>{
+ const read=p=>fs.readFileSync(p,'utf8');
+ const account=read('app/(tabs)/explore.tsx');
+ assert.match(account, /router\.push\('\/acerca-de-nexus'/);
+ assert.match(account, /<SessionDetails>[\s\S]*<StudioIdentityPanel\s*\/>[\s\S]*<\/SessionDetails>/);
+ assert.doesNotMatch(read('components/studio/StudioHome.tsx'), /Identidad y soporte|identityPanel/);
+ assert.match(read('app/_layout.tsx'), /name="acerca-de-nexus"/);
+ const about=read('app/acerca-de-nexus.tsx');
+ assert.match(about, /Compilación \{nativeBuildVersion\}/);
+ assert.match(about, /nexus-official\/adaptive-icon\.png/);
 });

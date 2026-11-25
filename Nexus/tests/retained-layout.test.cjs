@@ -19,12 +19,13 @@ test('Layout audit accepts retained style changes but rejects changed callbacks 
  assert.throws(()=>assertPresentationOnly(before,after.replace('<Owner />','<OtherOwner />'),'test.tsx'));
 });
 
-test('Studio presents one pending notice and keeps session identity in technical details', () => {
+test('Studio shows the official mark and keeps session identity in technical details', () => {
   const jsx = (type, props) => ({ type, props });
   const deps = {
     react: { useState: (value) => [value, () => {}] },
     'react/jsx-runtime': { jsx, jsxs: jsx },
-    'react-native': { StyleSheet: { create: (styles) => styles } },
+    'react-native': { Image: 'Image', StyleSheet: { create: (styles) => styles } },
+    '../../assets/nexus-official/adaptive-icon.png': 'official-mark',
     'react-native-paper': { useTheme: () => ({ colors: {} }) },
     '@/components/retainedVisibility': { retainedVisibility: () => ({}) },
     '@/constants/studio-ui': { StudioShape: {}, StudioSpacing: {}, StudioUI: { light: {} } },
@@ -42,6 +43,9 @@ test('Studio presents one pending notice and keeps session identity in technical
   const props = { connected: true, serviceReady: true, deviceId: 'controller', pendingMessage: 'Esperando aprobación',
     notice: 'Enviando solicitud', sessions: [{ sessionId: 'private-session', code: 'ABC123', controllerId: 'controller', state: 'ready' }] };
   const tree = nodes(exports.StudioHome(props));
+  const mark = tree.find((item) => item?.type === 'Image');
+  assert.equal(mark.props.source, 'official-mark');
+  assert.equal(mark.props.resizeMode, 'contain');
   assert.deepEqual(tree.filter((item) => item?.type === 'Status').map((item) => item.props.message), ['Esperando aprobación']);
   assert.ok(tree.includes('ABC123'));
   assert.ok(nodes(tree.find((item) => item?.type === 'Details')).includes('private-session'));

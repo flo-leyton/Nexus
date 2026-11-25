@@ -1,6 +1,6 @@
 import { retainedVisibility } from '@/components/retainedVisibility';
 import { useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Divider, Icon, Text, TextInput, TouchableRipple, useTheme } from 'react-native-paper';
 
 import { StudioShape, StudioSpacing, StudioUI } from '@/constants/studio-ui';
@@ -24,7 +24,6 @@ type Props = {
   notice: string;
   pendingMessage?: string;
   rejoinPanel: ReactNode;
-  identityPanel: ReactNode;
   onCodeChange(code: string): void;
   onCreate(): void;
   onJoin(): void;
@@ -39,13 +38,16 @@ export function StudioHome(props: Props) {
   const { colors } = theme;
   const palette = StudioUI[theme.dark ? 'dark' : 'light'];
   const [showJoin, setShowJoin] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
   const disabled = props.busy || !props.serviceReady;
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.appbar, { paddingTop: props.topInset + StudioSpacing.md, borderBottomColor: colors.outlineVariant }]}>
         <View style={styles.appbarContent}>
-          <Text variant="titleLarge" style={styles.brand}>NEXUS</Text>
+          <View style={styles.brandRow}>
+            <Image source={require('../../assets/nexus-official/adaptive-icon.png')}
+              resizeMode="contain" accessible={false} style={styles.brandLogo} />
+            <Text variant="titleLarge" style={styles.brand}>NEXUS</Text>
+          </View>
           <View style={styles.connection}>
             {props.connecting ? <ActivityIndicator size={14} /> : <View style={[styles.dot, { backgroundColor: props.connected ? palette.success : palette.warning }]} />}
             <Text variant="labelMedium" style={{ color: props.connected ? palette.success : colors.onSurfaceVariant }}>
@@ -129,16 +131,6 @@ export function StudioHome(props: Props) {
 
         {props.rejoinPanel}
 
-        <Divider />
-        <Button mode="text" icon={showDetails ? 'chevron-up' : 'chevron-down'} onPress={() => setShowDetails((visible) => !visible)}
-          accessibilityState={{ expanded: showDetails }} contentStyle={styles.buttonContent}>Identidad y soporte</Button>
-        {/* Preserve identity subscriptions, pending operations and messages while collapsed. */}
-        <View style={[styles.block, !showDetails && styles.hidden]} accessibilityElementsHidden={!showDetails}
-          importantForAccessibility={showDetails ? 'auto' : 'no-hide-descendants'}>
-          <Text selectable variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Este dispositivo: {props.deviceId || 'Preparando identidad…'}</Text>
-          {props.identityPanel}
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>La identidad de esta instalación autoriza el acceso. El código de sesión no demuestra propiedad.</Text>
-        </View>
       </ScrollView>
     </View>
   );
@@ -149,6 +141,8 @@ const styles = StyleSheet.create({
   appbar: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 20, paddingBottom: StudioSpacing.lg },
   appbarContent: { width: '100%', maxWidth: 680, alignSelf: 'center', gap: StudioSpacing.xs },
   brand: { fontWeight: '700', letterSpacing: 1 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: StudioSpacing.xs },
+  brandLogo: { width: 28, height: 28 },
   connection: { flexDirection: 'row', alignItems: 'center', gap: StudioSpacing.sm, minHeight: 20 },
   dot: { height: 6, width: 6, borderRadius: 3 },
   content: { alignSelf: 'center', width: '100%', maxWidth: 720, padding: 20, paddingBottom: 48, gap: StudioSpacing.lg },

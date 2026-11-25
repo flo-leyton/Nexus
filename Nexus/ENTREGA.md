@@ -142,6 +142,12 @@ La exportación Android en modo release generó un bundle Hermes (`.hbc`). Metro
 
 El perfil `presentation-nx10` hereda el APK interno de `preview`, incluye PixelCopy y WebRTC, apunta a Render DEV-B y conserva las credenciales remotas sin incremento automático. Antes de generar la APK, verificar las variables públicas de Firebase y Cloudinary en EAS preview y el versionCode remoto respecto de la APK instalada. La selección explícita de VP8 está limitada al modo desarrollo. En la APK de presentación habrá que comprobar el códec negociado y repetir la prueba multicámara con Metro apagado, además de revisar el icono, el splash y las notificaciones.
 
+### NX-10 · Limpieza final antes de presentación
+
+Dispositivos retira las pruebas A/B de la interfaz. Cuenta agrupa los identificadores y las acciones de recuperación y transferencia en Datos técnicos. Acerca de Nexus muestra la marca oficial y consulta la versión y la compilación de la APK mediante `expo-application`, ya incluido por Expo Notifications. Studio muestra provisionalmente el símbolo oficial junto al título.
+
+TypeScript y lint pasaron. Metro respondió HTTP 200 con el bundle Android que incluye la pantalla Acerca de Nexus. Pendiente de aprobación visual en el dispositivo. Recarga el Dev Client, revisa el encabezado de Studio, abre Dispositivos y entra en Cuenta → Datos técnicos y Cuenta → Acerca de Nexus. Comprueba el regreso con Atrás y el número de compilación que muestra la APK instalada.
+
 ### NX-08 · Gestión de originales locales
 
 **Eliminar de Nexus** solicita confirmación, verifica el dispositivo propietario y excluye las subidas activas del mismo original. El historial deja de mostrar la copia borrada y conserva los otros archivos. **Guardar en galería** está disponible cuando la APK Android incluye `expo-media-library` y el dispositivo tiene Android 10 o posterior. Exporta el original sin recodificar y registra el guardado para evitar copias accidentales.

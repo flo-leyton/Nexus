@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StudioHome } from '@/components/studio/StudioHome';
 import { RejoinSessionPanel } from '@/components/RejoinSessionPanel';
-import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';
 import { connectionLabel, sessionErrorMessage, useStudioSession } from '@/hooks/use-studio-session';
 import { connectSocket } from '@/services/socket';
 
@@ -98,7 +97,6 @@ export default function StudioScreen() {
       pendingMessage={pending.length > 0 ? pending.some(([, requests]) => requests.some((r) => r.deviceId === deviceId && r.controllerOnline === false))
         ? 'Solicitud enviada · Esperando aprobación. El Controller está desconectado.' : 'Solicitud enviada · Esperando aprobación' : undefined}
       rejoinPanel={service && snapshot ? <RejoinSessionPanel service={service} snapshot={snapshot} deviceId={deviceId} pendingInParent /> : null}
-      identityPanel={<StudioIdentityPanel />}
       onCodeChange={setCode}
       onCreate={() => start('create')}
       onJoin={() => start('join')}

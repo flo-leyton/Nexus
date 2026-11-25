@@ -1,6 +1,6 @@
 import { Button, TextInput, useTheme, type MD3Theme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { onValue, ref } from 'firebase/database';
 import { useEffect, useState } from 'react';
@@ -15,6 +15,8 @@ import { auth, database } from '@/config/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { StudioIdentityPanel } from '@/components/StudioIdentityPanel';
+import { SessionDetails } from '@/components/session/SessionUI';
+import { getOrCreateDeviceId } from '@/services/deviceIdentity';
 import {
   loginUser,
   logoutUser,
@@ -48,7 +50,16 @@ export default function AccountScreen() {
   const [loading, setLoading] = useState(Boolean(auth));
   const [actionLoading, setActionLoading] = useState(false);
   const [collision, setCollision] = useState(false);
-  const [message, setMessage] = useState(auth ? 'Firebase listo.' : 'Firebase no configurado. Studio requiere una identidad autenticada.');
+  const [message, setMessage] = useState(auth ? '' : 'Firebase no configurado. Studio requiere una identidad autenticada.');
+  const [deviceId, setDeviceId] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void getOrCreateDeviceId().then((id) => {
+      if (active) setDeviceId(id);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!auth) return;
@@ -154,21 +165,10 @@ export default function AccountScreen() {
           </ThemedText>
         </ThemedView>
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push('/notifications-test')}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-          <ThemedText style={[styles.buttonText, { color: colors.onSecondaryContainer }]}>
-            Prueba de notificaciones
-          </ThemedText>
-        </Pressable>
-
-        <Button mode="text" icon="information-outline" contentStyle={{ minHeight: 48 }} onPress={() => router.push('/modal')}>Diagnostico: modal heredado</Button>
-        <StudioIdentityPanel />
         {(!user || user.isAnonymous) ? (
           <ThemedView style={styles.panel}>
             <ThemedText type="subtitle">Autenticación</ThemedText>
-            {user?.isAnonymous && <ThemedText>Tu identidad Studio es anónima. Crear/vincular una cuenta nueva conserva el UID. Una cuenta existente requiere cambio y transferencia explícitos; no cierres esta app antes de resolverlo.</ThemedText>}
+            {user?.isAnonymous && <ThemedText>Vincula una cuenta nueva para conservar tu identidad de Studio.</ThemedText>}
 
             <TextInput mode="outlined"
               autoCapitalize="none"
@@ -235,31 +235,6 @@ export default function AccountScreen() {
                 {user.email ?? 'Sin email'}
               </ThemedText>
 
-              <ThemedText style={styles.label}>
-                FIREBASE UID
-              </ThemedText>
-
-              <ThemedText selectable style={styles.uid}>
-                {user.uid}
-              </ThemedText>
-            </ThemedView>
-
-            <ThemedView style={styles.infoBox}>
-              <ThemedText style={styles.label}>
-                REALTIME DATABASE
-              </ThemedText>
-
-              <ThemedText>
-                {profile
-                  ? 'Registro encontrado en users/{uid}'
-                  : 'Esperando registro...'}
-              </ThemedText>
-
-              {profile?.email && (
-                <ThemedText>
-                  Email almacenado: {profile.email}
-                </ThemedText>
-              )}
             </ThemedView>
 
             <Pressable
@@ -278,13 +253,22 @@ export default function AccountScreen() {
           </ThemedView>
         )}
 
-        <ThemedView style={styles.status}>
-          <ThemedText style={styles.label}>
-            ESTADO
-          </ThemedText>
+        {!!message && <ThemedText accessibilityLiveRegion="polite">{message}</ThemedText>}
 
-          <ThemedText>{message}</ThemedText>
-        </ThemedView>
+        <Button mode="outlined" icon="information-outline" contentStyle={styles.linkContent}
+          onPress={() => router.push('/acerca-de-nexus' as Href)}>Acerca de Nexus</Button>
+
+        <SessionDetails>
+          <ThemedText selectable>Este dispositivo: {deviceId || 'Identificador no disponible'}</ThemedText>
+          <StudioIdentityPanel />
+          <ThemedText>La identidad de esta instalación autoriza el acceso. El código de sesión no demuestra propiedad.</ThemedText>
+          {user?.isAnonymous && <ThemedText>Crear o vincular una cuenta nueva conserva el UID. Una cuenta existente requiere un cambio y una transferencia explícitos. Mantén la app abierta hasta resolverlo.</ThemedText>}
+          {user && !user.isAnonymous && <ThemedView style={styles.infoBox}>
+            <ThemedText style={styles.label}>REALTIME DATABASE</ThemedText>
+            <ThemedText>{profile ? 'Registro encontrado en users/{uid}' : 'Esperando registro...'}</ThemedText>
+            {!!profile?.email && <ThemedText>Email almacenado: {profile.email}</ThemedText>}
+          </ThemedView>}
+        </SessionDetails>
       </ScrollView>
     </ThemedView>
   );
@@ -385,15 +369,7 @@ const createStyles = (colors: MD3Theme['colors']) => StyleSheet.create({
     opacity: 0.55,
   },
 
-  uid: {
-    fontSize: 12,
-    opacity: 0.75,
-  },
-
-  status: {
-    borderColor: '#687076',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 8,
-    paddingTop: 20,
+  linkContent: {
+    minHeight: 48,
   },
 });
